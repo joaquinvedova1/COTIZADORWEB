@@ -236,6 +236,33 @@ export function travelNotNeeded(quote) {
 }
 
 /**
+ * ¿Hace falta preguntar cuántas salidas hay? (0.15.0, pedido de Joaco 2026-11-19): la cantidad de
+ * salidas (activaciones) sólo mueve lo que se paga POR SALIDA: movilización, viajes, peajes,
+ * alojamiento, un mínimo o un costo cargado "por salida". Sin nada de eso la pregunta no cambia
+ * ningún número y no se muestra (preguntaba "intervenciones por día" al lado de "diagnósticos por
+ * día"). Cobrar por llamado, trabajo, hito, viaje o km siempre las usa. Sin componentes elegidos
+ * (cotizaciones anteriores) → true (como siempre). Sólo presentación: el motor no cambia.
+ */
+export function activationsMatter(quote) {
+  const q = isPlainObject(quote) ? quote : {};
+  const list = cleanComponents(isPlainObject(q.contract) ? q.contract.components : null);
+  if (!list) return true;
+  if (['call', 'job', 'milestone', 'trip', 'km'].includes(q.unit)) return true;
+  if (!travelNotNeeded(q)) return true;
+  const perActivation = (lines, key) => (Array.isArray(lines) ? lines : []).some((l) => isPlainObject(l) && l[key] === 'per_activation');
+  if (perActivation(q.materials, 'basis') || perActivation(q.otherCosts, 'behavior')) return true;
+  const rules = isPlainObject(q.rules) ? q.rules : {};
+  if (Number(rules.minimumCallUnits) > 0 || Number(rules.calloutFeePerActivation) > 0 || Number(rules.mobilizationFeePerActivation) > 0) return true;
+  // Un alquilado o tercerizado que se paga por salida, por viaje o por km, con un mínimo por salida
+  // o con movilización aparte (revisión 0.15.0): la salida mueve su costo, así que se pregunta.
+  const paidPerActivation = (e) => isPlainObject(e) && isPlainObject(e.external)
+    && (['activation', 'trip', 'km'].includes(e.external.unit) || Number(e.external.minimumUnits) > 0
+      || (e.external.mobilizationIncluded === false && Number(e.external.mobilizationAmount) > 0));
+  if ((Array.isArray(q.equipment) ? q.equipment : []).some(paidPerActivation)) return true;
+  return Boolean(isPlainObject(q.activity) && q.activity.fullActivations === true);
+}
+
+/**
  * Plantilla de la que partió el servicio: la elegida (`contract.templateId`) o, si no hay, la
  * primera cuyos componentes son exactamente los elegidos (o null). `edited` = se cambiaron los
  * componentes después de elegirla (sigue siendo un punto de partida, no una categoría).

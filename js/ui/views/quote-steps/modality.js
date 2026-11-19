@@ -27,7 +27,7 @@ import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, perBilledUnit
 import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
-import { componentsOf, contractOf } from '../../../domain/contract.js';
+import { activationsMatter, componentsOf, contractOf } from '../../../domain/contract.js';
 import { extrasSection } from './extras.js';
 import { outsideWindowHours, outsideWindowMessage, activeGuardCoverage, activeGuardLineCheck } from '../../../engines/completeness-engine.js';
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
@@ -298,7 +298,7 @@ export function chosenResourceRows(quote = {}) {
   const label = parts.length ? `${parts[0].charAt(0).toUpperCase()}${parts[0].slice(1)}${parts.length > 1 ? `${parts.length > 2 ? `, ${parts.slice(1, -1).join(', ')}` : ''} y ${parts[parts.length - 1]}` : ''}` : '';
   const equipmentLabel = has('vehicle') && !has('machinery') ? 'Vehículos' : has('machinery') && !has('vehicle') ? 'Equipos y maquinaria' : 'Equipos y vehículos';
   return {
-    labor: has('labor') || len(quote.labor) > 0,
+    labor: has('labor') || len(quote.labor) + len(quote.contractedStaff) > 0,
     equipment,
     equipmentLabel,
     other: parts.length > 0,
@@ -373,6 +373,9 @@ export function render(container, ctx) {
   const isOnCall = contract.legacy ? quote.serviceType === 'on_call' : contract.mode === 'on_demand' && contract.equipment;
   // Una magnitud, un nombre por cotización: llamado / salida / intervención… (PLAN-2026-014, LAB-D8).
   const T = activationTerms(quote);
+  // 0.15.0: la cantidad de salidas sólo se pregunta y se muestra si algo se paga por salida (viajes,
+  // movilización, mínimos…). Si no, no cambia ningún número y repetía la pregunta de la cantidad.
+  const paceMatters = activationsMatter(quote);
   const num = (v) => formatNumber(v, { decimals: 2 });
   // Atajos de cobertura (PLAN-2026-024): cargan el número a la vista; se puede escribir otro.
   function coverageShortcutsSlot(inFold = false) {
@@ -642,7 +645,7 @@ export function render(container, ctx) {
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
       const acts = r.activity.activationsPerMonth;
-      const fractional = acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
+      const fractional = paceMatters && acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
         ? (r.activationRounding && r.activationRounding.enabled
           ? ` Son ${num(acts)} ${T.many} promedio por mes; los costos ${T.per} se cuentan con ${T.many} ${T.wholeMany} (abajo).`
           : ` Son ${num(acts)} ${T.many} promedio por mes: la movilización y los costos ${T.per} se calculan como promedio (abajo podés contar ${T.each} ${T.whole}).`)
@@ -651,7 +654,7 @@ export function render(container, ctx) {
       const usage = over
         ? `Son más días que los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun}.`
         : `Trabajás ${num(r.activity.activeDaysPerMonth)} de los ${formatNumber(r.activity.availableDaysPerMonth)} ${availableNoun}.`;
-      const calls = Math.abs(acts - r.activity.activeDaysPerMonth) > 1e-6 ? ` ${num(acts)} ${T.word(acts)} por mes.` : '';
+      const calls = paceMatters && Math.abs(acts - r.activity.activeDaysPerMonth) > 1e-6 ? ` ${num(acts)} ${T.word(acts)} por mes.` : '';
       return `${usage}${calls}${extra ? ` El total${extra}.` : ''}${fractional}`;
     },
     tone: (r) => (hasNumber(quote.activity && quote.activity.activeDaysPerMonth) && r.activity.activeDaysPerMonth > r.activity.availableDaysPerMonth + 1e-9 && !longClosedJobNote(r) ? 'orange' : null),
@@ -675,11 +678,11 @@ export function render(container, ctx) {
       // Por intervención (PLAN-2026-010): volumen ↔ días ↔ movilización.
       const acts = r.activity.activationsPerMonth;
       const perAct = acts > 0 ? r.estimate.revenue.billableUnits / acts : null;
-      const perIntervention = kind === 'quantity' && acts > 0
+      const perIntervention = paceMatters && kind === 'quantity' && acts > 0
         ? ` ${quantityText(perAct, r)} ${T.per} · ${num(acts)} ${T.word(acts)} por mes (${activationPaceText(r.activity.daysPerActivation, T)}).`
         : '';
       // Salidas fraccionarias: el costo por salida (movilización…) es un PROMEDIO.
-      const fractional = acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
+      const fractional = paceMatters && acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6
         ? (r.activationRounding && r.activationRounding.enabled
           ? ` Son ${num(acts)} ${T.many} promedio por mes; los costos ${T.per} se cuentan con ${T.many} ${T.wholeMany} (abajo).`
           : ` Son ${num(acts)} ${T.many} promedio por mes: la movilización y los costos ${T.per} se calculan como promedio (abajo podés contar ${T.each} ${T.whole}).`)
@@ -780,13 +783,13 @@ export function render(container, ctx) {
   // cobra). V-08: cuando salta el aviso "cada llamado hace menos de una unidad" pasa a la vista,
   // debajo de la cantidad, y ahí se queda hasta que se vuelve a dibujar el paso (no se va
   // mientras se corrige el dato).
-  const quantityPace = kind === 'quantity'
+  const quantityPace = kind === 'quantity' && paceMatters
     ? kit.activationPace({
       T,
       label: `¿Cómo son ${T.theMany} ${T.many}?`,
       hint: tripUnit
         ? `Viajes ${T.per} = viajes por día × días ${T.per}.`
-        : `No es la unidad que cobrás: define cuántas ${T.many} (movilizaciones, mínimos ${T.per}) hay en el mes.`,
+        : `${T.g('Una', 'Un')} ${T.one} es cada vez que vas al lugar del trabajo. No es lo que cobrás: define cuántas veces se pagan la movilización, los peajes y los viáticos en el mes.`,
       onValue: () => syncRouteTrips(),
     })
     : null;
@@ -801,7 +804,7 @@ export function render(container, ctx) {
   // Por día o por hora: "¿Cómo son los llamados?" sólo queda a la vista si ya se cargó algo
   // distinto de "uno por día" (el caso común); si no, va en "Más detalle" (PLAN-2026-026).
   const storedPace = quote.activity && hasNumber(quote.activity.daysPerActivation) ? Number(quote.activity.daysPerActivation) : 1;
-  const timePace = !byQuantity && quote.serviceType !== 'permanent' && !monthlyContract
+  const timePace = paceMatters && !byQuantity && quote.serviceType !== 'permanent' && !monthlyContract
     ? kit.activationPace({
       T,
       label: `¿Cómo son ${T.theMany} ${T.many}?`,
@@ -883,6 +886,7 @@ export function render(container, ctx) {
         return h('p', { class: ['qe-note', info.tone === 'warning' ? 'is-warning' : null] }, info.text);
       }, { tag: 'div', allowEmpty: true })), (r) => {
       if (quote.activity && quote.activity.fullActivations === true) return true;
+      if (!paceMatters) return false;
       const acts = r.activity.activationsPerMonth;
       return acts > 0 && Math.abs(acts - Math.round(acts)) > 1e-6;
     }),
@@ -901,7 +905,7 @@ export function render(container, ctx) {
             availableInMain || hideAvailable ? null : isFiniteNumber(Number(a.availableDaysPerMonth)) && a.availableDaysPerMonth !== null && a.availableDaysPerMonth !== '' ? `podés trabajar hasta ${formatNumber(Number(a.availableDaysPerMonth), { decimals: 2 })} días por mes` : 'días del mes sin cargar',
             timePace && !timePaceInMain ? `${T.g('una', 'un')} ${T.one} por día` : null,
             hoursInMain ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día de trabajo` : 'horas por día sin cargar',
-            kind === 'quantity' && hasNumber(a.daysPerActivation) ? activationPaceText(Number(a.daysPerActivation), T) : null,
+            paceMatters && kind === 'quantity' && hasNumber(a.daysPerActivation) ? activationPaceText(Number(a.daysPerActivation), T) : null,
             isOnCall && !asksAvailability && a.availability !== 'none' && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
           ].filter(Boolean);
           return parts.join(' · ');
@@ -951,7 +955,7 @@ export function render(container, ctx) {
             hint: kind === 'quantity' ? `${Plural} por mes ÷ ${info.plural} por día de trabajo.` : `${Plural} por mes × días de trabajo de cada uno.`,
           })
           : null,
-        kit.stat(`${T.Many} por mes`, (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: byQuantity ? `Días de trabajo ÷ duración de ${T.each}. Es un promedio (puede tener decimales).` : `Días de trabajo ÷ días ${T.per}. Es un promedio (puede tener decimales).` }),
+        !paceMatters ? null : kit.stat(`${T.Many} por mes`, (r) => formatNumber(r.activity.activationsPerMonth, { decimals: 2 }), { hint: byQuantity ? `Días de trabajo ÷ duración de ${T.each}. Es un promedio (puede tener decimales).` : `Días de trabajo ÷ días ${T.per}. Es un promedio (puede tener decimales).` }),
         kit.stat(byQuantity ? `${Plural} facturables por mes` : 'Unidades facturables por mes', (r) => unitsLabel(r, r.estimate.revenue.billableUnits), {
           hint: (r) => (r.estimate.revenue.minimumCallApplied ? `Incluye el mínimo ${T.per}.` : `En la unidad elegida (${info.label}).`),
         }),
@@ -1029,7 +1033,9 @@ export function render(container, ctx) {
     ),
     kit.out((r) => {
       const b = r.outOfHours && r.outOfHours.basis;
-      if (!b || !(b.people > 0)) return h('p', { class: ['qe-note', 'is-warning'] }, 'Todavía no cargaste personal con sueldo: ', h('a', { href: ctx.href('labor') }, `cargalo en "${stepName('labor')}"`), ` para que RATEOS calcule tu ${rateWord}.`);
+      // 0.15.0: con personal tercerizado cargado (un valor fijo, sin sueldo) ya hay personal.
+      const outsourced = r.model.contractedStaff && r.model.contractedStaff.people > 0;
+      if ((!b || !(b.people > 0)) && !outsourced) return h('p', { class: ['qe-note', 'is-warning'] }, 'Todavía no cargaste personal con sueldo: ', h('a', { href: ctx.href('labor') }, `cargalo en "${stepName('labor')}"`), ` para que RATEOS calcule tu ${rateWord}.`);
       return '';
     }, { tag: 'div', allowEmpty: true }),
   );

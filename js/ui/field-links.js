@@ -47,6 +47,8 @@ export function stepOfPath(path) {
     case 'overtimeWork':
       return 'modality';
     case 'labor':
+    // Personal tercerizado (0.15.0): se carga en el paso de Personal.
+    case 'contractedStaff':
       return 'labor';
     case 'equipment':
       return 'equipment';

@@ -301,7 +301,7 @@ export const ACTIVATION_WORDS_ALLOWED = Object.freeze({
   // La unidad de facturación "llamado" ES la activación (en esa cotización se nombra "llamado").
   'domain/billing-units.js': ["'llamado'", "'llamados'", "'$/llamado'", "'Se factura cada llamado, dure lo que dure.'"],
   // Recursos (sin tipo de servicio): etiqueta genérica; en la cotización se nombra como su activación.
-  'domain/catalogs.js': ["'Por intervención (llamado o salida)'", "'/intervención'"],
+  'domain/catalogs.js': ["'Por salida (o llamado)'", "'/salida'"],
   // Datos de la demo on-call (Hidrogrúa): ahí la activación es "llamado".
   'domain/demo-data.js': ["'Consumibles menores por llamado'", "'Hidrogrúa con operador disponible 24/7, se activa por llamado.'"],
   // Unidad "llamado" (sólo con esa unidad) y on-call (tiempo de respuesta).

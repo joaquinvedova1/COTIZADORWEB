@@ -223,6 +223,12 @@ export function proposeLaborRaisePct(laborLines, agreements, fromPeriod, toPerio
     cost += amount;
     raise += amount * ratio;
   });
+  // Personal tercerizado (0.15.0): pesa en Mano de obra pero no sigue a ningún convenio. Cuenta
+  // como costo sin cubrir, así la pantalla dice qué parte cubre el % propuesto.
+  if (isFiniteNumber(ctx.otherLaborCost) && ctx.otherLaborCost > 0) {
+    allCost += ctx.otherLaborCost;
+    total += isFiniteNumber(ctx.otherLaborLines) && ctx.otherLaborLines > 0 ? ctx.otherLaborLines : 1;
+  }
   if (!covered || !(cost > 0)) return null;
   return { pct: (raise / cost) * 100, coveredShare: allCost > 0 ? cost / allCost : 0, covered, total, agreements: [...names], lastRaise };
 }

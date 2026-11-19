@@ -437,7 +437,7 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
         // Sin opción vacía, un valor ausente o desconocido toma la primera opción (lo que se ve es lo que se guarda).
         if (!field.includeEmpty && opts.length && !opts.some((o) => String(o.value) === String(value ?? ''))) setPath(draft, field.key, opts[0].value);
         if (field.includeEmpty && !isBlankValue(value) && !opts.some((o) => String(o.value) === String(value))) setPath(draft, field.key, null);
-        return selectField({ label: field.label, value: getPath(draft, field.key) ?? '', options: opts, includeEmpty: field.includeEmpty, emptyLabel: field.emptyLabel, hint: field.hint, onChange: set });
+        return selectField({ label: field.label, value: getPath(draft, field.key) ?? '', options: opts, includeEmpty: field.includeEmpty, emptyLabel: field.emptyLabel, hint: typeof field.hint === 'function' ? field.hint(draft) : field.hint, onChange: set });
       }
       case 'checkbox':
         return checkboxField({ label: field.label, checked: Boolean(value), hint: field.hint, onChange: set });
@@ -552,8 +552,32 @@ const illustrativeField = { key: 'illustrative', label: 'Valores ilustrativos (d
 
 // --------------------------------------------------------------- definición de pestañas
 
+/** Prefijo del valor de un convenio del catálogo que la empresa todavía no cargó (0.15.0). */
+const CATALOG_AGREEMENT = 'catalog:';
+
+/**
+ * Convenios para elegir en un puesto (0.15.0, pedido de Joaco 2026-11-19): los que la empresa ya
+ * cargó y, además, los del catálogo que todavía no tiene (Comercio, UOCRA, Petroleros…). Elegir
+ * uno del catálogo lo crea al guardar el puesto, con porcentajes de EJEMPLO marcados ilustrativos
+ * (RATEOS no trae valores legales): se revisan en la pestaña Convenios.
+ * @returns {object[]} convenios reales + los del catálogo como convenios "por crear" (`pending`)
+ */
+export function agreementChoices(agreements = []) {
+  const own = Array.isArray(agreements) ? agreements : [];
+  const loaded = new Set(own.map((a) => a.code).filter((code) => code && code !== 'personalizado'));
+  const pending = AGREEMENT_TYPES_SORTED
+    .filter((t) => t.code !== 'personalizado' && !loaded.has(t.code))
+    .map((t) => ({ id: `${CATALOG_AGREEMENT}${t.code}`, code: t.code, name: t.label, params: { ...ILLUSTRATIVE_AGREEMENT_PARAMS }, notes: '', illustrative: true, pending: true }));
+  return [...own, ...pending];
+}
+
+/** Convenio nuevo (sin id) a partir de uno "por crear" del catálogo. */
+export function agreementFromChoice(choice) {
+  return { code: choice.code, name: choice.name, params: { ...ILLUSTRATIVE_AGREEMENT_PARAMS, ...(choice.params || {}) }, notes: '', illustrative: true };
+}
+
 function laborSections(agreements, app, { profileCost = null } = {}) {
-  const agreementOptions = agreements.map((a) => ({ value: a.id, label: a.name || labelOf(AGREEMENT_TYPES, a.code, 'Convenio') }));
+  const agreementOptions = agreements.map((a) => ({ value: a.id, label: `${a.name || labelOf(AGREEMENT_TYPES, a.code, 'Convenio')}${a.pending ? ' (nuevo, con valores de ejemplo)' : ''}` }));
   const hasValue = (v) => isFiniteNumber(v) && v > 0;
   const agreementOf = (draft) => agreements.find((a) => a.id === draft.agreementId) || null;
   return [
@@ -561,7 +585,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
       title: 'Puesto',
       fields: [
         { key: 'role', label: 'Rol / puesto', kind: 'text', required: true, placeholder: 'Ej.: Técnico HSE, operario, chofer' },
-        { key: 'agreementId', label: 'Convenio', kind: 'select', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio', rerender: true, hint: 'De él salen las cargas sociales y los aumentos.' },
+        { key: 'agreementId', label: 'Convenio', kind: 'select', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio', rerender: true, hint: (d) => (String(d.agreementId || '').startsWith(CATALOG_AGREEMENT) ? 'Se agrega a tus Convenios al guardar, con porcentajes de ejemplo: revisalos ahí con los de tu convenio vigente.' : 'De él salen las cargas sociales y los aumentos.') },
         { key: 'category', label: 'Categoría', kind: 'text', placeholder: 'Según tu convenio' },
       ],
     },
@@ -596,6 +620,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
         const agreement = agreementOf(draft);
         if (!agreement) return 'Sin convenio: cargá los porcentajes de este puesto.';
         const own = ownParamKeys(draft, agreement);
+        if (agreement.pending) return `Porcentajes de ejemplo: cargá los de "${agreement.name}" acá o, después, en la pestaña Convenios.`;
         return own.length ? `Este puesto tiene valores propios (no sigue a "${agreement.name}").` : `Usa los de "${agreement.name}": si cambiás el convenio, este puesto se actualiza solo.`;
       },
       hint: 'Porcentajes sobre el remunerativo. Las contribuciones fijas son un monto por persona y por mes que fija el convenio (sin cargas encima).',
@@ -685,7 +710,8 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
 }
 
 function newLaborProfile(agreements) {
-  const agreement = agreements[0] || null;
+  // El primero que la empresa ya cargó (nunca uno del catálogo sin crear).
+  const agreement = agreements.find((a) => !a.pending) || null;
   const params = { ...ILLUSTRATIVE_AGREEMENT_PARAMS, ...((agreement && agreement.params) || {}) };
   return {
     role: '',
@@ -1268,6 +1294,45 @@ function newLocation() {
 // -------------------------------------------------------------------- vista
 
 /**
+ * "Nuevo puesto" de Recursos abierto desde otra pantalla (0.15.0, pedido de Joaco 2026-11-19): el
+ * personal propio se carga UNA vez en Recursos, con su convenio y su sueldo completos. Desde una
+ * cotización se abre este mismo formulario: el puesto queda guardado en Recursos y `onSaved` lo
+ * recibe (con su convenio) para sumarlo a la cotización.
+ * @param {object} app
+ * @param {{ agreements?: object[], onSaved?: (profile: object, agreement: object|null, created: object|null) => void }} [options]
+ */
+export function openNewLaborProfileDialog(app, { agreements = [], onSaved = null } = {}) {
+  const { ctx } = app;
+  const choices = agreementChoices(agreements);
+  openResourceForm(app, {
+    title: 'Nuevo puesto (se guarda en Recursos)',
+    initial: newLaborProfile(choices),
+    sections: laborSections(choices, app, { profileCost: (d) => ctx.resources.laborProfileCost(d) }),
+    prepare: laborAgreementWatcher(choices, newLaborProfile(choices)),
+    preview: (draft) => {
+      const cost = ctx.resources.laborProfileCost(draft);
+      return previewKpis(
+        [
+          { label: 'Te cuesta por mes (con cargas)', value: formatMoney(cost.perPerson.fixedMonthly), emphasis: true },
+          { label: 'Hora normal', value: formatMoney(cost.perPerson.loadedHourlyCost) },
+          { label: 'Hora al 50\u00a0%', value: formatMoney(cost.perPerson.overtimeHourlyCost50) },
+          { label: 'Hora al 100\u00a0%', value: formatMoney(cost.perPerson.overtimeHourlyCost100) },
+        ],
+        laborTrace(draft, cost),
+      );
+    },
+    onSave: async (entity) => {
+      const choice = choices.find((a) => a.pending && a.id === entity.agreementId) || null;
+      const created = choice ? await ctx.resources.save('agreements', agreementFromChoice(choice)) : null;
+      const saved = await ctx.resources.save('laborProfiles', created ? { ...entity, agreementId: created.id } : entity);
+      const agreement = created || choices.find((a) => !a.pending && a.id === saved.agreementId) || null;
+      if (typeof onSaved === 'function') onSaved(saved, agreement, created);
+      return saved;
+    },
+  });
+}
+
+/**
  * Recursos: #/recursos/:tab (personal, equipos, materiales, ubicaciones).
  */
 export async function render(root, app, params = {}) {
@@ -1314,6 +1379,20 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const saved = await ctx.resources.save(tab.type, entity);
     app.toast(`${verb === 'create' ? 'Agregado' : 'Guardado'}: ${saved.name || saved.role || saved.description || 'ítem'}.`, 'success');
     await refresh();
+  }
+
+  /**
+   * Guarda un puesto. Si eligió un convenio del catálogo que la empresa no tenía (0.15.0), primero
+   * lo crea (con porcentajes de ejemplo, ilustrativo) y el puesto queda asignado a ese convenio.
+   */
+  async function saveLaborProfile(entity, verb, agreements) {
+    const choice = agreements.find((a) => a.pending && a.id === entity.agreementId) || null;
+    if (!choice) return saveResource(entity, verb);
+    const created = await ctx.resources.save('agreements', agreementFromChoice(choice));
+    const saved = await ctx.resources.save('laborProfiles', { ...entity, agreementId: created.id });
+    app.toast(`${verb === 'create' ? 'Agregado' : 'Guardado'}: ${saved.role || 'puesto'}. Se agregó "${created.name}" a tus Convenios: revisá sus porcentajes.`, 'success');
+    await refresh();
+    return saved;
   }
 
   /** Guarda un convenio y actualiza los puestos que usaban sus valores (0.12.0). */
@@ -1467,7 +1546,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const onSave = (entity) => saveResource(entity, verb);
     switch (tab.type) {
       case 'laborProfiles': {
-        const agreements = list('agreements');
+        // 0.15.0: los convenios de la empresa y los del catálogo que todavía no cargó.
+        const agreements = agreementChoices(list('agreements'));
         openResourceForm(app, {
           title: isNew ? 'Nuevo puesto' : `Editar puesto — ${item.role || ''}`,
           initial: isNew ? newLaborProfile(agreements) : item,
@@ -1485,7 +1565,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
               laborTrace(draft, cost),
             );
           },
-          onSave,
+          onSave: (entity) => saveLaborProfile(entity, verb, agreements),
         });
         break;
       }

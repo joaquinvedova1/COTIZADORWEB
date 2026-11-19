@@ -182,14 +182,14 @@ describe('C6 · cobros aparte de la guardia al dejar de cobrar "por servicio"', 
     const notices = applyQuoteUnit(q, 'month');
     assert.equal(q.rules.availabilityFeeMonthly, 0);
     assert.equal(q.rules.calloutFeePerActivation, 0);
-    assert.ok(notices.some((n) => /fijo por mes por estar de guardia/.test(n) && /plus por cada intervención/.test(n)), notices.join(' | '));
+    assert.ok(notices.some((n) => /fijo por mes por estar de guardia/.test(n) && /plus por cada salida/.test(n)), notices.join(' | '));
   });
 });
 
 describe('U2 · "llamado" sólo si se cobra por llamado', () => {
-  test('cotización por componentes, on_call derivado: intervención; por llamado: llamado', () => {
+  test('cotización por componentes, on_call derivado: salida (0.15.0; antes intervención); por llamado: llamado', () => {
     const contract = { components: ['labor', 'tools'] };
-    ['day', 'hour', 'custom', 'trip'].forEach((unit) => assert.equal(activationTerms({ serviceType: 'on_call', unit, contract }).one, 'intervención', unit));
+    ['day', 'hour', 'custom', 'trip'].forEach((unit) => assert.equal(activationTerms({ serviceType: 'on_call', unit, contract }).one, 'salida', unit));
     assert.equal(activationTerms({ serviceType: 'on_call', unit: 'call', contract }).one, 'llamado');
     assert.equal(activationTerms({ serviceType: 'lump_sum', unit: 'job', contract }).one, 'trabajo');
     // Cotizaciones anteriores (sin componentes) y la demo: como siempre.
@@ -201,7 +201,7 @@ describe('U2 · "llamado" sólo si se cobra por llamado', () => {
     const q = withComponents(['labor'], { unit: 'custom', activity: { billableQuantityPerMonth: 40, unitsPerActiveDay: 2 } });
     q.unitName = 'diagnóstico';
     const r = computeQuote(q);
-    assert.equal(termsOfResult(r).one, 'intervención');
+    assert.equal(termsOfResult(r).one, 'salida');
     const legacy = JSON.parse(JSON.stringify(q));
     delete legacy.contract;
     const r2 = computeQuote(legacy);

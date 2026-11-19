@@ -12,6 +12,7 @@
  *   on-call                     llamado        el cliente llama y el equipo sale
  *   transporte                  salida         una salida agrupa uno o más viajes
  *   llave en mano / cerrado     trabajo
+ *   por componentes (0.15.0)    salida         cada vez que se va al lugar del trabajo
  *   el resto                    intervención   (servicios técnicos, cuadrillas, equipos…)
  *
  * Un servicio permanente usa "intervención": RATEOS no sabe si cada activación
@@ -49,7 +50,9 @@ export function activationTermOf(serviceTypeOrQuote) {
   // cliente "llame": sólo se habla de "llamado" si se cobra por llamado. El tipo de servicio no
   // cambia (sólo el nombre).
   const contract = isQuote ? serviceTypeOrQuote.contract : null;
-  if (type === 'on_call' && contract && typeof contract === 'object' && Array.isArray(contract.components)) return INTERVENCION;
+  // 0.15.0 (Joaco, 2026-11-19): en esas cotizaciones se llama "salida" (cada vez que se va al
+  // lugar del trabajo): "intervención" se confundía con la unidad que se cobra.
+  if (type === 'on_call' && contract && typeof contract === 'object' && Array.isArray(contract.components)) return SALIDA;
   return BY_SERVICE[type] || INTERVENCION;
 }
 

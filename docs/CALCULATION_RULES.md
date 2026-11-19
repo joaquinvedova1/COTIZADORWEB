@@ -2070,3 +2070,31 @@ financiero      = max(0, financiero − alivio)                         (fijo y 
 
 - `iva-costo-financiero-gross-up`: costo 40.000.000, margen 10 %, impuestos 10 %, 10 días, cobro a 60 días, tasa 3 %, IVA 21 %, L = 20 → d = 40, t_iva = 0,84 puntos. Tarifa objetivo 5.000.000 → **5.053.057,10** por día; tarifa mínima 4.444.444,44 → 4.486.316,73; costo financiero del IVA del mes 424.456,80. El costo no cambia.
 - `iva-costo-financiero-credito-externo`: lo mismo más un alquiler de 1.000.000 neto/día con IVA 21 % recuperable pagado al contado. Financiero 726.000 → 642.000 (alivio 2.100.000 × 3 % × 40/30 = 84.000); costo 50.726.000 → 50.642.000; tarifa objetivo 6.340.750 → **6.397.422,94**.
+
+---
+
+## 35. Personal tercerizado y salidas que sólo se preguntan si se pagan (0.15.0, 2026-11-19)
+
+**Pedido del dueño:** el personal propio se carga en Recursos, con el sueldo completo; en la cotización sólo se lo elige. La excepción es la persona que se contrata afuera y se paga con un valor fijo, por hora, por día o por mes. Código: `js/engines/contracted-staff-engine.js`, `buildCostModel` (`js/engines/cost-engine.js`).
+
+**Datos** (`quote.contractedStaff[]`, opcional): `role`, `people`, `rate` (lo que se le paga por la unidad, tal como llega a ser costo: sin IVA si la empresa lo recupera, con IVA si no), `unit` (`hour`, `day`, `month`; desconocida o ausente = `day`) y `hoursPerDay` (opcional, sólo con `hour`).
+
+**Fórmulas** (por línea):
+
+| Se paga | Costo |
+|---|---|
+| por hora | por día de trabajo = `people × rate × horas`, con `horas = hoursPerDay` de la línea o, vacío, las horas por día del trabajo (`activity.hoursPerActiveDay`); tope 24 |
+| por día | por día de trabajo = `people × rate` |
+| por mes | fijo del mes = `people × rate` |
+
+- No lleva cargas sociales, aguinaldo, vacaciones ni horas extra: ya están en el valor acordado. Tampoco cuenta en la dotación (estructura "por empleado", cobertura de guardia, operador de un equipo, "N personas" del resultado) ni en los días de espera (standby). Sí pesa en la estructura "% sobre mano de obra" y "% sobre costo directo", porque es costo del rubro. En una cotización que se cobra en jornales, las personas tercerizadas por día o por hora cuentan para comparar lo cargado con lo facturado.
+- **Por mes es el mes entero**, también en un trabajo de pocos días y "por tiempo usado" (§29 no rige: no hay horas propias que repartir). La pantalla lo dice en la línea y sugiere cargarlo por día.
+- Las horas propias de la línea no se topean con las del trabajo: son las que se le pagan.
+- **Actualizar tarifa (§31):** pesa en el renglón Mano de obra, pero no sigue a ningún convenio: `proposeLaborRaisePct` lo cuenta como costo sin cubrir (`otherLaborCost`), así el % propuesto informa qué parte del personal cubre.
+- Va al rubro **Mano de obra** de la estructura de costos y a "Personal" de la composición del precio. En el flujo de caja se paga como **proveedor** (`payGroup: 'suppliers'`, días de pago a proveedores), no como sueldo.
+- Por hora sin horas (ni de la línea ni del trabajo) cuesta $ 0 y la completitud lo pide (`contracted_staff_hours`, o la regla de horas del trabajo si ya las está pidiendo). Con personas y sin valor, la completitud lo pide (`contracted_staff`) y la cotización no es confiable. Una línea con personas y valor cuenta como personal cargado.
+- Sin `contractedStaff` (todas las cotizaciones anteriores) no suma nada: ningún resultado cambia.
+
+**Ejemplo:** 2 soldadores a 50.000 por día y un sereno a 600.000 por mes, 10 días de trabajo: `2 × 50.000 × 10 + 600.000 = 1.600.000` por mes en Mano de obra.
+
+**Salidas (sólo presentación, `activationsMatter` en `js/domain/contract.js`).** "Días por salida", "salidas por día" y "salidas por mes" se preguntan y se muestran sólo si algo de la cotización se paga por salida: se cobra por llamado, trabajo, hito, viaje o km; hay traslado; un insumo u otro costo "por salida"; un alquilado o tercerizado que se paga por salida, viaje o km, con mínimo o con movilización aparte; un mínimo, un cargo o una movilización que se cobra por salida; o "se cobran salidas completas". Las cotizaciones sin "¿Qué incluye?" (anteriores) las muestran como siempre. El motor no cambia: los datos guardados se siguen usando igual. Con "¿Qué incluye?" elegido, la activación se nombra **salida** (antes "intervención"); cobrar por llamado o por trabajo conserva su nombre.

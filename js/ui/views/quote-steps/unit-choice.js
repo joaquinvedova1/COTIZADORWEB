@@ -1,9 +1,9 @@
 /**
  * "¿En qué unidad le cobrás al cliente?" (0.10.0, "La unidad primero").
  *
- * Lo primero que se elige al cotizar es la unidad del ítem que se cotiza: por mes, por trabajo,
- * por hora, por día, por unidad (con su nombre: diagnóstico, válvula…) u otra del catálogo
- * (viaje, m³, km, hora-hombre…). El modo del contrato (`contract.mode`) se DERIVA de la unidad
+ * Lo primero que se elige al cotizar es la unidad del ítem que se cotiza, en UN solo desplegable
+ * (0.15.0): $/mes, $/día, $/hora, $/trabajo, el catálogo (viaje, m³, km, hora-hombre…) y la opción
+ * abierta "$/ otro…", con el nombre que escriba la persona (diagnóstico, válvula…). El modo del contrato (`contract.mode`) se DERIVA de la unidad
  * (modeForUnit) y se sigue guardando porque el motor y muchas pantallas lo leen.
  *
  * Cambiar la unidad con una tarifa cargada pide qué hacer con ella (convertirla día ↔ hora o
@@ -13,7 +13,7 @@
  */
 
 import { h } from '../../dom.js';
-import { formGrid, choiceGroup, searchSelectField, openDialog, button } from '../../components.js';
+import { formGrid, searchSelectField, openDialog, button } from '../../components.js';
 import { BILLING_UNITS, BILLING_UNIT_GROUPS, billingUnitOf, cleanUnitName, unitGroupOf, searchUnits } from '../../../domain/billing-units.js';
 import { componentsOf, contractOf, contractWithComponents, modeForUnit, quotedItemText, serviceTypeForContract } from '../../../domain/contract.js';
 import { applyUnitChange, applyContractModeChange } from '../../../domain/unit-change.js';
@@ -24,22 +24,22 @@ import { formatMoney, formatNumber, formatDays } from '../../../core/format.js';
 import { activationTerms } from '../../../domain/activation-terms.js';
 import { stepName } from './shared.js';
 import { normalizeActivity } from '../../../engines/cost-engine.js';
-import { onSessionReset } from '../../session-memory.js';
 
-/** Opciones rápidas, en este orden. `custom` = "Por unidad" (con el nombre que le ponga la persona). */
-export const QUICK_UNITS = Object.freeze([
-  { value: 'month', label: 'Por mes', hint: 'Una tarifa por mes.' },
-  { value: 'job', label: 'Por trabajo', hint: 'Un precio por todo el trabajo u obra.' },
-  { value: 'hour', label: 'Por hora', hint: 'Cada hora trabajada.' },
-  { value: 'day', label: 'Por día', hint: 'Cada día de trabajo.' },
-  { value: 'custom', label: 'Por unidad', hint: 'Vos le ponés el nombre: diagnóstico, válvula, muestra…' },
+/**
+ * Unidades que van primero en el desplegable (0.15.0): las de siempre, con un rótulo corto. No son
+ * una elección aparte: el desplegable es el único selector de unidad (pedido de Joaco, 2026-11-19).
+ */
+export const FIRST_UNITS = Object.freeze([
+  { value: 'month', label: '$/mes', hint: 'Una tarifa por mes.' },
+  { value: 'day', label: '$/día', hint: 'Cada día de trabajo.' },
+  { value: 'hour', label: '$/hora', hint: 'Cada hora trabajada.' },
+  { value: 'job', label: '$/trabajo', hint: 'Un precio por todo el trabajo u obra.' },
 ]);
-const OTHER = '__other';
-const QUICK_IDS = QUICK_UNITS.map((u) => u.value);
-
-/** Cotizaciones en las que se abrió "Otra unidad…" sin elegir todavía (sólo en pantalla). */
-const otherOpen = new Set();
-onSessionReset(() => otherOpen.clear());
+const FIRST_IDS = FIRST_UNITS.map((u) => u.value);
+/** Valor de la opción "usar lo que escribí como unidad" del desplegable. */
+const TYPED = '__typed:';
+/** Rótulo de la opción abierta cuando todavía no tiene nombre. */
+export const OPEN_UNIT_LABEL = '$/otra unidad… (escribí el nombre)';
 
 /** "por llamado", "por m³"… */
 const perText = (info) => `por ${info.singular || 'unidad'}`;
@@ -172,7 +172,6 @@ export async function changeQuoteUnit(ctx, nextUnit) {
       : '';
     return `${converted}${notices.length ? ` ${notices.join(' ')}` : ''}`;
   };
-  otherOpen.delete(quote.id);
   const rates = [
     { path: 'knownRate', label: 'Tarifa conocida', value: Number(pricing.knownRate) },
     { path: 'offeredRateOverride', label: `Tarifa ofrecida a mano (en "${stepName('margin')}")`, value: Number(pricing.offeredRateOverride) },
@@ -205,54 +204,89 @@ export async function changeQuoteUnit(ctx, nextUnit) {
   }
 }
 
-/** Unidades del buscador "Otra unidad…": todas menos las rápidas y "hito" (sólo si ya está). */
-function otherUnits(current) {
-  const list = BILLING_UNITS.filter((u) => !QUICK_IDS.includes(u.id) && (u.id !== 'milestone' || current === 'milestone'));
+// Sin tildes ni mayúsculas, para comparar lo escrito con las unidades del catálogo.
+const fold = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+
+/**
+ * Unidades del desplegable, en orden: mes, día, hora y trabajo; después el catálogo por grupo
+ * ("hito" sólo si ya está elegido) y, al final, la opción abierta ("$/ otro…": su nombre lo
+ * escribe la persona). Cada una como opción { value, label, hint, unit }.
+ * @param {ReturnType<typeof billingUnitOf>} info unidad actual de la cotización
+ */
+export function unitOptions(info) {
+  const current = info.id;
   const rank = (u) => BILLING_UNIT_GROUPS.findIndex((g) => g.id === unitGroupOf(u).id);
-  return list.map((u, i) => ({ u, i })).sort((a, b) => rank(a.u) - rank(b.u) || a.i - b.i).map((x) => x.u);
+  const rest = BILLING_UNITS
+    .filter((u) => !FIRST_IDS.includes(u.id) && !u.custom && (u.id !== 'milestone' || current === 'milestone'))
+    .map((u, i) => ({ u, i }))
+    .sort((a, b) => rank(a.u) - rank(b.u) || a.i - b.i)
+    .map(({ u }) => ({ value: u.id, label: u.label, hint: unitGroupOf(u).label, unit: u }));
+  const first = FIRST_UNITS.map((o) => ({ ...o, unit: BILLING_UNITS.find((u) => u.id === o.value) }));
+  const named = info.custom && cleanUnitName(info.singular) && info.singular !== 'unidad';
+  const open = {
+    value: 'custom',
+    label: named ? info.label : OPEN_UNIT_LABEL,
+    hint: named ? 'Tu unidad (le cambiás el nombre abajo)' : 'Diagnóstico, válvula, muestra… lo que quieras.',
+    unit: { label: 'otro otra unidad propia personalizada', singular: named ? info.singular : '', plural: named ? info.plural : '', short: '', keywords: 'custom libre nombre' },
+  };
+  // La unidad elegida va primera cuando no es una de las cuatro de arriba: la lista abre siempre
+  // con mes, día, hora y trabajo a la vista (revisión 0.15.0).
+  if (named) return [open, ...first, ...rest];
+  const chosen = rest.find((o) => o.value === current);
+  return chosen ? [chosen, ...first, ...rest.filter((o) => o !== chosen), open] : [...first, ...rest, open];
 }
 
 /**
- * Tarjeta del paso 1: opciones rápidas, buscador de otras unidades, nombre de la unidad propia
- * y la línea "Vas a cotizar: $ por diagnóstico".
+ * Lo que muestra el desplegable al escribir: las unidades que coinciden y, si lo escrito no es
+ * exactamente una de ellas, la opción de usarlo como unidad propia ("$/diagnóstico"). Sin texto,
+ * todas.
+ */
+export function searchUnitOptions(options, query) {
+  const typed = cleanUnitName(query);
+  if (!typed) return [...options];
+  const found = searchUnits(options.map((o) => o.unit), query);
+  const matches = options.filter((o) => found.includes(o.unit) && o.value !== 'custom');
+  const exact = options.some((o) => o.value !== 'custom' && [o.unit.singular, o.unit.plural, o.unit.short, o.label.replace(/^\$\/?\s*/, '')].some((t) => fold(t) === fold(typed)));
+  const own = exact ? [] : [{ value: `${TYPED}${typed}`, label: `$/${typed}`, hint: 'Usar como unidad propia' }];
+  return [...matches, ...own];
+}
+
+/**
+ * Tarjeta del paso 1: UN solo desplegable con todas las unidades ($/mes, $/día, $/hora, $/trabajo,
+ * el catálogo y "$/ otro…"), el nombre de la unidad propia y la línea "Vas a cotizar: $ por
+ * diagnóstico". Escribir una unidad que no está la ofrece como unidad propia.
  */
 export function unitChoiceBlock(ctx) {
   const { quote, kit } = ctx;
   const info = billingUnitOf(quote);
-  const current = info.id;
-  const quick = QUICK_IDS.includes(current);
-  const showOther = !quick || otherOpen.has(quote.id);
-  const choice = choiceGroup({
+  const options = unitOptions(info);
+  const def = BILLING_UNITS.find((u) => u.id === info.id) || {};
+  const pick = async (value) => {
+    const typed = typeof value === 'string' && value.startsWith(TYPED) ? cleanUnitName(value.slice(TYPED.length)) : null;
+    // Lo escrito pasa a ser el nombre ANTES de cambiar la unidad: el aviso ya dice "Cobrás por diagnóstico".
+    const wasCustom = (quote.unit || 'day') === 'custom';
+    const previousName = quote.unitName;
+    if (typed) ctx.mutate((q) => { q.unitName = typed; });
+    await changeQuoteUnit(ctx, typed !== null ? 'custom' : value);
+    // Canceló el cambio (había una tarifa cargada): el nombre escrito no queda guardado.
+    if (typed && (quote.unit || 'day') !== 'custom') ctx.mutate((q) => { q.unitName = previousName; });
+    else if (typed && wasCustom && typed !== cleanUnitName(previousName)) ctx.toast(`Cobrás por ${typed}.`, 'success');
+    if ((quote.unit || 'day') === 'custom' && !cleanUnitName(quote.unitName)) ctx.focusField('unitName');
+  };
+  const choice = formGrid(2, searchSelectField({
     label: '¿En qué unidad le cobrás al cliente?',
     name: 'unit',
-    value: showOther ? OTHER : current,
+    value: info.id,
     disabled: kit.readOnly,
-    options: [...QUICK_UNITS, { value: OTHER, label: 'Otra unidad…', hint: 'Viaje, m³, km, hora-hombre, pozo…' }],
-    onChange: (value) => {
-      if (value === OTHER) {
-        otherOpen.add(quote.id);
-        ctx.rerender();
-        return;
-      }
-      changeQuoteUnit(ctx, value);
-    },
-  });
-  const units = otherUnits(current);
-  const toOption = (u) => ({ value: u.id, label: u.label, hint: unitGroupOf(u).label });
-  const search = showOther
-    ? formGrid(2, searchSelectField({
-      label: 'Buscá la unidad',
-      name: 'unitOther',
-      value: quick ? null : current,
-      disabled: kit.readOnly,
-      allowEmpty: false,
-      placeholder: 'Escribí: viaje, m³, kWh, hora-hombre, junta…',
-      options: units.map(toOption),
-      search: (query) => searchUnits(units, query).map(toOption),
-      hint: !quick && info.id !== 'custom' ? (BILLING_UNITS.find((u) => u.id === current) || {}).hint || null : 'Si no está, elegí "Por unidad" y escribí su nombre.',
-      onChange: (value) => changeQuoteUnit(ctx, value),
-    }))
-    : null;
+    allowEmpty: false,
+    placeholder: 'Elegí o escribí: mes, hora, viaje, m³, diagnóstico…',
+    options,
+    search: (query) => searchUnitOptions(options, query),
+    hint: info.custom
+      ? 'Unidad propia: le ponés el nombre que quieras.'
+      : `${(FIRST_UNITS.find((u) => u.value === info.id) || {}).hint || def.hint || ''} Si la tuya no está, escribila y elegí "Usar como unidad propia".`.trim(),
+    onChange: pick,
+  }));
   let nameField = null;
   if (info.custom) {
     nameField = kit.text('unitName', {
@@ -265,6 +299,7 @@ export function unitChoiceBlock(ctx) {
     if (input) {
       input.addEventListener('change', () => {
         const clean = cleanUnitName(input.value);
+        // Se vuelve a dibujar: el desplegable muestra el nombre nuevo ("$/diagnóstico").
         ctx.mutate((q) => { q.unitName = clean; });
       });
     }
@@ -272,5 +307,5 @@ export function unitChoiceBlock(ctx) {
   const quoted = h('p', { class: 'qe-quoted-item' },
     h('span', { class: 'qe-quoted-item-label' }, 'Vas a cotizar: '),
     h('strong', {}, quotedItemText(quote)));
-  return h('div', { class: 'qe-unit-first' }, choice, search, nameField ? formGrid(2, nameField) : null, quoted);
+  return h('div', { class: 'qe-unit-first' }, choice, nameField ? formGrid(2, nameField) : null, quoted);
 }

@@ -13,7 +13,9 @@ import { card, formGrid, selectField, confirmDialog, emptyState, badge } from '.
 import { illustrativeTag } from '../../layout.js';
 import { hasNumber, plural, stepName } from './shared.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS, isIllustrativeAgreementParam } from '../../../domain/catalogs.js';
-import { laborLineFromProfile } from '../../../domain/quote-factory.js';
+import { laborLineFromProfile, createContractedStaff } from '../../../domain/quote-factory.js';
+import { vatIsCost } from '../../../domain/catalogs.js';
+import { openNewLaborProfileDialog } from '../library.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
 import { closedJobsPerMonth, quoteUnitPlace, lineMonthAtEstimate, perBilledUnitSuffix, roleOvertimeMonth, overtimeWorkLabel, closedLaborCostText, timeLaborCostText, laborHourStat, BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT } from '../../result-text.js';
 import { usesTimeBasis } from '../../../domain/cost-basis.js';
@@ -181,13 +183,42 @@ export function render(container, ctx) {
     ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.positions` });
     ctx.toast(`Se agregó "${line.role}" con su sueldo y valor de hora de Recursos. Poné cuántas personas van.`, 'success');
   };
-  const addBlank = () => {
-    const line = laborLineFromProfile({}, null, { currency: quoteCurrencyOf(quote) });
-    // El rol arranca vacío (con "Ej.: Chofer" de ejemplo): "Nuevo puesto" se veía como un dato cargado.
-    if (line.role === 'Nuevo puesto') line.role = '';
-    if (line.id) untouchedLines.add(line.id);
-    const index = lines.length;
-    ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.role` });
+  // 0.15.0 (Joaco, 2026-11-19): el personal propio se carga en Recursos, con su convenio y su sueldo
+  // completos; la cotización no crea puestos a medias. "Crear un puesto nuevo" abre el formulario
+  // de Recursos acá mismo: el puesto queda guardado en Recursos y se suma a la cotización.
+  const createInResources = () => {
+    openNewLaborProfileDialog(ctx.app, {
+      agreements,
+      onSaved: (profile, agreement, created) => {
+        // La copia de Recursos de esta pantalla también lo tiene (lista para elegir, convenio).
+        if (created && Array.isArray(resources.agreements)) resources.agreements.push(created);
+        if (Array.isArray(resources.laborProfiles)) resources.laborProfiles.push(profile);
+        const line = laborLineFromProfile(profile, agreement, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
+        const index = quote.labor.length;
+        ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.positions` });
+        ctx.toast(`"${line.role}" quedó guardado en Recursos y se sumó a la cotización. Poné cuántas personas van.`, 'success');
+      },
+    });
+  };
+  // Personal tercerizado: la excepción. Se contrata afuera por un valor fijo (hora, día o mes).
+  const contracted = Array.isArray(quote.contractedStaff) ? quote.contractedStaff : [];
+  const addContracted = () => {
+    const index = contracted.length;
+    ctx.mutate((q) => {
+      if (!Array.isArray(q.contractedStaff)) q.contractedStaff = [];
+      q.contractedStaff.push(createContractedStaff());
+    }, { focus: `contractedStaff.${index}.role` });
+  };
+  const removeContracted = async (index) => {
+    const line = contracted[index];
+    if (!line) return;
+    const ok = await confirmDialog({
+      title: 'Quitar personal tercerizado',
+      message: `¿Quitar "${line.role || 'Personal tercerizado'}" de esta cotización?`,
+      confirmLabel: 'Quitar',
+      danger: true,
+    });
+    if (ok) ctx.mutate((q) => q.contractedStaff.splice(index, 1));
   };
   const applyAgreement = (index) => {
     const line = quote.labor[index];
@@ -220,7 +251,7 @@ export function render(container, ctx) {
   const toolbar = h(
     'div',
     { class: 'qe-toolbar' },
-    // V-25: sin perfiles cargados no se ofrece una lista vacía; "en blanco" pasa a ser el botón principal.
+    // V-25: sin puestos cargados no se ofrece una lista vacía; crear uno pasa a ser el botón principal.
     !profiles.length ? null : h(
       'div',
       { class: 'qe-toolbar-pick' },
@@ -228,7 +259,7 @@ export function render(container, ctx) {
         label: 'Agregar un puesto de tus Recursos',
         value: null,
         includeEmpty: true,
-        emptyLabel: profiles.length ? 'Elegí un puesto…' : 'Todavía no cargaste puestos',
+        emptyLabel: 'Elegí un puesto…',
         options: profiles.map((p) => ({ value: p.id, label: `${p.role}${p.category ? ` — ${p.category}` : ''}` })),
         onChange: (v) => {
           selectedProfileId = v;
@@ -236,8 +267,13 @@ export function render(container, ctx) {
       }),
       kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
     ),
-    kit.action(profiles.length ? 'Cargar uno que no está en Recursos' : 'Agregar un puesto', addBlank, { icon: 'plus', size: 'md', ...(profiles.length ? {} : { variant: 'primary' }) }),
+    kit.action('Crear un puesto nuevo', createInResources, { icon: 'plus', size: 'md', title: 'Abre el formulario de Recursos: convenio, sueldo y cargas. Queda guardado para tus próximas cotizaciones.', ...(profiles.length ? {} : { variant: 'primary' }) }),
+    kit.action('Agregar personal tercerizado', addContracted, { icon: 'plus', size: 'md', title: 'Alguien que contratás afuera por un valor fijo por hora, por día o por mes.' }),
   );
+  const toolbarNote = h('p', { class: 'qe-note' },
+    'Tu gente se carga una sola vez en ',
+    h('a', { href: '#/recursos/personal' }, 'Recursos'),
+    ', con su convenio y su sueldo completos. Si contratás a alguien afuera para este trabajo, sumalo como personal tercerizado: sólo ponés cuánto le pagás.');
 
   /** "SAC 8,33 % · vacaciones 4 % · …" con lo cargado en la línea. */
   const loadsText = (line) => [
@@ -654,6 +690,84 @@ export function render(container, ctx) {
     return card;
   });
 
+  // ------------------------------------------------ personal tercerizado
+  // 0.15.0: una persona contratada afuera cuesta un valor fijo por hora, por día o por mes. Sin
+  // sueldo, convenio ni cargas. Los montos los da el motor (contracted-staff-engine).
+  const CONTRACTED_UNITS = [
+    { value: 'hour', label: 'Por hora' },
+    { value: 'day', label: 'Por día' },
+    { value: 'month', label: 'Por mes' },
+  ];
+  const unitWord = (unit) => ({ hour: 'hora', day: 'día', month: 'mes' }[unit] || 'día');
+  const withVat = vatIsCost(ctx.settings);
+  const contractedCards = contracted.map((line, i) => {
+    const p = `contractedStaff.${i}`;
+    const at = (r) => (r.model.contractedStaff ? r.model.contractedStaff.lines[i] : null);
+    const byHour = line.unit === 'hour';
+    return kit.lineCard(
+      {
+        title: kit.out(() => (quote.contractedStaff[i] && quote.contractedStaff[i].role) || 'Personal tercerizado'),
+        subtitle: kit.out((r) => {
+          const l = at(r);
+          return l ? `${n2(l.people)} ${plural(l.people, 'persona', 'personas')}` : '';
+        }),
+        badges: [badge('Tercerizado', 'blue')],
+        actions: [kit.action('Quitar', () => removeContracted(i), { variant: 'danger', icon: 'trash' })],
+        className: 'qe-line-compact qe-contracted-staff',
+      },
+      h('p', { class: 'qe-note' }, 'Lo contratás afuera: no lleva sueldo, convenio ni cargas. Sólo cuánto le pagás.'),
+      formGrid(
+        2,
+        kit.text(`${p}.role`, { label: '¿Qué hace?', maxLength: 120, placeholder: 'Ej.: soldador, ayudante, técnico' }),
+        kit.num(`${p}.people`, { label: 'Cantidad de personas', rule: 'quantity', requiredMark: true }),
+      ),
+      formGrid(
+        byHour ? 3 : 2,
+        kit.num(`${p}.rate`, {
+          label: withVat ? '¿Cuánto le pagás? (con IVA)' : '¿Cuánto le pagás? (sin IVA)',
+          rule: 'money',
+          unit: `$/${unitWord(line.unit)}`,
+          requiredMark: true,
+          hint: withVat ? 'Por persona. Como monotributista o exento, el IVA de la factura es costo: cargalo con IVA.' : 'Por persona, sin IVA.',
+        }),
+        kit.select(`${p}.unit`, { label: '¿Cada cuánto?', options: CONTRACTED_UNITS, structural: true }),
+        byHour ? kit.num(`${p}.hoursPerDay`, {
+          label: 'Horas por día (opcional)',
+          rule: 'hoursPerDay',
+          unit: 'h/día',
+          placeholder: serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (las del trabajo)` : 'Las del trabajo',
+          hint: `Vacío = las horas por día del trabajo (se cargan en "${stepName('modality')}").`,
+        }) : null,
+      ),
+      kit.keyline({
+        label: 'Te cuesta',
+        value: (r) => {
+          const l = at(r);
+          if (!l) return EMPTY;
+          const jobs = closedJobsPerMonth(r);
+          const month = lineMonthAtEstimate(r, l);
+          if (jobs !== null) return `${formatMoney(month / jobs)} en el trabajo`;
+          if (l.unit === 'month') return `${formatMoney(l.fixedMonthly)} por mes${perBilledUnitSuffix(r, quote, month)}`;
+          if (!(r.activity.activeDaysPerMonth > 0)) return `${formatMoney(l.variablePerActiveDay)} por día de trabajo`;
+          return `${formatMoney(month)} por mes${perBilledUnitSuffix(r, quote, month)}`;
+        },
+        hint: (r) => {
+          const l = at(r);
+          if (!l) return '';
+          if (!(l.rate > 0)) return 'Falta cuánto le pagás.';
+          if (l.hoursMissing) return `Faltan las horas por día: cargalas acá o en "${stepName('modality')}".`;
+          const who = `${n2(l.people)} ${plural(l.people, 'persona', 'personas')}`;
+          const D = r.activity.activeDaysPerMonth;
+          const days = D > 0 ? ` · ${formatNumber(D, { decimals: 2 })} días de trabajo en el mes` : '';
+          if (l.unit === 'hour') return `${who} × ${formatNumber(l.hoursPerDay, { decimals: 2 })} h × ${formatMoney(l.rate)} la hora = ${formatMoney(l.variablePerActiveDay)} por día de trabajo${days}.`;
+          if (l.unit === 'day') return `${who} × ${formatMoney(l.rate)} por día = ${formatMoney(l.variablePerActiveDay)} por día de trabajo${days}.`;
+          return `${who} × ${formatMoney(l.rate)} por mes. Se paga el mes entero, trabaje los días que trabaje: si sólo viene algunos días, cargalo por día.`;
+        },
+        tone: (r) => (at(r) && (!(at(r).rate > 0) || at(r).hoursMissing) && at(r).people > 0 ? 'red' : null),
+      }),
+    );
+  });
+
   // -------------------------------------------------------------- totales
   // Se muestra siempre que la mano de obra pese en la estructura de costos,
   // aunque no haya puestos: puede venir de "Otros costos" con categoría Mano
@@ -664,31 +778,37 @@ export function render(container, ctx) {
     const line = (r.model.lines || []).find((x) => x.key === 'labor:overtime-work');
     return line ? lineMonthAtEstimate(r, line) : 0;
   };
+  const anyStaff = lines.length + contracted.length > 0;
+  /** Personal tercerizado en el mes estimado (líneas del motor). */
+  const contractedMonth = (r) => (r.model.contractedStaff ? r.model.contractedStaff.lines.reduce((acc, l) => acc + lineMonthAtEstimate(r, l), 0) : 0);
   const totals = kit.toggle(
     kit.keyline({
-      label: (r) => (lines.length ? `Personal en el costo del ${quoteUnitPlace(r)}` : 'Mano de obra en la estructura de costos'),
+      label: (r) => (anyStaff ? `Personal en el costo del ${quoteUnitPlace(r)}` : 'Mano de obra en la estructura de costos'),
       value: (r) => {
         const row = laborRow(r);
         if (!row) return EMPTY;
         const jobs = closedJobsPerMonth(r);
-        if (jobs !== null && lines.length) return formatMoney(row.amount / jobs);
-        if (lines.length) return `${formatMoney(row.amount)}${perBilledUnitSuffix(r, quote, row.amount)}`;
+        if (jobs !== null && anyStaff) return formatMoney(row.amount / jobs);
+        if (anyStaff) return `${formatMoney(row.amount)}${perBilledUnitSuffix(r, quote, row.amount)}`;
         // Sin puestos: "$ X · Y %" (monto e incidencia en la estructura de costos).
-        return lines.length ? formatMoney(row.amount) : `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}`;
+        return `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}`;
       },
       hint: (r) => {
         const row = laborRow(r);
-        if (!lines.length) return `Viene de otros costos con categoría Mano de obra (se cargan en "${stepName('materials')}").`;
+        if (!anyStaff) return `Viene de otros costos con categoría Mano de obra (se cargan en "${stepName('materials')}").`;
         const standby = r.model.standby.monthly > 0 ? ` Incluye el personal en espera (standby): ${formatMoney(r.model.standby.monthly)} por mes.` : '';
         const headcount = r.model.labor.headcount;
         const positions = r.model.labor.positions;
         const parts = [
           row ? `${formatPercent(row.displayPct)} del costo total` : null,
-          Math.abs(headcount - positions) > 1e-6
+          !lines.length ? null : Math.abs(headcount - positions) > 1e-6
             ? `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')} en nómina, ${formatNumber(positions, { decimals: 2 })} trabajando a la vez`
             : `${formatNumber(headcount, { decimals: 2 })} ${plural(headcount, 'persona', 'personas')}`,
+          r.model.contractedStaff && r.model.contractedStaff.people > 0
+            ? `${formatNumber(r.model.contractedStaff.people, { decimals: 2 })} ${plural(r.model.contractedStaff.people, 'tercerizada', 'tercerizadas')}`
+            : null,
           // N1: en precio cerrado, la cuenta en el trabajo cierra con el total (meses de sueldo).
-          closedJobsPerMonth(r) !== null
+          !lines.length ? null : closedJobsPerMonth(r) !== null
             ? closedLaborCostText(r, r.model.labor, { overtime: overtimeMonth(r) }).replace(/^Sueldo/, 'sueldos').replace(/^Horas de tu gente/, 'horas de tu gente')
             : r.model.labor.timeBasis
               // Por tiempo usado no hay fijo del mes: todo es por día de trabajo.
@@ -698,22 +818,30 @@ export function render(container, ctx) {
           r.model.overtimeWork && r.model.overtimeWork.active && closedJobsPerMonth(r) === null
             ? `más ${overtimeWorkLabel(r)}: ${formatMoney(overtimeMonth(r))} en el mes`
             : null,
+          // 0.15.0: el personal tercerizado está en el total; se dice para que la cuenta cierre.
+          r.model.contractedStaff && !(r.activity.activeDaysPerMonth > 0) && r.model.contractedStaff.variablePerActiveDay > 0.005
+            ? `tercerizados: ${formatMoney(r.model.contractedStaff.variablePerActiveDay)} por día de trabajo${r.model.contractedStaff.fixedMonthly > 0.005 ? ` + ${formatMoney(r.model.contractedStaff.fixedMonthly)} por mes` : ''}`
+            : contractedMonth(r) > 0.005
+            ? `tercerizados: ${closedJobsPerMonth(r) !== null ? `${formatMoney(contractedMonth(r) / closedJobsPerMonth(r))} en el trabajo` : `${formatMoney(contractedMonth(r))} en el mes`}`
+            : null,
         ].filter(Boolean);
         return `${parts.join(' · ')}.${standby}`;
       },
       className: 'qe-keyline-total',
     }),
-    (r) => lines.length > 0 || Boolean(laborRow(r) && laborRow(r).amount > 0),
+    (r) => anyStaff || Boolean(laborRow(r) && laborRow(r).amount > 0),
   );
 
   mount(
     container,
-    card({ title: 'Agregá los puestos', subtitle: 'Operario, chofer, supervisor, técnico… Los que tienen * no pueden faltar.' }, toolbar),
-    lineCards.length
-      ? h('div', { class: 'qe-lines' }, ...lineCards)
+    card({ title: 'Agregá los puestos', subtitle: 'Operario, chofer, supervisor, técnico… Los que tienen * no pueden faltar.' }, toolbar, toolbarNote),
+    lineCards.length + contractedCards.length
+      ? h('div', { class: 'qe-lines' }, ...lineCards, ...contractedCards)
       : emptyState({
         title: 'Todavía no cargaste personal.',
-        text: 'Agregá un puesto desde tus Recursos o un puesto en blanco. Si el servicio no lleva personal propio, seguí al próximo paso.',
+        text: profiles.length
+          ? 'Agregá un puesto de tus Recursos o creá uno nuevo. Si lo contratás afuera, sumalo como personal tercerizado. Si el servicio no lleva personal, seguí al próximo paso.'
+          : 'Creá tu primer puesto (queda guardado en Recursos) o, si lo contratás afuera, sumalo como personal tercerizado. Si el servicio no lleva personal, seguí al próximo paso.',
         icon: 'resources',
       }),
     totals,

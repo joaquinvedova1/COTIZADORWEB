@@ -823,6 +823,9 @@
 @media print { .qe-stage-caption { display: none !important; } }
 
 /* 0.10.0 · La unidad primero (paso 1). */
+/* Tarjeta de insumo / material (0.15.0): pasos cortos que se leen de arriba abajo. */
+.qe-contracted-staff .form-grid + .form-grid { margin-top: 12px; }
+.qe-material-step { margin: 14px 0 -2px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--blue-600); }
 .qe-unit-first { display: grid; gap: 12px; }
 .qe-unit-first .form-grid { margin-top: 4px; }
 .qe-quoted-item { margin: 0; font-size: 1rem; }

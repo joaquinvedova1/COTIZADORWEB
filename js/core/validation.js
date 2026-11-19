@@ -248,6 +248,13 @@ export function validateQuote(quote) {
   });
 
   // Adicionales cobrados aparte (PLAN-2026-018).
+  // Personal tercerizado (0.15.0): personas, valor y horas por día.
+  (Array.isArray(quote.contractedStaff) ? quote.contractedStaff : []).forEach((c, i) => {
+    if (!isPlainObject(c)) return;
+    check(`contractedStaff.${i}.people`, c.people, 'quantity');
+    check(`contractedStaff.${i}.rate`, c.rate, 'money');
+    check(`contractedStaff.${i}.hoursPerDay`, c.hoursPerDay, 'hoursPerDay');
+  });
   (Array.isArray(quote.extras) ? quote.extras : []).forEach((x, i) => {
     if (!isPlainObject(x)) return;
     check(`extras.${i}.quantityPerMonth`, x.quantityPerMonth, 'quantity');

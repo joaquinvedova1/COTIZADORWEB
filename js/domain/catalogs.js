@@ -176,14 +176,14 @@ export const COST_BEHAVIORS = deepFreeze([
   { id: 'fixed_monthly', label: 'Fijo mensual' },
   { id: 'per_active_day', label: 'Por día de trabajo' },
   // En una cotización se nombra como su activación ("Por llamado", "Por salida"…: withActivationOptions, PLAN-2026-014).
-  { id: 'per_activation', label: 'Por intervención (llamado o salida)' },
+  { id: 'per_activation', label: 'Por salida (o llamado)' },
 ]);
 
 export const MATERIAL_BASES = deepFreeze([
   { id: 'per_month', label: 'Por mes' },
   { id: 'per_active_day', label: 'Por día de trabajo' },
   // En una cotización se nombra como su activación (withActivationOptions, PLAN-2026-014).
-  { id: 'per_activation', label: 'Por intervención (llamado o salida)' },
+  { id: 'per_activation', label: 'Por salida (o llamado)' },
 ]);
 
 /**
@@ -378,7 +378,7 @@ export const EXTERNAL_UNITS = deepFreeze([
   { id: 'trip', label: 'Por tramo (cada ida o cada vuelta)', short: '/tramo' },
   { id: 'km', label: 'Por km recorrido', short: '/km' },
   // En una cotización se nombra como su activación (withActivationOptions, PLAN-2026-014).
-  { id: 'activation', label: 'Por intervención (llamado o salida)', short: '/intervención' },
+  { id: 'activation', label: 'Por salida (o llamado)', short: '/salida' },
   { id: 'global', label: 'Global (todo el contrato)', short: ' global' },
 ]);
 
