@@ -174,14 +174,14 @@ export function render(container, ctx) {
   const addFromLibrary = () => {
     const profile = profiles.find((p) => p.id === selectedProfileId);
     if (!profile) {
-      ctx.toast('Elegí un puesto de la lista para agregarlo.', 'warning');
+      ctx.toast('Elegí un puesto de la lista para asignarlo.', 'warning');
       return;
     }
     const agreement = agreements.find((a) => a.id === profile.agreementId) || null;
     const line = laborLineFromProfile(profile, agreement, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
     const index = lines.length;
     ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.positions` });
-    ctx.toast(`Se agregó "${line.role}" con su sueldo y valor de hora de Recursos. Poné cuántas personas van.`, 'success');
+    ctx.toast(`Se agregó "${line.role}" con su sueldo y valor de hora de Recursos. Indicá cuántas personas van y cuánto de su tiempo usa.`, 'success');
   };
   // 0.15.0 (Joaco, 2026-11-19): el personal propio se carga en Recursos, con su convenio y su sueldo
   // completos; la cotización no crea puestos a medias. "Crear un puesto nuevo" abre el formulario
@@ -196,7 +196,7 @@ export function render(container, ctx) {
         const line = laborLineFromProfile(profile, agreement, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
         const index = quote.labor.length;
         ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.positions` });
-        ctx.toast(`"${line.role}" quedó guardado en Recursos y se sumó a la cotización. Poné cuántas personas van.`, 'success');
+        ctx.toast(`"${line.role}" quedó guardado en Recursos y se sumó a la cotización. Indicá cuántas personas van y cuánto de su tiempo usa.`, 'success');
       },
     });
   };
@@ -256,7 +256,7 @@ export function render(container, ctx) {
       'div',
       { class: 'qe-toolbar-pick' },
       selectField({
-        label: 'Agregar un puesto de tus Recursos',
+        label: 'Asignar personal de tus Recursos',
         value: null,
         includeEmpty: true,
         emptyLabel: 'Elegí un puesto…',
@@ -265,7 +265,7 @@ export function render(container, ctx) {
           selectedProfileId = v;
         },
       }),
-      kit.action('Agregar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
+      kit.action('Asignar', addFromLibrary, { variant: 'primary', icon: 'plus', size: 'md' }),
     ),
     kit.action('Crear un puesto nuevo', createInResources, { icon: 'plus', size: 'md', title: 'Abre el formulario de Recursos: convenio, sueldo y cargas. Queda guardado para tus próximas cotizaciones.', ...(profiles.length ? {} : { variant: 'primary' }) }),
     kit.action('Agregar personal tercerizado', addContracted, { icon: 'plus', size: 'md', title: 'Alguien que contratás afuera por un valor fijo por hora, por día o por mes.' }),
@@ -412,6 +412,44 @@ export function render(container, ctx) {
   const hasLegacyOvertime = (line) => Boolean(line) && (Array.isArray(line.overtime) || nonNegative(line.overtimeHoursPerActiveDay) > 0 || line.overtimeBilled === true);
 
   // -------------------------------------------------------------- líneas
+  /** "¿Cuántos choferes van?" con el nombre del puesto (genérico si no tiene nombre). */
+  const peopleLabel = (line) => {
+    const role = String((line && line.role) || '').trim();
+    return role ? `¿Cuántas personas de «${role.slice(0, 40)}» van?` : '¿Cuántas personas van?';
+  };
+  /** Horas por día de cada persona en el trabajo (vacío = las del servicio). */
+  const hoursPerDayField = (i, line) => kit.num(`labor.${i}.coverageHoursPerDay`, {
+    label: timeBasis ? 'Horas por día de cada una en esto' : 'Horas por día de cada persona',
+    rule: 'hoursPerDay',
+    unit: 'h/día',
+    placeholder: line.rotation && nonNegative(line.rotation.hoursPerShift) > 0
+      ? `${n2(nonNegative(line.rotation.hoursPerShift))} (turno cargado antes)`
+      : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (las del servicio)` : `Las del servicio («${stepName('modality')}»)`,
+    hint: timeBasis
+      ? `Esta cotización paga sólo esas horas de su sueldo. Ej.: el chofer maneja 3 h de las 8 h del trabajo → 3. Si lo dejás vacío, cuenta todo el día del servicio${serviceHours > 0 ? ` (${formatNumber(serviceHours, { decimals: 2 })} h)` : ` (se carga en «${stepName('modality')}»)`}; más que eso no se cuenta.`
+      : 'Vacío = trabajan todas las horas por día del servicio. Si se turnan (por ejemplo 3 personas de 8 h para 24 h), cargá las de cada una. Sirve para avisarte si faltan horas.',
+  });
+  /**
+   * Cuánto de su tiempo usa esta cotización (0.16.0), en la tarjeta del puesto:
+   *  - trabajo / hora / día (por tiempo usado): horas por día de cada persona → paga esas horas;
+   *  - por mes: todo su mes (100 %) o una parte (el % del costo fijo, regla de siempre).
+   * No cambia ninguna fórmula: son los mismos datos que antes estaban en "Más detalle".
+   */
+  const dedicationField = (i, line) => {
+    if (timeBasis) return hoursPerDayField(i, line);
+    const p = `labor.${i}`;
+    const options = [
+      { value: 'dedicated', label: 'Todo su mes (100 %)' },
+      { value: 'shared', label: 'Una parte de su mes' },
+      ...(line.assignment === 'hired' ? [{ value: 'hired', label: 'Contratada para este servicio (100 %)' }] : []),
+    ];
+    return h('div', { class: 'qe-dedication-field' },
+      kit.select(`${p}.assignment`, { label: '¿Cuánto de su tiempo usa esta cotización?', options, structural: true, hint: 'Si también trabaja en otros servicios, elegí "Una parte" y poné el %: esta cotización paga sólo esa parte de su sueldo.' }),
+      line.assignment === 'shared'
+        ? kit.num(`${p}.fixedCostSharePct`, { label: '¿Qué % de su mes?', rule: 'sharePct', unit: '%', requiredMark: true, hint: 'Ej.: 2 semanas de 4 → 50. Vacío = 100 %.' })
+        : null);
+  };
+
   const lineCards = lines.map((line, i) => {
     const p = `labor.${i}`;
     const at = (r) => r.model.labor.lines[i];
@@ -475,7 +513,17 @@ export function render(container, ctx) {
       formGrid(
         3,
         fromResource ? null : kit.text(`${p}.role`, { label: 'Rol', maxLength: 120, placeholder: 'Ej.: Chofer' }),
-        kit.num(`${p}.positions`, { label: legacyStaff(line) ? 'Personas trabajando a la vez' : 'Cantidad de personas', rule: 'quantity', requiredMark: true, hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cuántas personas de este puesto trabajan en el servicio.' }),
+        // 0.16.0 (Joaco: "Cantidad de personas en este puesto… no entiendo"): el puesto de Recursos es
+        // un sueldo tipo; acá se dice cuántas personas con ese sueldo van y, al lado, cuánto de su
+        // tiempo usa esta cotización (horas por día en un trabajo; todo o parte del mes si se cobra por mes).
+        kit.num(`${p}.positions`, {
+          label: legacyStaff(line) ? 'Personas trabajando a la vez' : peopleLabel(line),
+          rule: 'quantity',
+          requiredMark: true,
+          placeholder: '1',
+          hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Con el mismo sueldo de este puesto. Si van 2, el costo es el doble. Si alguien cobra otro sueldo, crealo como otro puesto.',
+        }),
+        legacyStaff(line) ? null : dedicationField(i, line),
         fromResource ? null : kit.num(`${p}.basicMonthly`, { label: 'Sueldo bruto por mes', rule: 'money', unit: '$/mes', requiredMark: true, illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }),
         // Horas extra: ya no se cargan en el puesto (Joaco, 2026-11-18). Van en "Cómo se cobra" →
         // "Horas extra del trabajo". Las cotizaciones que ya las tenían las siguen viendo (mismos números).
@@ -547,13 +595,14 @@ export function render(container, ctx) {
           // Desglose del mes (PLAN-2026-010): sueldo + cargas, HE por tramo, viandas, seguros/EPP.
           const D = r.activity.activeDaysPerMonth;
           const parts = laborBreakdown(l, { activeDays: D }).map((x) => `${x.label} ${formatMoney(x.amount)}`).join(' · ');
-          const share = l.shared && !l.shareMissing ? ` Este servicio paga el ${formatPercent(l.fixedCostSharePct)} de su mes.` : '';
+          // 0.16.0: el % va en la cuenta (2 personas × $ 2.190.435 × 50 % de su mes), no al final.
+          const share = l.shared && !l.shareMissing ? ` × ${formatPercent(l.fixedCostSharePct)} de su mes` : '';
           // Sin días cargados todavía (los recursos van antes que "Cómo se cobra"): sólo el fijo del mes.
           const month = D > 0 ? ` En el mes (${formatNumber(D, { decimals: 2 })} días): ${parts}.` : '';
           const extraMonth = l.perPerson.overtimeMonthly > 0 ? ` + ${formatMoney(l.perPerson.overtimeMonthly)} de horas extra` : '';
           const ot = roleOvertimeMonth(r, i);
           const otText = ot > 0 ? ` + ${overtimeWorkLabel(r)}: ${formatMoney(ot)} en el mes (elegidas en "${stepName('modality')}").` : '';
-          return `${staffText(l)} × (${formatMoney(l.perPerson.fixedMonthly)}${extraMonth})${variable}.${month}${otText}${share}`.replace(/× \((\$[^()+]*)\)/, '× $1');
+          return `${staffText(l)} × (${formatMoney(l.perPerson.fixedMonthly)}${extraMonth})${share}${variable}.${month}${otText}`.replace(/× \((\$[^()+]*)\)/, '× $1');
         },
         trace: (r) => laborTrace(r, i, quote.labor[i]),
       }),
@@ -600,8 +649,9 @@ export function render(container, ctx) {
             kit.num(`${p}.additionalsMonthly`, { label: 'Otros pagos fijos por mes', rule: 'money', unit: '$/mes', illustrative, hint: 'Zona, presentismo, nocturnidad, etc.' }),
             // V-06: comidas en un solo lugar (Viajes no las pide; ahí va sólo el alojamiento).
             kit.num(`${p}.mealPerActiveDay`, { label: 'Vianda o comidas por día', rule: 'money', unit: '$/día', illustrative, hint: 'Por persona y por día de trabajo. Es el único lugar donde se cargan las comidas. Si las da el cliente: 0.' }),
-            // Horas de trabajo de cada persona: sólo para el aviso de horas (no cambia el costo).
-            kit.num(`${p}.coverageHoursPerDay`, { label: 'Horas por día de cada persona', rule: 'hoursPerDay', unit: 'h/día', placeholder: line.rotation && nonNegative(line.rotation.hoursPerShift) > 0 ? `${n2(nonNegative(line.rotation.hoursPerShift))} (turno cargado antes)` : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (las del servicio)` : 'Las del servicio', hint: 'Vacío = trabajan todas las horas por día del servicio. Si se turnan (por ejemplo 3 personas de 8 h para 24 h), cargá las de cada una. Sirve para avisarte si faltan horas y, si todo el trabajo es con horas extra, para calcularlas.' }),
+            // 0.16.0: "Horas por día de cada persona" y "¿trabaja sólo para este servicio?" pasaron a la
+            // tarjeta del puesto, al lado de cuántas personas van (dedicationField).
+            legacyStaff(line) || !timeBasis ? hoursPerDayField(i, line) : null,
           ),
         ),
         kit.group(
@@ -648,7 +698,7 @@ export function render(container, ctx) {
           ),
         ),
         // PLAN-2026-012: dedicada / compartida (% explícito del costo fijo) / contratada para el servicio.
-        timeBasis ? null : assignmentBlock(kit, { path: p, line, kind: 'labor', at }),
+        legacyStaff(line) && !timeBasis ? assignmentBlock(kit, { path: p, line, kind: 'labor', at }) : null,
         kit.advanced(
           {
             key: `labor-base:${line.id || i}`,

@@ -501,7 +501,8 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
 
   rerender();
   const saveBtn = button('Guardar', { variant: 'primary', icon: 'check' });
-  const { close } = openDialog({ title, content: body, wide: true, actions: [button('Cancelar', { variant: 'secondary', onClick: () => close() }), saveBtn] });
+  // 0.16.0 (Joaco: "queda muy comprimido"): formulario de recurso más ancho en PC y a pantalla completa en celular.
+  const { close } = openDialog({ title, content: body, wide: true, className: 'dialog-form', actions: [button('Cancelar', { variant: 'secondary', onClick: () => close() }), saveBtn] });
 
   saveBtn.addEventListener('click', async () => {
     const invalid = body.querySelector('[aria-invalid="true"]');

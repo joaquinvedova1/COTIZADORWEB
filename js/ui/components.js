@@ -621,10 +621,10 @@ function ensureDialogRoot() {
 }
 
 /** Abre un diálogo modal accesible. Devuelve { dialog, close }. */
-export function openDialog({ title, content, actions = [], wide = false, onClose = null }) {
+export function openDialog({ title, content, actions = [], wide = false, className = null, onClose = null }) {
   const root = ensureDialogRoot();
   const titleId = uniqueId('dlg');
-  const dialog = h('dialog', { class: ['dialog', wide ? 'dialog-wide' : null], 'aria-labelledby': titleId });
+  const dialog = h('dialog', { class: ['dialog', wide ? 'dialog-wide' : null, className], 'aria-labelledby': titleId });
   const close = () => {
     if (dialog.open) dialog.close();
   };

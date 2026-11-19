@@ -170,7 +170,7 @@ export const STEP_COPY = Object.freeze({
   },
   labor: {
     question: '¿Quiénes trabajan en el servicio?',
-    why: 'Elegí cada puesto de tus Recursos y poné cuántas personas van. El sueldo, las cargas y el valor de la hora ya están en Recursos: no se cargan de nuevo.',
+    why: 'Asigná tu personal de Recursos: cuántas personas van y cuánto de su tiempo usa esta cotización. El sueldo, las cargas y el valor de la hora ya están en Recursos: no se cargan de nuevo.',
   },
   equipment: {
     question: '¿Qué equipos y vehículos usás?',
@@ -210,7 +210,7 @@ export const STEP_COPY = Object.freeze({
 });
 
 /** Personal con la cuenta sin puestos en Recursos: el sueldo se carga acá. */
-export const LABOR_WHY_EMPTY = 'Creá cada puesto con su convenio y su sueldo: queda guardado en tus Recursos y no lo cargás de nuevo. Después poné cuántas personas van.';
+export const LABOR_WHY_EMPTY = 'Creá cada puesto con su convenio y su sueldo: queda guardado en tus Recursos y no lo cargás de nuevo. Después decí cuántas van y cuánto de su tiempo usa esta cotización.';
 
 /**
  * Ítems de completitud que se corrigen dentro de unas "Opciones avanzadas":

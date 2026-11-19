@@ -371,6 +371,14 @@ describe('V-04 · Horas de trabajo por día y equipos por hora (equipment_hours)
     assert.equal(covered, undefined);
   });
 
+  test('0.16.0: por tiempo usado, horas por día de una persona menores que las del servicio no son un faltante', () => {
+    resetIds();
+    const q = service({ unit: 'day', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 8 }, labor: [person({ positions: 2, coverageHoursPerDay: 3 })] });
+    assert.ok(evaluateCompleteness(q).items.find((i) => i.id === 'labor_day_gap'), 'sin tiempo usado sigue avisando');
+    q.costBasis = 'time';
+    assert.equal(evaluateCompleteness(q).items.find((i) => i.id === 'labor_day_gap'), undefined);
+  });
+
   test('los avisos de horas del personal dicen dónde corregir las horas por día del servicio', () => {
     resetIds();
     const q = service({ unit: 'day', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10 }, labor: [person({ positions: 1, coverageHoursPerDay: 8 })] });
