@@ -165,6 +165,14 @@
     "inflacion-precio-fijo-12-meses-3": {
       "sha256": "4b853e70b8979e4c2b171591f064adb26999bbd43913a06888849a401983b3a7",
       "approved": "K-01 (0.13.0): golden nuevo pedido en la spec SPEC-K01-K03 (precio fijo 12 meses al 3 %: f = 1,182669)"
+    },
+    "iva-costo-financiero-gross-up": {
+      "sha256": "b467fef659ce1f7ee73093f2486cf2fde4ee6b4ca0b212f53bf9930f6fc93ba6",
+      "approved": "K-03 (0.14.0): golden nuevo pedido en la spec SPEC-K01-K03 (costo financiero del IVA en el divisor: 21 % × 3 % × 40/30 = 0,84 puntos)"
+    },
+    "iva-costo-financiero-credito-externo": {
+      "sha256": "9abdaf69153788723b2359dbdd8979e75f54b6aeeb3346c03be4a4d8a9794d45",
+      "approved": "K-03 (0.14.0): golden nuevo pedido en la spec SPEC-K01-K03 (alivio por el IVA recuperable de un alquiler: 84.000 menos de financiero)"
     }
   }
 }

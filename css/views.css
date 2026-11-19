@@ -311,6 +311,9 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 
 .settings-panel { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
 .params-groups { gap: 1.75rem; }
+.vat-finance-defaults { border-top: 1px solid var(--line-2); padding-top: 0.75rem; }
+.vat-finance-defaults-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.vat-finance-defaults-head .params-group-title { margin: 0; }
 .params-group-title { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-3); margin: 0 0 0.75rem; }
 .guide-card .card-body { display: flex; flex-direction: column; gap: 0.5rem; }
 .guide-subtitle { font-size: 0.95rem; margin: 0.5rem 0 0; }

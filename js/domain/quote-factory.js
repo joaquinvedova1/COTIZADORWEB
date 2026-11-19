@@ -9,6 +9,7 @@ import { LOCALE, CURRENCY, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '..
 import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT, ACQUISITION_MODES, EXTERNAL_UNITS, MOBILIZATION_MODES, DRIVER_OPTIONS, VAT_RECOVERY } from './catalogs.js';
 import { emptyBillingTaxes, copyBillingTaxes, billingTaxesDecided } from './billing-taxes.js';
 import { emptyPriceAdjustment } from './price-adjustment.js';
+import { vatFinanceForNewQuote } from './vat-finance.js';
 import { emptyBase, normalizeBase, isValidDayDate, isKnownCurrency, dayFromDate } from './economic-base.js';
 import { familyIdOf } from './equipment-catalog.js';
 import { createSnapshot } from './resource-snapshot.js';
@@ -33,6 +34,9 @@ export function defaultSettings(organizationId = null) {
     // trae alícuotas). Cuando la empresa los guarda, cada cotización nueva
     // arranca con ellos.
     defaultBillingTaxes: null,
+    // Costo financiero del IVA (K-03): IVA que factura la empresa y días entre facturar y pagar
+    // el IVA. Sin precargar (ni 21 % ni día 20): los carga la empresa.
+    defaultVat: { ratePct: null, payLagDays: null },
     // Base del precio del combustible (PLAN-2026-005): sin definir hasta que la
     // empresa la cargue (nunca se inventa una fecha).
     fuelPriceBase: emptyBase({ currency: CURRENCY }),
@@ -275,6 +279,9 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
       // Tasa por defecto de una configuración de demostración: ILUSTRATIVA.
       illustrative: !ownSettings,
       payDays: { salaries: 20, fuel: 0, suppliers: 30, materials: 30, structure: 20 },
+      // ¿Facturás con IVA? (K-03): copia los valores de la empresa; "Sí" sólo si están los dos y es
+      // responsable inscripta. Sin decidir hasta que se elija (resultado de siempre).
+      vat: vatFinanceForNewQuote(settings),
     },
     risk: { generalPct: ownSettings ? settings.defaultContingencyPct ?? 0 : 0, items: defaultRiskItems() },
     pricing: {

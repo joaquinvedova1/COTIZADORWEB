@@ -52,6 +52,7 @@ import { usesTimeBasis } from '../domain/cost-basis.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
 import { normalizePriceAdjustment, priceAdjustmentOf, contingencyPriceOverlap } from '../domain/price-adjustment.js';
+import { vatFinanceOf } from '../domain/vat-finance.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
 
@@ -1114,6 +1115,34 @@ export function evaluateCompleteness(quote = {}) {
   if (!termOk) termItem.focus = 'finance.paymentTermDays';
   items.push(termItem);
 
+  // 11 bis. ¿Facturás con IVA? (K-03). Sólo en cotizaciones que tienen la pregunta (las nuevas):
+  // las anteriores, sin el campo, no cambian ni su puntaje. Con monotributo o exento computeQuote
+  // ya sacó el campo (nunca aplica).
+  const vat = vatFinanceOf(quote);
+  if (vat.present) {
+    if (vat.applies === true && vat.missing.length) {
+      const item = rule('vat_finance', 'Costo financiero del IVA', 'finance', 1, 'warning',
+        vat.missing.length === 2
+          ? 'Facturás con IVA: cargá el IVA que facturás y los días entre que facturás y pagás el IVA. Mientras tanto no se cuenta.'
+          : vat.missing[0] === 'ratePct'
+            ? 'Facturás con IVA: cargá el IVA que facturás. Mientras tanto no se cuenta.'
+            : 'Facturás con IVA: cargá los días entre que facturás y pagás el IVA. Mientras tanto no se cuenta.');
+      item.focus = `finance.vat.${vat.missing[0]}`;
+      items.push(item);
+    } else if (vat.applies === null && vat.paymentTermDays > 0) {
+      // Sin decidir no resta puntaje (peso 0): pendiente amarillo, los números quedan como siempre.
+      const item = rule('vat_finance', 'Costo financiero del IVA', 'finance', 0, 'warning',
+        '¿Facturás con IVA? Si el IVA vence antes de que te paguen, adelantarlo cuesta: contestalo en "Financiación".');
+      item.focus = 'finance.vat.applies';
+      items.push(item);
+    } else if (vat.active) {
+      items.push(rule('vat_finance', 'Costo financiero del IVA', 'finance', 1, 'ok',
+        vat.days > 0
+          ? `Facturás con IVA: lo adelantás ${formatNumber(vat.days, { decimals: 1 })} días y financiarlo cuesta ${formatNumber(vat.pct, { decimals: 2 })} puntos del precio.`
+          : 'Facturás con IVA y lo pagás después de cobrar: no hay costo financiero del IVA.'));
+    }
+  }
+
   // 12. Contingencia
   const contOk = contingencyPctOf(quote.risk || {}) > 0;
   items.push(rule('contingency', 'Imprevistos (contingencia)', 'risk', 1, contOk ? 'ok' : 'warning',
@@ -1127,7 +1156,10 @@ export function evaluateCompleteness(quote = {}) {
   const marginBlank = marginRead.state === 'empty';
   const marginValue = marginRead.value;
   const marginInvalid = marginRead.state === 'invalid';
-  const marginTooHighWithTaxes = !marginBlank && !marginInvalid && !isValidMarginAndTaxes(marginValue, taxes.pct);
+  // Costo financiero del IVA (K-03): también va al divisor (margen + impuestos + t_iva < 100).
+  const vatPctForMargin = vatFinanceOf(quote).pct;
+  const grossUp = taxes.pct + vatPctForMargin;
+  const marginTooHighWithTaxes = !marginBlank && !marginInvalid && !isValidMarginAndTaxes(marginValue, grossUp);
   const marginPositive = !marginBlank && !marginInvalid && marginValue > 0;
   const marginItem = rule('margin', 'Margen objetivo', 'margin', 2, marginBlank || marginInvalid || marginTooHighWithTaxes ? 'missing' : marginPositive ? 'ok' : 'warning',
     marginBlank
@@ -1135,7 +1167,9 @@ export function evaluateCompleteness(quote = {}) {
       : marginInvalid
         ? 'El margen objetivo debe ser mayor o igual a 0 y menor a 100 %.'
         : marginTooHighWithTaxes
-          ? `Con ${formatPercent(taxes.pct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - taxes.pct)}.`
+          ? (vatPctForMargin > 0
+            ? `Con ${taxes.pct > 0 ? `${formatPercent(taxes.pct)} de impuestos sobre lo que facturás y ` : ''}${formatPercent(vatPctForMargin)} de costo financiero del IVA, ${grossUp < 100 ? `el margen tiene que ser menor a ${formatPercent(100 - grossUp)}` : 'no hay precio posible: revisá el IVA, los días y la tasa'}.`
+            : `Con ${formatPercent(taxes.pct)} de impuestos sobre lo que facturás, el margen tiene que ser menor a ${formatPercent(100 - taxes.pct)}.`)
           : marginPositive
             ? 'Margen objetivo definido.'
             : 'Margen objetivo en 0 %: cotizás sin ganancia.');

@@ -30,6 +30,32 @@ const EPS = 1e-9;
 // ----------------------------------------------------------------- días
 
 /** Decimales de un resultado en días en superficie: 1; 2 debajo de 1 día. */
+/**
+ * Puntos del precio que se descuentan de lo facturado (motor): impuestos sobre la facturación +
+ * costo financiero del IVA (K-03). Sin K-03 son los impuestos de siempre.
+ */
+export function deductedPct(k = {}) {
+  const g = isFiniteNumber(k.grossUpPct) ? k.grossUpPct : isFiniteNumber(k.billingTaxPct) ? k.billingTaxPct : 0;
+  return g > 0 ? g : 0;
+}
+
+/**
+ * "Con X de impuestos sobre lo que facturás [y Y de costo financiero del IVA], el margen tiene que
+ * ser menor a Z" (margen + impuestos + t_iva ≥ 100). Sin K-03, el texto de siempre.
+ * @param {object} k  kpis del motor
+ * @param {(v: number) => string} [pctText]
+ */
+export function marginLimitText(k = {}, pctText = (v) => formatPercent(v), { capital = false, subject = 'el margen' } = {}) {
+  const t = isFiniteNumber(k.billingTaxPct) && k.billingTaxPct > 0 ? k.billingTaxPct : 0;
+  const tv = isFiniteNumber(k.vatFinancePct) && k.vatFinancePct > 0 ? k.vatFinancePct : 0;
+  const what = tv > 0
+    ? `${t > 0 ? `${pctText(t)} de impuestos sobre lo que facturás y ` : ''}${pctText(tv)} de costo financiero del IVA`
+    : `${pctText(t)} de impuestos sobre lo que facturás`;
+  const limit = 100 - deductedPct(k);
+  if (!(limit > 0)) return `${capital ? 'Con' : 'con'} ${what} no hay precio posible: revisá esos datos`;
+  return `${capital ? 'Con' : 'con'} ${what}, ${subject} tiene que ser menor a ${pctText(limit)}`;
+}
+
 export function dayDecimals(value) {
   return isFiniteNumber(value) && Math.abs(value) < 1 ? 2 : 1;
 }
@@ -642,6 +668,8 @@ export function suggestedRateTrace(r, { roundingStep = null, effectiveStep = nul
   const ra = r.ratesAtEstimate || {};
   const name = title || suggestedRateName(r);
   const t = isFiniteNumber(k.billingTaxPct) && k.billingTaxPct > 0 ? k.billingTaxPct : 0;
+  // Costo financiero del IVA (K-03): también se cubre con la facturación.
+  const tv = isFiniteNumber(k.vatFinancePct) && k.vatFinancePct > 0 ? k.vatFinancePct : 0;
   const m = isFiniteNumber(k.targetMarginPct) && !k.targetMarginInvalid ? k.targetMarginPct : null;
   const stepOf = (label) => (base.steps || []).find((x) => x.label === label) || null;
   const required = stepOf('Facturación necesaria');
@@ -656,10 +684,10 @@ export function suggestedRateTrace(r, { roundingStep = null, effectiveStep = nul
   const step = isFiniteNumber(Number(effectiveStep)) && Number(effectiveStep) > 0
     ? Number(effectiveStep)
     : configured > 0 && isFiniteNumber(k.targetListRate) ? effectiveRoundingStep(k.targetListRate, configured) : configured;
-  const parts = ['costo', t > 0 ? 'impuestos sobre lo que facturás' : null, 'tu ganancia'].filter(Boolean).join(' + ');
+  const parts = ['costo', t > 0 ? 'impuestos sobre lo que facturás' : null, tv > 0 ? 'costo financiero del IVA' : null, 'tu ganancia'].filter(Boolean).join(' + ');
   const formula = `${name} = (${parts}${other > 0 ? ' − otros ingresos' : ''}) ÷ ${unitsWord}${discounted ? ', antes de descuentos' : ''}${step > 0 ? ', redondeado hacia arriba' : ''}`;
   const share = m !== null
-    ? ` (de cada $ 100 facturados: $ ${formatNumber(100 - m - t, { decimals: 2 })} de costo${t > 0 ? `, $ ${formatNumber(t, { decimals: 2 })} de impuestos` : ''} y $ ${formatNumber(m, { decimals: 2 })} de ganancia)`
+    ? ` (de cada $ 100 facturados: $ ${formatNumber(100 - m - t - tv, { decimals: 2 })} de costo${t > 0 ? `, $ ${formatNumber(t, { decimals: 2 })} de impuestos` : ''}${tv > 0 ? `, $ ${formatNumber(tv, { decimals: 2 })} de costo financiero del IVA` : ''} y $ ${formatNumber(m, { decimals: 2 })} de ganancia)`
     : '';
   const steps = [
     required ? { label: `1. Lo que tenés que facturar para cubrir ${parts}${share}`, value: required.value, format: 'moneyCeil' } : null,

@@ -12,6 +12,24 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-18
+
+**Costo financiero del IVA (K-03, auditoría externa).** Sin cambio de esquema: los campos nuevos son opcionales y, ausentes, sin decidir o incompletos, ningún número cambia.
+
+### Agregado
+
+- **¿Facturás con IVA?** En el paso Financiación: Sí / No y, con Sí, "IVA que facturás" y "Días entre que facturás y pagás el IVA" (con "Usar los de mi empresa"). Campo `quote.finance.vat = { applies, ratePct, payLagDays }`. Con monotributo o exento no se pregunta y nunca aplica.
+- Valores de la empresa en Configuración → Parámetros económicos, junto a "Tu condición frente al IVA": `settings.defaultVat = { ratePct, payLagDays }`, sin valores precargados (RATEOS no trae alícuotas ni fechas de vencimiento). Cada cotización nueva los copia; arranca en "Sí" sólo si están los dos y la empresa es responsable inscripta.
+- **Costo financiero del IVA** en el precio: `t_iva = IVA × tasa mensual × max(0, plazo de cobro − días hasta pagar el IVA) / 30` (puntos del precio), en el mismo divisor que el margen y los impuestos: `precio = costo / (1 − m − t − t_iva)`. Tarifa mínima y objetivo, resultado, margen, equilibrio, tramos, adicionales, escalera de márgenes, escenarios y comparador de modelos lo usan igual. Detalle en [docs/CALCULATION_RULES.md §34](docs/CALCULATION_RULES.md#34-costo-financiero-del-iva-k-03-0140-2026-11-18).
+- **Alivio por crédito fiscal** (criterio conservador): sólo el IVA recuperable que se conoce de los alquilados y tercerizados × tasa × días / 30 se resta del costo financiero (nunca lo deja negativo), con tope en el IVA que se factura (IVA % × costo antes del alivio; el resto es saldo a favor; con IVA 0 % no hay alivio). Lo demás cuenta como crédito 0.
+- Composición del precio: fila y grupo **Costo financiero del IVA** (sólo si hay) y control "Facturación = costo + impuestos + costo financiero del IVA + resultado". "Ver cálculo" del costo financiero con la fórmula, los números y la nota "El IVA no es costo ni ganancia: sólo cuesta financiarlo".
+- Completitud: "¿Facturás con IVA?" sin decidir con plazo de cobro → amarillo sin restar puntaje; Sí con un dato faltante → amarillo. Validación `vatRate` (0 a < 100 %) y días 0–720; margen + impuestos + costo financiero del IVA < 100 %.
+- Golden cases `iva-costo-financiero-gross-up` (IVA 21 %, cobro a 60, IVA a 20, tasa 3 % → 0,84 puntos; tarifa objetivo 5.000.000 → 5.053.057,10) e `iva-costo-financiero-credito-externo` (alquiler con IVA recuperable: financiero 726.000 → 642.000; tarifa objetivo 6.340.750 → 6.397.422,94).
+
+### Cambiado
+
+- Sólo con "Sí" y los dos datos cambian las tarifas y el resultado (y, con externos con IVA recuperable, el costo financiero). Lo que se muestra como "impuestos" sigue siendo sólo los impuestos sobre la facturación.
+
 ## [0.13.0] - 2026-11-18
 
 **Inflación con precio fijo (K-01, auditoría externa).** Sin cambio de esquema: el campo nuevo es opcional y, ausente o sin decidir, ningún número cambia.

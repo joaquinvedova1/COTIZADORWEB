@@ -87,6 +87,16 @@ export function externalFiscal(fiscal = {}) {
 }
 
 /**
+ * IVA recuperable conocido por $ neto (K-03): IVA % × parte recuperable, sólo si la alícuota está
+ * cargada y se dijo que se recupera (todo o en parte con su %). Sin percepciones. Si no, 0.
+ */
+export function knownVatCreditFactor(fiscal) {
+  const f = fiscal || {};
+  if (!f.vatDefined || !(f.recovery === 'yes' || (f.recovery === 'partial' && !f.missingPartialPct))) return 0;
+  return pct(f.vatPct) * f.recoverableShare;
+}
+
+/**
  * Costo de UNA línea externa (alquilado o tercerizado) en la cotización.
  * @param {object} line  línea de equipo con acquisition rented | outsourced y `external`
  * @param {object} ctx   { daysPerActivation, defaultHoursPerActiveDay, routeKmPerActivation,
@@ -234,5 +244,9 @@ export function computeExternalLine(line = {}, ctx = {}) {
     cashMobilizationPerActiveDay: mobilizationNetPerActiveDay * fiscal.cashFactor,
     creditFixedMonthly: netFixedMonthly * fiscal.creditFactor,
     creditPerActiveDay: (netPerActiveDay + mobilizationNetPerActiveDay) * fiscal.creditFactor,
+    // Sólo el IVA recuperable que se CONOCE (K-03: alivio del costo financiero del IVA): con la
+    // alícuota cargada y "recuperable sí / en parte (con %)". Sin dato, 0 (criterio conservador).
+    vatCreditFixedMonthly: netFixedMonthly * knownVatCreditFactor(fiscal),
+    vatCreditPerActiveDay: (netPerActiveDay + mobilizationNetPerActiveDay) * knownVatCreditFactor(fiscal),
   };
 }

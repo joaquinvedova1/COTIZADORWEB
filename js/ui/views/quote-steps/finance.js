@@ -4,16 +4,19 @@
  * incluida la tasa): días hasta facturar, tasa mensual y días de pago propios.
  *   días financiados = días hasta facturar + plazo de cobro − días de pago
  *   costo financiero = Σ costo en efectivo × tasa mensual × días financiados / 30
+ * ¿Facturás con IVA? (K-03): Sí/No y, si es Sí, el IVA y los días hasta pagarlo (la cuenta la
+ * hace el motor: costo financiero del IVA en el precio, "Ver cálculo" del costo financiero).
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, banner, table } from '../../components.js';
+import { card, formGrid, banner, table, choiceGroup } from '../../components.js';
 import { PAY_GROUPS } from '../../../domain/catalogs.js';
 import { monthsFactor } from '../../../engines/cost-engine.js';
 import { formatMoney, formatPercent, formatNumber, formatDays } from '../../../core/format.js';
 import { illustrativeTag } from '../../layout.js';
 import { hasNumber } from './shared.js';
 import { unitAmountText, perQuoteUnit, closedJobsPerMonth } from '../../result-text.js';
+import { companyAllowsVatFinance, companyVatDefaults, hasCompanyVatDefaults, normalizeVatFinance } from '../../../domain/vat-finance.js';
 
 function groupsAtEstimate(result) {
   const D = result.activity.activeDaysPerMonth;
@@ -138,6 +141,9 @@ export function render(container, ctx) {
       },
       trace: (r) => r.traces.financialCost,
     }),
+    // ¿Facturás con IVA? (K-03): justo después del plazo de cobro. Con monotributo o exento
+    // (Configuración) no se pregunta: nunca aplica.
+    companyAllowsVatFinance(settings) ? renderVatSection(ctx) : null,
     kit.advanced(
       {
         key: 'finance',
@@ -206,4 +212,83 @@ export function render(container, ctx) {
 
   mount(container, termsCard, detail);
   return { update() {} };
+}
+
+/**
+ * "¿Facturás con IVA?" (K-03): una pregunta y, si es Sí, dos números. Al elegir Sí se prellenan
+ * los valores de la empresa (Configuración → Parámetros económicos) que falten; si la cotización
+ * tiene otros, se ofrecen con "Usar los de mi empresa". La cuenta la hace el motor.
+ */
+function renderVatSection(ctx) {
+  const { kit, quote, settings } = ctx;
+  const vat = normalizeVatFinance(quote.finance && quote.finance.vat);
+  const company = companyVatDefaults(settings);
+  const sameAsCompany = vat.ratePct === company.ratePct && vat.payLagDays === company.payLagDays;
+  const offerCompany = vat.applies === true && hasCompanyVatDefaults(settings) && !sameAsCompany && !ctx.readOnly;
+  const choose = (value) => ctx.mutate((q) => {
+    if (!q.finance || typeof q.finance !== 'object') q.finance = {};
+    const current = q.finance.vat && typeof q.finance.vat === 'object' ? q.finance.vat : {};
+    const next = { applies: value, ratePct: current.ratePct ?? null, payLagDays: current.payLagDays ?? null };
+    // Sí: lo que falta se completa con los valores de la empresa (nunca pisa lo cargado).
+    if (value === true) {
+      if (next.ratePct === null && company.ratePct !== null) next.ratePct = company.ratePct;
+      if (next.payLagDays === null && company.payLagDays !== null) next.payLagDays = company.payLagDays;
+    }
+    q.finance.vat = next;
+  }, { focus: value === true && !(company.ratePct !== null && company.payLagDays !== null) ? 'finance.vat.ratePct' : null });
+  return h('div', { class: 'qe-vat-finance' },
+    kit.question('IVA'),
+    h('p', { class: 'qe-note' }, 'Si pagás el IVA antes de cobrar, adelantás esa plata.'),
+    choiceGroup({
+      label: '¿Facturás con IVA?',
+      name: 'finance.vat.applies',
+      value: vat.applies,
+      disabled: ctx.readOnly,
+      options: [
+        { value: true, label: 'Sí' },
+        { value: false, label: 'No' },
+      ],
+      onChange: choose,
+    }),
+    vat.applies === true
+      ? formGrid(
+        2,
+        kit.num('finance.vat.ratePct', {
+          label: 'IVA que facturás',
+          rule: 'vatRate',
+          unit: '%',
+          hint: 'El que le cobrás al cliente. Te lo dice tu contador.',
+        }),
+        kit.num('finance.vat.payLagDays', {
+          label: 'Días entre que facturás y pagás el IVA',
+          rule: 'paymentDays',
+          unit: 'días',
+          hint: 'Si facturás a fin de mes y el IVA vence el 20, son 20.',
+        }),
+      )
+      : null,
+    offerCompany
+      ? h('div', { class: 'qe-toolbar' },
+        kit.action(`Usar los de mi empresa (${formatPercent(company.ratePct)} · ${formatDays(company.payLagDays)})`, () => ctx.mutate((q) => {
+          q.finance.vat = { ...(q.finance.vat || {}), applies: true, ratePct: company.ratePct, payLagDays: company.payLagDays };
+        }, { focus: 'finance.vat.ratePct' }), { icon: 'check' }))
+      : null,
+    vat.applies === true
+      ? kit.toggle(
+        h('p', { class: 'qe-note qe-vat-finance-missing' }, 'Completá los dos datos para ver el costo.'),
+        (r) => !r.kpis.vatFinanceActive,
+      )
+      : null,
+    vat.applies === true
+      ? kit.toggle(
+        h('p', { class: 'qe-note qe-vat-finance-sum' },
+          kit.out((r) => (r.kpis.vatFinancePct > 0
+            ? `Adelantar el IVA te cuesta ${formatMoney(r.kpis.vatFinance)} por mes. Ya está en la tarifa sugerida.`
+            : 'Pagás el IVA después de cobrar: no te cuesta adelantarlo.'), { allowEmpty: true }),
+          ' ',
+          kit.trace((r) => r.traces.financialCost, { label: 'Ver cálculo' })),
+        (r) => Boolean(r.kpis.vatFinanceActive),
+      )
+      : null,
+  );
 }

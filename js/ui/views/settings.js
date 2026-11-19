@@ -32,6 +32,7 @@ import { copyBillingTaxes, billingTaxesDecided, emptyBillingTaxes } from '../../
 import { billingTaxConfigInfo } from '../../engines/billing-taxes-engine.js';
 import { setPath, isPlainObject } from '../../core/object.js';
 import { isExampleQuote } from './quotes-list.js';
+import { companyAllowsVatFinance, companyVatDefaults } from '../../domain/vat-finance.js';
 
 const MAX_MATRIX_DAYS = 12;
 
@@ -808,6 +809,7 @@ export async function render(root, app, params = {}) {
       options: VAT_CONDITIONS.map((c) => ({ value: c.id, label: c.label })),
       onChange: async (v) => {
         refreshVatHint(v);
+        refreshVatDefaults(v || null);
         try {
           await ctx.settings.save({ vatCondition: v || null });
           settings.vatCondition = v || null;
@@ -816,6 +818,57 @@ export async function render(root, app, params = {}) {
         }
       },
     });
+
+    // ---- costo financiero del IVA (K-03): IVA que facturás y días hasta pagarlo. Sólo para
+    // responsable inscripto o sin definir. Sin valores precargados: los carga la empresa.
+    const vatDefaults = { ...companyVatDefaults(settings) };
+    const vatChip = saveChip({ ephemeral });
+    let vatDefaultsFields = null;
+    const vatSaver = createAutosave({
+      chip: vatChip,
+      readOnly,
+      isValid: () => !vatDefaultsFields || vatDefaultsFields.querySelectorAll('[aria-invalid="true"]').length === 0,
+      save: async () => {
+        await ctx.settings.save({ defaultVat: { ratePct: vatDefaults.ratePct, payLagDays: vatDefaults.payLagDays } });
+        settings.defaultVat = { ratePct: vatDefaults.ratePct, payLagDays: vatDefaults.payLagDays };
+      },
+      onError: (error) => app.toast(userErrorMessage(error, 'No se pudieron guardar los datos del IVA.'), 'danger'),
+    });
+    savers.push(vatSaver);
+    const saveVatDefaults = () => vatSaver.schedule();
+    vatDefaultsFields = h('div', { class: 'stack vat-finance-defaults' },
+      h('div', { class: 'vat-finance-defaults-head' },
+        h('h3', { class: 'params-group-title' }, 'IVA: costo de adelantarlo'),
+        vatChip.el),
+      h('p', { class: 'small' }, 'No es un impuesto que se suma al precio: es lo que te cuesta pagarlo antes de cobrar.'),
+      formGrid(
+        2,
+        numberField({
+          label: 'IVA que facturás',
+          value: vatDefaults.ratePct,
+          rule: 'vatRate',
+          unit: '%',
+          disabled: readOnly,
+          hint: 'El que le cobrás a tus clientes. Te lo dice tu contador.',
+          onChange: (v) => { vatDefaults.ratePct = v; saveVatDefaults(); },
+        }),
+        numberField({
+          label: 'Días entre que facturás y pagás el IVA',
+          value: vatDefaults.payLagDays,
+          rule: 'paymentDays',
+          unit: 'días',
+          disabled: readOnly,
+          hint: 'Si facturás a fin de mes y el IVA vence el 20, son 20.',
+          onChange: (v) => { vatDefaults.payLagDays = v; saveVatDefaults(); },
+        }),
+      ),
+      h('p', { class: 'small muted' }, 'Con estos dos datos cada cotización nueva cuenta lo que te cuesta adelantar el IVA hasta que cobrás (las que ya tenés conservan lo suyo).'));
+    // Un texto inválido en un campo (que todavía no llegó al objeto) también bloquea el guardado.
+    vatDefaultsFields.addEventListener('input', () => vatSaver.schedule());
+    const refreshVatDefaults = (condition) => {
+      vatDefaultsFields.hidden = !companyAllowsVatFinance({ vatCondition: condition });
+    };
+    refreshVatDefaults(settings.vatCondition || null);
 
     // ---- base del combustible y tipos de cambio (PLAN-2026-005)
     // Punto de partida de las cotizaciones nuevas (cada una guarda los suyos).
@@ -901,7 +954,7 @@ export async function render(root, app, params = {}) {
             className: 'autosave-card',
             level: 2,
           },
-          h('div', { class: 'stack' }, h('div', { class: 'stack' }, formGrid(2, vatField), vatHint), billingTaxesHelp(), taxesHolder, taxesSummary),
+          h('div', { class: 'stack' }, h('div', { class: 'stack' }, formGrid(2, vatField), vatHint, vatDefaultsFields), billingTaxesHelp(), taxesHolder, taxesSummary),
         ),
         card(
           {

@@ -59,6 +59,7 @@ import { ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { formatMoney, formatNumber } from '../core/format.js';
 import { priceAdjustmentOf } from '../domain/price-adjustment.js';
+import { vatFinanceOf } from '../domain/vat-finance.js';
 
 /**
  * Días de trabajo que lleva facturar una cantidad (PLAN-2026-009). UNIDAD DE
@@ -684,7 +685,51 @@ export function buildCostModel(quote = {}) {
     }
     addTo(cashByGroup[l.payGroup] || cashByGroup.suppliers, l.cashFixedMonthly, l.cashVariablePerActiveDay);
   });
-  const finance = computeFinance(cashByGroup, quote.finance || {}, { suppliers: [...supplierTerms.values()] });
+  const financeRaw = computeFinance(cashByGroup, quote.finance || {}, { suppliers: [...supplierTerms.values()] });
+  // 7 bis. Costo financiero del IVA (K-03): el IVA recuperable CONOCIDO de los externos baja el IVA
+  // que se adelanta al fisco, y con eso el costo financiero: alivio = crédito × tasa × d/30, con
+  // d = max(0, plazo de cobro − días hasta pagar el IVA). Piso 0 en el fijo y en el variable (el
+  // financiero nunca queda negativo). Apagado (sin "Sí" o sin datos): el financiero de siempre.
+  const vat = vatFinanceOf(quote);
+  const vatRelief = (() => {
+    const rate = pct(financeRaw.monthlyRatePct);
+    const factor = vat.active ? rate * (vat.days / 30) : 0;
+    const creditFixedMonthly = external.reduce((acc, x) => acc + nonNegative(x.vatCreditFixedMonthly), 0);
+    const creditPerActiveDay = external.reduce((acc, x) => acc + nonNegative(x.vatCreditPerActiveDay), 0);
+    // Tope: el crédito sólo alivia hasta el IVA que se factura. Como piso conservador del IVA de
+    // venta se usa IVA % × costo antes del alivio (el precio nunca es menor que el costo); lo que
+    // sobra es saldo a favor, que no se adelanta al fisco. Con IVA 0 % no hay alivio.
+    const vatShare = vat.active ? pct(nonNegative(vat.ratePct)) : 0;
+    const baseFixed = lines.reduce((acc, l) => acc + nonNegative(l.fixedMonthly), 0) + financeRaw.fixedMonthly;
+    const baseVariable = lines.reduce((acc, l) => acc + nonNegative(l.variablePerActiveDay), 0) + financeRaw.variablePerActiveDay;
+    const usedFixed = Math.min(creditFixedMonthly, vatShare * baseFixed);
+    const usedVariable = Math.min(creditPerActiveDay, vatShare * baseVariable);
+    const reliefFixed = usedFixed * factor;
+    const reliefVariable = usedVariable * factor;
+    return {
+      active: vat.active && factor > 0 && (reliefFixed > 0 || reliefVariable > 0),
+      days: vat.days,
+      creditFixedMonthly: vat.active ? creditFixedMonthly : 0,
+      creditPerActiveDay: vat.active ? creditPerActiveDay : 0,
+      // Crédito que se usa de verdad (con el tope del IVA que se factura).
+      creditUsedFixedMonthly: vat.active ? usedFixed : 0,
+      creditUsedPerActiveDay: vat.active ? usedVariable : 0,
+      // Lo que se descuenta de verdad (con el piso 0 de cada parte).
+      fixedMonthly: Math.min(reliefFixed, financeRaw.fixedMonthly),
+      variablePerActiveDay: Math.min(reliefVariable, financeRaw.variablePerActiveDay),
+      grossFixedMonthly: financeRaw.fixedMonthly,
+      grossVariablePerActiveDay: financeRaw.variablePerActiveDay,
+    };
+  })();
+  const finance = vatRelief.active
+    ? {
+      ...financeRaw,
+      fixedMonthly: Math.max(0, financeRaw.fixedMonthly - vatRelief.fixedMonthly),
+      variablePerActiveDay: Math.max(0, financeRaw.variablePerActiveDay - vatRelief.variablePerActiveDay),
+      vat,
+      vatRelief,
+    }
+    : { ...financeRaw, vat, vatRelief };
 
   // 8. Contingencia
   const preContingency = emptyBucket();

@@ -127,6 +127,8 @@
 .qr-compose-seg + .qr-compose-seg { border-left: 2px solid var(--white); }
 .qr-compose-seg.is-cost, .qr-compose-item.is-cost .qr-compose-swatch { background: var(--navy-900); }
 .qr-compose-seg.is-taxes, .qr-compose-item.is-taxes .qr-compose-swatch { background: #9FB1BF; }
+/* Costo financiero del IVA (K-03): azul medio, distinto del gris de los impuestos. */
+.qr-compose-seg.is-vat, .qr-compose-item.is-vat .qr-compose-swatch { background: #3B7DD8; }
 .qr-compose-seg.is-result, .qr-compose-item.is-result .qr-compose-swatch { background: var(--green); }
 .qr-compose-legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem 1.25rem; }
 .qr-compose-item { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "swatch name" ". value" ". month"; gap: 0.1rem 0.5rem; align-items: center; }
