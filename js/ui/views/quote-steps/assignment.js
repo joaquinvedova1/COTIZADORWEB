@@ -119,7 +119,7 @@ export function monthHoursField(kit, ctx, { path, baseHours, kind }) {
     rule: 'hours',
     unit: 'h/mes',
     placeholder: baseText ? `${baseText} (todo el mes)` : 'Todo el mes',
-    hint: `${kind === 'labor' ? 'Las horas por mes que le dedica a este servicio' : 'Las horas por mes que está en este servicio'}. Vacío: todo el mes. Con menos horas, el servicio paga esa parte de su costo mensual${baseText ? ` (horas ÷ ${baseText} h del mes)` : ''}.`,
+    hint: `${kind === 'labor' ? 'Las horas por mes que le dedica a este servicio (si van varias personas, las de cada una)' : 'Las horas por mes que está en este servicio'}. Vacío = todo el mes. Con menos horas, el servicio paga esa parte de su costo mensual${baseText ? ` (horas ÷ ${baseText} h del mes)` : ''}.`,
     onValue: (value) => {
       const hours = filled(value) ? Number(value) : 0;
       if (hours > 0 && base > 0 && hours < base) {
@@ -128,6 +128,8 @@ export function monthHoursField(kit, ctx, { path, baseHours, kind }) {
       } else {
         ctx.update(`${path}.assignment`, kind === 'labor' ? 'dedicated' : 'reserved');
         ctx.update(`${path}.fixedCostSharePct`, null);
+        // 0 no es "nada de su mes": es sin dato (todo el mes), como vacío.
+        if (!(hours > 0) && filled(value)) ctx.update(`${path}.assignedHoursPerMonth`, null);
       }
     },
   });

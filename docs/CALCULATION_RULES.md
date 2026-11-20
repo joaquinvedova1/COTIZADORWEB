@@ -2116,7 +2116,7 @@ valor de la hora  = costo del mes ÷ horas del mes del recurso (§29)
 ```
 horas en el trabajo  = min(assignedHoursPerDay, horas del día de trabajo)        (24 si el servicio no las tiene)
 horas andando        = hoursPerActiveDay de la línea o, vacío, las horas en el trabajo
-horas de tenerlo     = min(max(horas en el trabajo, horas andando), horas del día de trabajo)
+horas de tenerlo     = min(max(horas en el trabajo, horas andando), horas del día de trabajo)   (sin horas del día: las horas andando)
 tenerlo por día      = posesión del mes ÷ horas facturables × horas de tenerlo × cantidad
 usarlo por día       = operación por hora × horas andando × cantidad
 ```
@@ -2132,7 +2132,9 @@ Caso (hidrogrúa con posesión de 1.000.000 por mes y 200 h por mes = 5.000 la h
 
 **Límite conocido.** Si el equipo queda inmovilizado todo el día aunque trabaje 2 h (no puede ir a otro trabajo), hay que dejar el campo vacío o cargar el día entero: con 2 h, las otras 6 no las paga nadie.
 
-**Cobro por mes (sin cambio de fórmula).** La pantalla pide `assignedHoursPerMonth` ("Horas por mes en este servicio") y guarda el % explícito de siempre: `fixedCostSharePct = horas ÷ horas del mes del recurso × 100` con `assignment = 'shared'`; vacío, 0 o las horas del mes (o más) = `dedicated` / `reserved` sin %. Horas del mes: personal, `billableHoursPerMonth` o las normales; equipo propio, `billableHoursPerMonth` o `defaultEquipmentBillableHours`. El % queda guardado (AGENTS §5.1): no se recalcula solo si después cambian las horas del mes del recurso. Una línea compartida con % y sin horas (cargada antes) se sigue editando como %.
+**Avisos.** `resourcesPerDayCheck` (cobro por hora de equipo) compara lo facturado con las horas en el trabajo, y `equipment_hours` no pide las horas del día para un equipo que ya tiene las suyas. Las horas extra del trabajo (§28) siguen sumando la operación de todo equipo propio con horas, también el que está sólo una parte del día (límite conocido).
+
+**Cobro por mes (sin cambio de fórmula).** La pantalla pide `assignedHoursPerMonth` ("Horas por mes en este servicio") y guarda el % explícito de siempre: `fixedCostSharePct = horas ÷ horas del mes del recurso × 100` con `assignment = 'shared'`; vacío, 0 o las horas del mes (o más) = `dedicated` / `reserved` sin %. Horas del mes: personal, `billableHoursPerMonth` o las normales; equipo propio, `billableHoursPerMonth` o `defaultEquipmentBillableHours`. Sólo en cotizaciones que se cobran por mes (en una anterior por día o por trabajo sigue la pregunta de dedicación con su %). Cargar 0 es lo mismo que vacío. El % queda guardado (AGENTS §5.1): no se recalcula solo si después cambian las horas del mes del recurso. Una línea compartida con % y sin horas (cargada antes) se sigue editando como %.
 
 **Validación.** `coverageHoursPerDay` y `assignedHoursPerDay`: 0–24. `assignedHoursPerMonth`: 0–744.
 

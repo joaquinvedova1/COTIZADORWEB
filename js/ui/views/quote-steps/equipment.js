@@ -43,6 +43,7 @@ import { assignmentBlock, monthHoursField, hasManualSharePct } from './assignmen
 import { mobilizationEditor } from './logistics.js';
 import { closedJobsPerMonth, quoteUnitPlace, perBilledUnitSuffix, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText } from '../../result-text.js';
 import { usesTimeBasis } from '../../../domain/cost-basis.js';
+import { billingUnitOf } from '../../../domain/billing-units.js';
 import { workDaysText } from '../../unit-text.js';
 import { isVehicleFamily, looksLikeVehicleName } from '../../../domain/equipment-catalog.js';
 
@@ -476,6 +477,7 @@ export function render(container, ctx) {
     const crew = (Array.isArray(quote.labor) ? quote.labor : []).reduce((max, l) => Math.max(max, nonNegative(l && l.normalHoursPerMonth)), 0);
     return defaultEquipmentBillableHours(activityHours, crew > 0 ? crew : ILLUSTRATIVE_AGREEMENT_PARAMS.normalHoursPerMonth);
   };
+  const monthUnit = billingUnitOf(quote).kind === 'month';
   const currency = quoteCurrencyOf(quote);
   const hoursDefault = () => (Number.isFinite(Number(activityHours)) && activityHours !== null ? Number(activityHours) : null);
 
@@ -809,13 +811,13 @@ export function render(container, ctx) {
         hint: 'Sólo las horas con el motor trabajando parado (bombeo, grúa, generador). Si sólo lleva gente o carga: 0. Con 0 h no suman el consumo ni el mantenimiento por hora: lo de la ruta va en "Desgaste por km".',
       }
       : {
-        label: timeBasis ? 'Horas por día con el equipo andando (opcional)' : 'Horas de uso por día de trabajo',
+        label: timeBasis ? 'Horas por día con el motor andando (opcional)' : 'Horas de uso por día de trabajo',
         rule: 'hoursPerDay',
         unit: 'h/día',
         placeholder: timeBasis ? 'Las mismas que en el trabajo' : activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
         // M9 (2026-11-18): por tiempo usado, tenerlo va por las horas del día de trabajo, no por las de motor.
         hint: timeBasis
-          ? 'Las horas por día con el equipo andando: mueven el combustible, el mantenimiento y los neumáticos por hora. Vacío = las horas por día en este trabajo.'
+          ? 'Las horas por día con el equipo andando: mueven el combustible, el mantenimiento y los neumáticos por hora. Vacío = las horas por día en este trabajo. Si son más que ésas, tenerlo también se cuenta por estas horas.'
           : 'Cuántas horas trabaja el equipo cada día. Vacío = las horas por día del servicio.',
       });
     // 0.18.0: horas por día que el equipo está en este trabajo (vacío = todo el día de trabajo).
@@ -824,14 +826,16 @@ export function render(container, ctx) {
       label: 'Horas por día en este trabajo',
       rule: 'hoursPerDay',
       unit: 'h/día',
-      placeholder: dayHours !== null && dayHours > 0 ? `${formatNumber(dayHours, { decimals: 2 })} (todo el día de trabajo)` : 'Todo el día de trabajo',
-      hint: `Las horas por día que el equipo está en este trabajo. Tenerlo (amortización, seguro, patente) se cobra por esas horas. Ejemplo: de un día de 8 h, la hidrogrúa va 2 → 2. Vacío: todo el día de trabajo${dayHours !== null && dayHours > 0 ? ` (${formatNumber(dayHours, { decimals: 2 })} h)` : ''}; más que eso no se cuenta.`,
+      placeholder: dayHours !== null && dayHours > 0 ? `${formatNumber(dayHours, { decimals: 2 })} (todo el día)` : 'Todo el día',
+      // Vehículo: sus horas trabajando en la locación toman este dato si están vacías (se redibuja).
+      structural: vehicle,
+      hint: `Lo que te cuesta tener el equipo (desgaste, seguro, patente) se cuenta por esas horas × el valor de su hora. Ejemplo: de un día de 8 h, la hidrogrúa va 2 → 2. Si queda inmovilizado todo el día, dejalo vacío. Vacío = todo el día de trabajo${dayHours !== null && dayHours > 0 ? ` (${formatNumber(dayHours, { decimals: 2 })} h)` : ''}; más que eso no se cuenta.`,
     });
     // Por mes: horas por mes en el servicio (vacío = todo el mes). Un % cargado antes se ve en "Más detalle".
-    const monthField = () => (hasManualSharePct(line) ? null : monthHoursField(kit, ctx, { path: p, kind: 'equipment', baseHours: monthBaseHours(line) }));
+    const monthField = () => (!monthUnit || hasManualSharePct(line) ? null : monthHoursField(kit, ctx, { path: p, kind: 'equipment', baseHours: monthBaseHours(line) }));
     // I7 (2026-11-18): por tiempo usado, con cuántas horas por mes se reparte lo de tenerlo (a la vista, junto a las horas de uso).
     const billableField = () => kit.num(`${p}.billableHoursPerMonth`, {
-      label: '¿Cuántas horas por mes lo usás o alquilás? (opcional)',
+      label: 'Horas por mes de uso o alquiler (opcional)',
       rule: 'hours',
       unit: 'h/mes',
       placeholder: billablePlaceholder(i),
@@ -884,7 +888,7 @@ export function render(container, ctx) {
           if (!l) return '';
           const units = `${formatNumber(l.quantity, { decimals: 2 })} ${plural(l.quantity, 'unidad', 'unidades')}`;
           // 0.18.0: por tiempo usado, lo que define el costo de tenerlo son sus horas en el trabajo.
-          if (l.timeBasis && l.time) return `${units} · ${formatNumber(l.time.hoursPerDay, { decimals: 2 })} h por día en este trabajo`;
+          if (l.timeBasis && l.time) return `${units} · ${formatNumber(l.time.hoursPerDay, { decimals: 2 })} h por día`;
           if (vehicle) return l.hoursPerActiveDay > 0 ? `${units} · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h por día trabajando en la locación` : `${units} · vehículo (sólo viaja)`;
           return `${units} · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h de uso por día de trabajo`;
         }),
@@ -975,7 +979,7 @@ export function render(container, ctx) {
         wear[1],
         // PLAN-2026-012: reservado / compartido (% explícito de sus costos fijos). Por tiempo usado no hay %.
         // 0.18.0: por mes se piden las horas por mes arriba; el bloque queda sólo para un % cargado antes.
-        timeBasis || !hasManualSharePct(line) ? null : assignmentBlock(kit, { path: p, line, kind: 'equipment', at }),
+        timeBasis || (monthUnit && !hasManualSharePct(line)) ? null : assignmentBlock(kit, { path: p, line, kind: 'equipment', at }),
       ),
       kit.advanced(
         {

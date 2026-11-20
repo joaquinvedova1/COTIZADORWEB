@@ -680,7 +680,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
           cell('Hora al 50 %', p.overtimeHourlyCost50, note(p.overtimeRate50Own, p.overtimeHourlyCost50, 'Calculada: hora de sueldo × 1,5, con cargas')),
           cell('Hora al 100 %', p.overtimeHourlyCost100, note(p.overtimeRate100Own, p.overtimeHourlyCost100, 'Calculada: hora de sueldo × 2, con cargas')),
           // Hora para cotizar trabajos (tiempo usado): costo del mes ÷ horas que vende. Igual a la normal si no las cargó.
-          cell('Hora para cotizar', p.ownBillableHours ? p.billableHourlyCost : p.loadedHourlyCost, p.ownBillableHours ? 'Costo del mes ÷ horas que le cobrás a clientes' : 'Igual a la hora normal (no cargaste horas para clientes)'));
+          cell('Valor de la hora', p.ownBillableHours ? p.billableHourlyCost : p.loadedHourlyCost, p.ownBillableHours ? 'Costo del mes ÷ horas que le cobrás a clientes' : 'Igual a la hora normal (no cargaste horas para clientes)'));
         return over ? h('div', {}, rates, h('p', { class: 'hour-rates-warning', role: 'status' }, BILLABLE_OVER_NORMAL_NOTE)) : rates;
       } : null,
     },

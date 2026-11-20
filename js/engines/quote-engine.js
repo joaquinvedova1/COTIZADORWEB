@@ -31,6 +31,7 @@ import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { rateUpdateState, proposeLaborRaisePct } from './rate-update-engine.js';
 import { usesTimeBasis } from '../domain/cost-basis.js';
+import { assignedEquipmentHours } from './equipment-engine.js';
 import { periodFromDate } from '../domain/economic-base.js';
 import { contractOf, contractUnits, modeForUnit } from '../domain/contract.js';
 import { unitTexts, unitFitsServiceType, SERVICE_TYPE_UNITS, BILLING_UNITS, capitalizeUnitWord } from '../domain/billing-units.js';
@@ -172,7 +173,13 @@ function resourcesPerDayCheck(quote, unitId, a) {
     if (!lines.length) return null;
     const count = lines.reduce((t, e) => t + Math.max(0, num(e.quantity, 1)), 0);
     if (unitId === 'equipment_day') return { loaded: count, detail: `${formatNumber(count, { decimals: 2 })} equipos en Equipos`, where: 'los equipos cargados' };
-    const hours = lines.reduce((t, e) => t + Math.max(0, num(e.quantity, 1)) * Math.max(0, num(e.hoursPerActiveDay, a.hoursPerActiveDay)), 0);
+    // 0.18.0: por tiempo usado, un equipo propio con horas en el trabajo se costea con ésas.
+    const time = usesTimeBasis(quote);
+    const dayHours = (e) => {
+      const own = time && e.acquisition !== 'rented' && e.acquisition !== 'outsourced' ? assignedEquipmentHours(e, a.hoursPerActiveDay) : 0;
+      return own > 0 ? Math.max(own, Math.min(num(e.hoursPerActiveDay, 0), num(a.hoursPerActiveDay, 24) > 0 ? num(a.hoursPerActiveDay, 24) : 24)) : num(e.hoursPerActiveDay, a.hoursPerActiveDay);
+    };
+    const hours = lines.reduce((t, e) => t + Math.max(0, num(e.quantity, 1)) * Math.max(0, dayHours(e)), 0);
     return { loaded: hours, detail: 'equipos × horas por día en Equipos', where: 'los equipos y sus horas por día' };
   }
   return null;

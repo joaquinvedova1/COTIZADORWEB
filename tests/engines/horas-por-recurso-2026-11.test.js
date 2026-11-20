@@ -97,3 +97,15 @@ test('validación: horas por día 0–24 y horas por mes 0–744', () => {
   const paths = validateQuote(q).map((i) => i.path);
   ['labor.0.coverageHoursPerDay', 'labor.0.assignedHoursPerMonth', 'equipment.0.assignedHoursPerDay', 'equipment.0.assignedHoursPerMonth'].forEach((p) => assert.ok(paths.includes(p), p));
 });
+
+test('avisos: cobro por hora de equipo compara con las horas en el trabajo; sin horas del día no se pide el uso', () => {
+  const q = service({ unit: 'equipment_hour', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8, billableQuantityPerMonth: 20, unitsPerActiveDay: 2 }, equipment: [crane({ assignedHoursPerDay: 2 })] });
+  q.costBasis = 'time';
+  const issues = JSON.stringify(computeQuote(q).issues || []);
+  assert.ok(!/lo cargado da 8/.test(issues), issues.slice(0, 400));
+  const noDay = service({ unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 0 }, equipment: [crane({ assignedHoursPerDay: 2 })] });
+  noDay.costBasis = 'time';
+  const r = computeQuote(noDay);
+  assert.ok(!(r.completeness.pending || []).some((x) => x.id === 'equipment_hours'));
+  near(r.model.equipment[0].ownershipPerActiveDay, 2 * 5000);
+});
