@@ -109,3 +109,110 @@ test('avisos: cobro por hora de equipo compara con las horas en el trabajo; sin 
   assert.ok(!(r.completeness.pending || []).some((x) => x.id === 'equipment_hours'));
   near(r.model.equipment[0].ownershipPerActiveDay, 2 * 5000);
 });
+
+// ---- 0.19.0: horas del recurso en la unidad de cobro (CALCULATION_RULES §36.2) ----
+import { resourceHoursBasis, unitHoursFactor, resolveUnitHours } from '../../js/domain/cost-basis.js';
+import { applyUnitChange } from '../../js/domain/unit-change.js';
+import { billingUnitOf } from '../../js/domain/billing-units.js';
+
+const valveQuote = (o = {}) => {
+  const q = service({
+    unit: 'custom', unitName: 'válvula',
+    activity: { hoursPerActiveDay: 8, billableQuantityPerMonth: 40, unitsPerActiveDay: 4 },
+    labor: [person({ role: 'Operador', assignedHoursPerUnit: 1.5 })],
+    equipment: [crane({ assignedHoursPerUnit: 0.5 })],
+    ...o,
+  });
+  q.costBasis = 'time';
+  return q;
+};
+
+test('en qué se piden las horas: por unidad contable, por trabajo, por día', () => {
+  assert.equal(resourceHoursBasis(valveQuote()), 'unit');
+  const job = valveQuote({ unit: 'job' });
+  assert.equal(resourceHoursBasis(job), 'job');
+  ['day', 'hour', 'km', 'm3', 'manhour'].forEach((unit) => assert.equal(resourceHoursBasis(valveQuote({ unit })), 'day', unit));
+  assert.equal(resourceHoursBasis(valveQuote({ unit: 'month' })), null);
+  const old = valveQuote();
+  delete old.costBasis;
+  assert.equal(resourceHoursBasis(old), null);
+});
+
+test('por válvula: 0,5 h de grúa × 4 válvulas por día = 2 h por día; el costo por válvula no depende del ritmo', () => {
+  const r = computeQuote(valveQuote());
+  const grua = r.model.equipment[0];
+  const op = r.model.labor.lines[0];
+  assert.equal(grua.time.hoursPerDay, 2);
+  near(grua.ownershipPerActiveDay, 2 * 5000);
+  near(grua.variablePerActiveDay, 2 * (10 * 1500 + 1000));
+  assert.equal(op.time.hoursPerDay, 6);
+  // Mismo resultado que cargar las horas por día a mano.
+  const byDay = valveQuote({ labor: [person({ role: 'Operador', coverageHoursPerDay: 6 })], equipment: [crane({ assignedHoursPerDay: 2 })] });
+  near(computeQuote(byDay).kpis.totalCost, r.kpis.totalCost);
+  // Con otro ritmo (2 válvulas por día) el costo de grúa por válvula es el mismo: 0,5 h × valor hora.
+  const slow = valveQuote();
+  slow.activity.unitsPerActiveDay = 2;
+  const g2 = computeQuote(slow).model.equipment[0];
+  near((g2.ownershipPerActiveDay + g2.variablePerActiveDay) / 2, (grua.ownershipPerActiveDay + grua.variablePerActiveDay) / 4);
+});
+
+test('por trabajo: 6 h de grúa en un trabajo de 3 días = 2 h por día', () => {
+  const q = valveQuote({ unit: 'job', activity: { hoursPerActiveDay: 8, billableQuantityPerMonth: 1, daysPerActivation: 3 }, labor: [], equipment: [crane({ assignedHoursPerUnit: 6 })] });
+  const r = computeQuote(q);
+  near(r.activity.activeDaysPerMonth, 3);
+  assert.equal(r.model.equipment[0].time.hoursPerDay, 2);
+  near(r.model.equipment[0].ownershipPerActiveDay * 3, 6 * 5000);
+});
+
+test('sin rendimiento cargado, cobro por día o equipo alquilado: las horas en la unidad no se aplican', () => {
+  assert.equal(unitHoursFactor('unit', { unitsPerActiveDay: 0 }), 0);
+  const q = valveQuote();
+  q.activity.unitsPerActiveDay = null;
+  assert.equal(resolveUnitHours(q, { unitsPerActiveDay: 0 }), q);
+  const day = valveQuote({ unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 } });
+  assert.equal(computeQuote(day).model.equipment[0].time.hoursPerDay, 8);
+  const rented = valveQuote();
+  rented.equipment[0].acquisition = 'rented';
+  const out = resolveUnitHours(rented, { unitsPerActiveDay: 4 });
+  assert.equal(out.equipment[0].assignedHoursPerDay, rented.equipment[0].assignedHoursPerDay);
+  // No muta la cotización.
+  const before = JSON.stringify(q);
+  computeQuote(valveQuote());
+  assert.equal(JSON.stringify(q), before);
+});
+
+test('más horas que el día de trabajo no se cuentan; validación 0–744', () => {
+  const q = valveQuote({ equipment: [crane({ assignedHoursPerUnit: 5 })] });
+  assert.equal(computeQuote(q).model.equipment[0].time.hoursPerDay, 8);
+  q.equipment[0].assignedHoursPerUnit = -1;
+  q.labor[0].assignedHoursPerUnit = 800;
+  const paths = validateQuote(q).map((i) => i.path);
+  ['labor.0.assignedHoursPerUnit', 'equipment.0.assignedHoursPerUnit'].forEach((p) => assert.ok(paths.includes(p), p));
+});
+
+test('al cambiar la unidad de cobro se limpian las horas cargadas en la anterior, con aviso', () => {
+  const q = valveQuote();
+  const from = billingUnitOf(q);
+  const notices = applyUnitChange(q, from, billingUnitOf({ ...q, unit: 'day' }));
+  assert.equal(q.labor[0].assignedHoursPerUnit, null);
+  assert.equal(q.equipment[0].assignedHoursPerUnit, null);
+  assert.ok(notices.some((n) => /horas de cada recurso/.test(n)), notices.join(' | '));
+});
+
+test('horas por encima del día de trabajo: aviso en la línea (no se recorta en silencio)', () => {
+  const q = valveQuote({ equipment: [crane({ assignedHoursPerUnit: 3 })] }); // 3 h × 4 válvulas = 12 h > 8 h
+  const issues = computeQuote(q).issues.filter((i) => /no se están contando/.test(i.message));
+  assert.deepEqual(issues.map((i) => i.path), ['equipment.0.assignedHoursPerUnit']);
+  const day = service({ unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person({ coverageHoursPerDay: 10 })] });
+  day.costBasis = 'time';
+  assert.ok(computeQuote(day).issues.some((i) => i.path === 'labor.0.coverageHoursPerDay' && /no se están contando/.test(i.message)));
+  assert.ok(!computeQuote(valveQuote()).issues.some((i) => /no se están contando/.test(i.message)));
+});
+
+test('equipo con horas andando heredadas por encima de las asignadas: el motor cuenta las andando y avisa', () => {
+  const q = valveQuote({ equipment: [crane({ assignedHoursPerUnit: 0.5, hoursPerActiveDay: 8 })] });
+  const r = computeQuote(q);
+  assert.equal(r.model.equipment[0].time.hoursPerDay, 8);
+  assert.ok(r.issues.some((i) => i.path === 'equipment.0.hoursPerActiveDay' && /con el motor andando/.test(i.message)));
+  assert.ok(!computeQuote(valveQuote()).issues.some((i) => /con el motor andando/.test(i.message)));
+});

@@ -18,13 +18,13 @@ import { vatIsCost } from '../../../domain/catalogs.js';
 import { openNewLaborProfileDialog } from '../library.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
 import { closedJobsPerMonth, quoteUnitPlace, lineMonthAtEstimate, perBilledUnitSuffix, roleOvertimeMonth, overtimeWorkLabel, closedLaborCostText, timeLaborCostText, laborHourStat, BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT } from '../../result-text.js';
-import { usesTimeBasis } from '../../../domain/cost-basis.js';
+import { usesTimeBasis, resourceHoursBasis, unitHoursFactor } from '../../../domain/cost-basis.js';
 import { nonNegative, isFiniteNumber, roundRate } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { onSessionReset } from '../../session-memory.js';
 import { baseText } from '../../economic-base-ui.js';
-import { assignmentBlock, monthHoursField, hasManualSharePct } from './assignment.js';
+import { assignmentBlock, monthHoursField, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
 import { billableHoursOf } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { laborHeadcountOf } from '../../../engines/labor-engine.js';
@@ -172,8 +172,15 @@ export function render(container, ctx) {
   const illustrativeParam = (line, key) => isIllustrativeAgreementParam(line, key, { agreement: agreementOf(line), wholeIllustrative: Boolean(quote.illustrative) });
 
   // 0.18.0: lo que se pide de cada recurso asignado son sus horas (por día de trabajo o por mes).
-  const hoursKey = timeBasis ? 'coverageHoursPerDay' : billingUnitOf(quote).kind === 'month' ? 'assignedHoursPerMonth' : 'positions';
-  const hoursWhat = timeBasis ? 'horas por día en este trabajo' : billingUnitOf(quote).kind === 'month' ? 'horas por mes en este servicio' : 'datos en esta cotización';
+  // 0.19.0: en la unidad de cobro (por válvula, en el trabajo) cuando la unidad lo permite.
+  const hoursBasis = resourceHoursBasis(quote);
+  /** Cobro por unidad contable con el rendimiento cargado: las cuentas se dicen "por válvula". */
+  const perUnitView = (r) => {
+    const f = hoursBasis === 'unit' && r && r.activity ? nonNegative(r.activity.unitsPerActiveDay) : 0;
+    return f > 0 ? { f, one: billingUnitOf(quote).singular || 'unidad' } : null;
+  };
+  const hoursKey = timeBasis ? (hoursBasis === 'unit' || hoursBasis === 'job' ? 'assignedHoursPerUnit' : 'coverageHoursPerDay') : billingUnitOf(quote).kind === 'month' ? 'assignedHoursPerMonth' : 'positions';
+  const hoursWhat = timeBasis || billingUnitOf(quote).kind === 'month' ? 'horas efectivas de trabajo' : 'datos en esta cotización';
 
   // ------------------------------------------------------------ acciones
   let selectedProfileId = null;
@@ -418,16 +425,18 @@ export function render(container, ctx) {
   const hasLegacyOvertime = (line) => Boolean(line) && (Array.isArray(line.overtime) || nonNegative(line.overtimeHoursPerActiveDay) > 0 || line.overtimeBilled === true);
 
   // -------------------------------------------------------------- líneas
+  /** ¿La cantidad es 1 (o no está)? Entonces no se muestra: un recurso asignado es ese recurso. */
+  const singleUnit = (v) => v !== null && v !== undefined && v !== '' && Math.abs(Number(v) - 1) < 1e-9;
   /** Horas por día de cada persona en el trabajo (vacío = las del servicio). */
   const hoursPerDayField = (i, line) => kit.num(`labor.${i}.coverageHoursPerDay`, {
-    label: timeBasis ? 'Horas por día en este trabajo' : 'Horas por día de cada persona',
+    label: timeBasis ? 'Horas efectivas de trabajo' : 'Horas por día de cada persona',
     rule: 'hoursPerDay',
     unit: 'h/día',
     placeholder: line.rotation && nonNegative(line.rotation.hoursPerShift) > 0
       ? `${n2(nonNegative(line.rotation.hoursPerShift))} (turno cargado antes)`
       : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (${timeBasis ? 'todo el día' : 'las del servicio'})` : `Las del servicio («${stepName('modality')}»)`,
     hint: timeBasis
-      ? `Su costo = esas horas × el valor de su hora. Ejemplo: de un día de 8 h, el chofer maneja 5 → 5. Si van varias personas, son las horas de cada una. Vacío = todo el día de trabajo${serviceHours > 0 ? ` (${formatNumber(serviceHours, { decimals: 2 })} h)` : ` (se carga en «${stepName('modality')}»)`}; más que eso no se cuenta.`
+      ? `Las horas efectivas de trabajo de este puesto para esta cotización, por día de trabajo. Su costo = esas horas × el valor de su hora. Ejemplo: de un día de 8 h, el chofer maneja 5 → 5. Vacío = todo el día de trabajo${serviceHours > 0 ? ` (${formatNumber(serviceHours, { decimals: 2 })} h)` : ` (se carga en «${stepName('modality')}»)`}; más que eso no se cuenta.`
       : 'Vacío = trabajan todas las horas por día del servicio. Si se turnan (por ejemplo 3 personas de 8 h para 24 h), cargá las de cada una. Sirve para avisarte si faltan horas.',
   });
   /**
@@ -437,7 +446,11 @@ export function render(container, ctx) {
    * No cambia ninguna fórmula: son los mismos datos que antes estaban en "Más detalle".
    */
   const dedicationField = (i, line) => {
-    if (timeBasis) return hoursPerDayField(i, line);
+    if (timeBasis) {
+      if (!asksUnitHours(hoursBasis, line, 'coverageHoursPerDay')) return hoursPerDayField(i, line);
+      const ready = unitHoursFactor(hoursBasis, ctx.result && ctx.result.activity ? ctx.result.activity : {}) > 0;
+      return unitHoursField(kit, { path: `labor.${i}`, kind: 'labor', basis: hoursBasis, unit: billingUnitOf(quote), ready, where: stepName('modality') });
+    }
     const p = `labor.${i}`;
     // 0.18.0: por mes se piden las horas por mes en el servicio (vacío = todo el mes). Un % cargado
     // a mano antes (o "contratada para este servicio") se sigue viendo como estaba.
@@ -504,7 +517,8 @@ export function render(container, ctx) {
           if (!l) return '';
           // 0.18.0: con las horas cargadas, el subtítulo las dice (como en Equipos).
           const cur = quote.labor[i] || {};
-          if (l.timeBasis && l.time && l.time.hoursPerDay > 0) return `${staffText(l)} · ${formatNumber(l.time.hoursPerDay, { decimals: 2 })} h por día`;
+          const one = Math.abs(l.positions - 1) < 1e-9 && Math.abs(l.headcount - 1) < 1e-9;
+          if (l.timeBasis && l.time && l.time.hoursPerDay > 0) return `${one ? '' : `${staffText(l)} · `}${perUnitView(r) ? `${formatNumber(l.time.hoursPerDay / perUnitView(r).f, { decimals: 2 })} h efectivas por ${perUnitView(r).one}` : `${formatNumber(l.time.hoursPerDay, { decimals: 2 })} h efectivas por día`}`;
           if (!l.timeBasis && l.shared && nonNegative(cur.assignedHoursPerMonth) > 0) return `${staffText(l)} · ${formatNumber(nonNegative(cur.assignedHoursPerMonth), { decimals: 2 })} h por mes`;
           return staffText(l);
         }),
@@ -531,13 +545,15 @@ export function render(container, ctx) {
         // 0.18.0 (Joaco, 2026-11-20): un recurso asignado es ese recurso. Primero sus horas; la
         // cantidad ya viene en 1 y sólo se cambia si van varias personas con ese mismo sueldo.
         legacyStaff(line) ? null : dedicationField(i, line),
-        kit.num(`${p}.positions`, {
+        // 0.19.0 (Joaco, 2026-11-20): sin "Cantidad". Si van dos choferes, el puesto se asigna dos
+        // veces. Una línea que ya tiene otra cantidad la sigue mostrando (mismos números).
+        !legacyStaff(line) && singleUnit(line.positions) ? null : kit.num(`${p}.positions`, {
           label: legacyStaff(line) ? 'Personas trabajando a la vez' : 'Cantidad',
           rule: 'quantity',
           requiredMark: legacyStaff(line),
           unit: legacyStaff(line) ? null : 'pers.',
           placeholder: '1',
-          hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cuántas personas de este puesto van. Si alguna tiene otro sueldo, asignala aparte.',
+          hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cargada antes. Para sumar otra persona, asigná el puesto otra vez.',
         }),
         fromResource ? null : kit.num(`${p}.basicMonthly`, { label: 'Sueldo bruto por mes', rule: 'money', unit: '$/mes', requiredMark: true, illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }),
         // Horas extra: ya no se cargan en el puesto (Joaco, 2026-11-18). Van en "Cómo se cobra" →
@@ -584,6 +600,10 @@ export function render(container, ctx) {
           // Por tiempo usado sin días cargados todavía: lo de cada día de trabajo (no hay fijo del mes).
           if (l.timeBasis && !(r.activity.activeDaysPerMonth > 0)) return `${formatMoney(l.variablePerActiveDay)} por día de trabajo`;
           const month = r.activity.activeDaysPerMonth > 0 ? lineMonthAtEstimate(r, l) + ot : l.fixedMonthly;
+          // 0.19.0: cobrando por unidad contable, primero lo del puesto por unidad; el mes, después.
+          const v = l.timeBasis ? perUnitView(r) : null;
+          const billed = nonNegative(r.activity.billableQuantityPerMonth);
+          if (v && r.activity.activeDaysPerMonth > 0) return `${formatMoney(month / (billed > 0 ? billed : r.activity.activeDaysPerMonth * v.f))} por ${v.one} · ${formatMoney(month)} por mes`;
           return `${formatMoney(month)} por mes${perBilledUnitSuffix(r, quote, month)}`;
         },
         hint: (r) => {
@@ -596,7 +616,9 @@ export function render(container, ctx) {
             // 0.17.0 (menos texto): la cuenta en una línea; el detalle sigue en "Ver cálculo".
             // 0.18.0 (revisión de uso): sólo de dónde sale la hora; las horas del mes se cambian en el desplegable.
             const hours = l.time ? ` Hora = costo del mes ÷ ${formatNumber(l.time.billableHoursPerMonth, { decimals: 2 })} h.` : '';
-            return `${body ? `${body}.` : staffText(l)}${hours}`;
+            const v = perUnitView(r);
+            const perUnit = v && l.time && l.time.hoursPerDay > 0 ? `${Math.abs((l.positions || 1) - 1) > 1e-9 ? `${formatNumber(l.positions, { decimals: 2 })} personas × ` : ''}${formatNumber(l.time.hoursPerDay / v.f, { decimals: 2 })} h por ${v.one} × ${formatMoney(l.time.hourlyCost)} la hora = ${formatMoney((l.time.perActiveDay || 0) / v.f)} por ${v.one}. En el mes: ` : '';
+            return `${perUnit}${body ? `${body}.` : staffText(l)}${hours}`;
           }
           if (jobs !== null) {
             // N1: la cuenta cierra con el total (meses de sueldo si el trabajo dura más que el mes).
@@ -877,7 +899,7 @@ export function render(container, ctx) {
             ? closedLaborCostText(r, r.model.labor, { overtime: overtimeMonth(r) }).replace(/^Sueldo/, 'sueldos').replace(/^Horas de tu gente/, 'horas de tu gente')
             : r.model.labor.timeBasis
               // Por tiempo usado no hay fijo del mes: todo es por día de trabajo.
-              ? `${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo (sus horas, vianda y horas extra por día)${r.model.labor.fixedMonthly > 0.005 ? ` + ${formatMoney(r.model.labor.fixedMonthly)} por mes` : ''}`
+              ? `${perUnitView(r) ? `${formatMoney(r.model.labor.variablePerActiveDay / perUnitView(r).f)} por ${perUnitView(r).one}` : `${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo`} (sus horas, vianda y horas extra)${r.model.labor.fixedMonthly > 0.005 ? ` + ${formatMoney(r.model.labor.fixedMonthly)} por mes` : ''}`
               : `fijo ${formatMoney(r.model.labor.fixedMonthly)} + ${formatMoney(r.model.labor.variablePerActiveDay)} por día de trabajo`,
           // M2: las horas extra del trabajo están en el total; se dicen para que la cuenta cierre.
           r.model.overtimeWork && r.model.overtimeWork.active && closedJobsPerMonth(r) === null

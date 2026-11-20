@@ -55,7 +55,7 @@ import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
 import { contractOf, LINE_COMPONENT_IDS, SERVICE_COMPONENTS } from '../domain/contract.js';
-import { usesTimeBasis } from '../domain/cost-basis.js';
+import { usesTimeBasis, resolveUnitHours } from '../domain/cost-basis.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { formatMoney, formatNumber } from '../core/format.js';
@@ -221,8 +221,11 @@ function addTo(bucket, fixed, variable) {
  * @param {object} quote
  * @returns {object} costModel
  */
-export function buildCostModel(quote = {}) {
-  const activity = normalizeActivity(quote);
+export function buildCostModel(quoteInput = {}) {
+  const activity = normalizeActivity(quoteInput);
+  // 0.19.0: las horas de cada recurso cargadas en la unidad de cobro ("horas por válvula") pasan
+  // a horas por día de trabajo con el rendimiento de la cotización (CALCULATION_RULES §36.2).
+  const quote = resolveUnitHours(quoteInput, activity);
   const fuelPaidByUs = (quote.fuel && quote.fuel.providedBy) !== 'client';
   const fuelPricePerLiter = nonNegative(quote.fuel && quote.fuel.pricePerLiter);
   const lines = [];

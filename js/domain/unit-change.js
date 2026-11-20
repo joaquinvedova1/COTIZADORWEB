@@ -65,6 +65,18 @@ export function applyUnitChange(q, fromInfo, toInfo) {
     }
   }
 
+  // 1b. Horas de cada recurso cargadas en la unidad anterior ("horas por válvula", 0.19.0): se limpian.
+  let clearedHours = 0;
+  ['labor', 'equipment'].forEach((key) => {
+    (Array.isArray(q[key]) ? q[key] : []).forEach((line) => {
+      if (isPlainObject(line) && positive(line.assignedHoursPerUnit)) {
+        line.assignedHoursPerUnit = null;
+        clearedHours += 1;
+      }
+    });
+  });
+  if (clearedHours > 0) notices.push(`Cargá de nuevo las horas de cada recurso en "Los recursos": las que había estaban por ${fromInfo.singular || 'la unidad anterior'}.`);
+
   // 2. Mínimo por llamado: sólo se convierte entre día y hora, con las horas por día.
   if (rules && positive(rules.minimumCallUnits)) {
     const minimum = Number(rules.minimumCallUnits);

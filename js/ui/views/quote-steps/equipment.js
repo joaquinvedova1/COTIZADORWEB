@@ -39,10 +39,10 @@ import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSy
 import { baseText } from '../../economic-base-ui.js';
 import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
 import { fieldHref } from '../../field-links.js';
-import { assignmentBlock, monthHoursField, hasManualSharePct } from './assignment.js';
+import { assignmentBlock, monthHoursField, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
-import { closedJobsPerMonth, quoteUnitPlace, perBilledUnitSuffix, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText } from '../../result-text.js';
-import { usesTimeBasis } from '../../../domain/cost-basis.js';
+import { closedJobsPerMonth, quoteUnitPlace, perBilledUnitSuffix, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText, equipmentFullHourRate } from '../../result-text.js';
+import { usesTimeBasis, resourceHoursBasis, unitHoursFactor } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { workDaysText } from '../../unit-text.js';
 import { isVehicleFamily, looksLikeVehicleName } from '../../../domain/equipment-catalog.js';
@@ -256,7 +256,7 @@ function equipmentTrace(result, index, source) {
       { label: 'Valor residual', value: o.residual, format: 'money' },
       { label: 'Vida útil (años)', value: o.lifeYears, format: 'number' },
       { label: 'Cantidad', value: line.quantity, format: 'number' },
-      { label: 'Horas de uso por día de trabajo', value: line.hoursPerActiveDay, format: 'hours' },
+      { label: line.timeBasis ? 'Horas de uso efectivo por día' : 'Horas de uso por día de trabajo', value: line.hoursPerActiveDay, format: 'hours' },
       { label: 'Días de trabajo por mes', value: result.activity.activeDaysPerMonth, format: 'days' },
       op.fuelNotApplicable ? { label: 'Combustible', value: 'No usa combustible', format: 'text' } : { label: 'Precio combustible (si lo pagamos)', value: op.fuelPricePerLiter, format: 'rate' },
       op.fuelNotApplicable ? null : { label: 'Consumo', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
@@ -273,7 +273,7 @@ function equipmentTrace(result, index, source) {
           { label: 'Tenerlo por mes × cantidad (no se carga entero: va por hora)', value: line.fullFixedMonthly, format: 'money' },
           { label: line.time.ownBillableHours ? 'Horas por mes que lo usás o alquilás' : 'Horas por mes (si trabaja todo el mes a este ritmo)', value: line.time.billableHoursPerMonth, format: 'hours' },
           { label: 'Tenerlo por hora (lo de tenerlo en el mes ÷ horas por mes, por unidad)', value: line.time.hourlyCost, format: 'rate' },
-          { label: line.time.ownHours ? 'Horas por día en este trabajo' : 'Horas por día en este trabajo (todo el día de trabajo)', value: line.time.hoursPerDay, format: 'hours' },
+          { label: line.time.ownHours ? 'Horas asignado a esta cotización por día' : 'Horas asignado a esta cotización por día (todo el día de trabajo)', value: line.time.hoursPerDay, format: 'hours' },
           { label: 'Tenerlo por día de trabajo × cantidad', value: line.ownershipPerActiveDay, format: 'money' },
         ]
         : line.shared
@@ -295,7 +295,7 @@ function equipmentTrace(result, index, source) {
       line.timeBasis ? 'Por tiempo usado: el equipo no carga su mes completo ni un % de su mes. Tenerlo cuesta las horas del día de trabajo × (lo de tenerlo en el mes ÷ horas que trabaja y factura por mes). Usarlo sigue el uso real.' : null,
       line.shared ? 'Equipo compartido: el % asignado reparte sólo los costos fijos (lo cargás vos; no sale de los días que trabaje). La operación sigue el uso real.' : null,
       source && (source.hoursPerActiveDay === null || source.hoursPerActiveDay === undefined || source.hoursPerActiveDay === '')
-        ? 'Horas de uso vacías: se usan las horas por día de trabajo de la cotización.'
+        ? (line.timeBasis && line.time && line.time.ownHours ? 'Horas de uso efectivo vacías: se usan las horas asignadas.' : 'Horas de uso vacías: se usan las horas por día de trabajo de la cotización.')
         : null,
       hoursCapNote(source),
     ],
@@ -464,6 +464,15 @@ export function render(container, ctx) {
   // Por tiempo usado (cotizaciones nuevas que no se cobran por mes, 2026-11-18): tener un equipo
   // propio cuesta las horas del trabajo × el valor de su hora. No hay "% de sus costos fijos".
   const timeBasis = usesTimeBasis(quote);
+  // 0.19.0: las horas de cada equipo se piden en la unidad de cobro (por válvula, en el trabajo) o por día.
+  const hoursBasis = resourceHoursBasis(quote);
+  const unitHoursReady = () => unitHoursFactor(hoursBasis, ctx.result && ctx.result.activity ? ctx.result.activity : {}) > 0;
+  /** Cobro por unidad contable con el rendimiento cargado: las cuentas se dicen "por válvula" (0.19.0). */
+  const perUnitView = (r) => {
+    const f = hoursBasis === 'unit' && r && r.activity ? nonNegative(r.activity.unitsPerActiveDay) : 0;
+    return f > 0 ? { f, one: billingUnitOf(quote).singular || 'unidad' } : null;
+  };
+  const assignedKey = (line) => (asksUnitHours(hoursBasis, line, 'assignedHoursPerDay') ? 'assignedHoursPerUnit' : 'assignedHoursPerDay');
   /** Ejemplo del campo de horas facturables: las que usa hoy el motor si está vacío. */
   const billablePlaceholder = (i) => {
     const t = ctx.result && ctx.result.model && ctx.result.model.equipment[i] && ctx.result.model.equipment[i].time;
@@ -490,7 +499,8 @@ export function render(container, ctx) {
       ctx.toast('Elegí un equipo o un servicio externo de tus recursos para agregarlo.', 'warning');
       return;
     }
-    const opts = { hoursPerActiveDay: hoursDefault(), now: new Date().toISOString(), currency };
+    // 0.19.0: por tiempo usado las horas andando quedan vacías (= todas las asignadas): un solo dato.
+    const opts = { hoursPerActiveDay: timeBasis && eq ? null : hoursDefault(), now: new Date().toISOString(), currency };
     const line = eq ? equipmentLineFromLibrary(eq, opts) : externalLineFromService(service, opts);
     // Vehículo nuevo: 0 h trabajando en la locación (una camioneta estacionada no gasta combustible).
     const vehicle = isVehicleLine(line);
@@ -500,7 +510,7 @@ export function render(container, ctx) {
       if (!line.mobilization || !line.mobilization.mode) line.mobilization = createMobilization({ ...(line.mobilization || {}), mode: 'self' });
     }
     const index = lines.length;
-    ctx.mutate((q) => q.equipment.push(line), { focus: `equipment.${index}.quantity` });
+    ctx.mutate((q) => q.equipment.push(line), { focus: timeBasis && eq ? `equipment.${index}.${assignedKey(line)}` : `equipment.${index}.quantity` });
     // Una línea (revisión UX): el aviso largo tapaba "Continuar". Lo demás está en la ficha.
     ctx.toast(`Se agregó "${line.name}" con sus valores de hoy en Recursos.`, 'success');
   };
@@ -766,6 +776,7 @@ export function render(container, ctx) {
   const ownedCard = (line, i) => {
     const p = `equipment.${i}`;
     const at = (r) => r.model.equipment[i];
+    const pu = (r) => perUnitView(r);
     // Valores copiados de una plantilla o equipo de demostración (UX-02).
     const ill = kit.lineIllustrative(p, { what: 'este equipo' });
     const illustrative = ill.marked;
@@ -802,44 +813,59 @@ export function render(container, ctx) {
       }),
     ];
     const dataFields = () => [...valueFields(), ...holdingFields(), ...(vehicle ? [] : fuelFields())];
-    const hoursField = () => kit.num(`${p}.hoursPerActiveDay`, vehicle
+    const hoursField = () => kit.num(`${p}.hoursPerActiveDay`, timeBasis && !vehicle
       ? {
-        label: 'Horas trabajando en la locación por día',
+        // 0.19.0 (Joaco): una sola pregunta (horas asignado × valor hora completo). Esto es opcional, plegado.
+        label: 'Horas con el motor andando (opcional)',
         rule: 'hoursPerDay',
         unit: 'h/día',
-        placeholder: timeBasis && nonNegative(line.assignedHoursPerDay) > 0 ? 'Las mismas que en el trabajo' : activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
-        hint: 'Sólo las horas con el motor trabajando parado (bombeo, grúa, generador). Si sólo lleva gente o carga: 0. Con 0 h no suman el consumo ni el mantenimiento por hora: lo de la ruta va en "Desgaste por km".',
+        placeholder: 'Todas las asignadas',
+        hint: 'Vacío = todas las horas asignadas llevan el valor hora completo (lo normal). Si parte de ese tiempo el equipo queda quieto, cargá las horas por día de trabajo con el motor andando: las quietas no suman combustible, mantenimiento ni neumáticos.',
       }
-      : {
-        label: timeBasis ? 'Horas por día con el motor andando (opcional)' : 'Horas de uso por día de trabajo',
-        rule: 'hoursPerDay',
-        unit: 'h/día',
-        placeholder: timeBasis ? 'Las mismas que en el trabajo' : activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
-        // M9 (2026-11-18): por tiempo usado, tenerlo va por las horas del día de trabajo, no por las de motor.
-        hint: timeBasis
-          ? 'Las horas por día con el equipo andando: mueven el combustible, el mantenimiento y los neumáticos por hora. Vacío = las horas por día en este trabajo. Si son más que ésas, tenerlo también se cuenta por estas horas.'
-          : 'Cuántas horas trabaja el equipo cada día. Vacío = las horas por día del servicio.',
-      });
+      : vehicle
+        ? {
+          label: 'Horas trabajando en la locación por día',
+          rule: 'hoursPerDay',
+          unit: 'h/día',
+          placeholder: timeBasis ? 'Las mismas que asignado' : activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
+          hint: 'Sólo las horas con el motor trabajando parado (bombeo, grúa, generador). Si sólo lleva gente o carga: 0. Con 0 h no suman el consumo ni el mantenimiento por hora: lo de la ruta va en "Desgaste por km".',
+        }
+        : {
+          label: 'Horas de uso por día de trabajo',
+          rule: 'hoursPerDay',
+          unit: 'h/día',
+          placeholder: activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
+          hint: 'Cuántas horas trabaja el equipo cada día. Vacío = las horas por día del servicio.',
+        });
     // 0.18.0: horas por día que el equipo está en este trabajo (vacío = todo el día de trabajo).
     const dayHours = hoursDefault();
+    // Un equipo agregado antes de la 0.19.0 trae las horas andando = el día de trabajo: al cargar sus
+    // horas asignadas se limpian (si no, el motor seguiría contando el día entero).
+    const dropInheritedHours = (value) => {
+      const cur = quote.equipment[i] || {};
+      const run = nonNegative(cur.hoursPerActiveDay);
+      if (Number(value) > 0 && run > 0 && dayHours !== null && Math.abs(run - dayHours) < 1e-9) ctx.update(`${p}.hoursPerActiveDay`, null);
+    };
     const jobHoursField = () => kit.num(`${p}.assignedHoursPerDay`, {
-      label: 'Horas por día en este trabajo',
+      label: 'Horas asignado a esta cotización',
       rule: 'hoursPerDay',
       unit: 'h/día',
       placeholder: dayHours !== null && dayHours > 0 ? `${formatNumber(dayHours, { decimals: 2 })} (todo el día)` : 'Todo el día',
       // Vehículo: sus horas trabajando en la locación toman este dato si están vacías (se redibuja).
       structural: vehicle,
-      hint: `Lo que te cuesta tener el equipo (desgaste, seguro, patente) se cuenta por esas horas × el valor de su hora. Ejemplo: de un día de 8 h, la hidrogrúa va 2 → 2. Si queda inmovilizado todo el día, dejalo vacío. Vacío = todo el día de trabajo${dayHours !== null && dayHours > 0 ? ` (${formatNumber(dayHours, { decimals: 2 })} h)` : ''}; más que eso no se cuenta.`,
+      onValue: dropInheritedHours,
+      hint: `Las horas por día de trabajo que el equipo queda asignado a esta cotización (mientras tanto no puede estar en otro trabajo). Su costo = esas horas × su valor hora (amortización, seguro, patente, mantenimiento y combustible). Ejemplo: de un día de 8 h, la hidrogrúa va 2 → 2. ${vehicle ? ' En un vehículo el valor hora es el de tenerlo; el combustible y el desgaste van por km en «¿Cómo llega?».' : ''} Si queda ocupado durante el viaje, sumá esas horas. Vacío = todo el día de trabajo${dayHours !== null && dayHours > 0 ? ` (${formatNumber(dayHours, { decimals: 2 })} h)` : ''}; más que eso no se cuenta.`,
     });
+    const unitField = () => unitHoursField(kit, { path: p, kind: 'equipment', basis: hoursBasis, unit: billingUnitOf(quote), ready: unitHoursReady(), where: stepName('modality'), onValue: dropInheritedHours });
     // Por mes: horas por mes en el servicio (vacío = todo el mes). Un % cargado antes se ve en "Más detalle".
     const monthField = () => (!monthUnit || hasManualSharePct(line) ? null : monthHoursField(kit, ctx, { path: p, kind: 'equipment', baseHours: monthBaseHours(line) }));
     // I7 (2026-11-18): por tiempo usado, con cuántas horas por mes se reparte lo de tenerlo (a la vista, junto a las horas de uso).
     const billableField = () => kit.num(`${p}.billableHoursPerMonth`, {
-      label: 'Horas por mes de uso o alquiler (opcional)',
+      label: 'Horas por mes para el valor hora (opcional)',
       rule: 'hours',
       unit: 'h/mes',
       placeholder: billablePlaceholder(i),
-      hint: 'Lo que cuesta tenerlo en el mes se reparte entre estas horas. Si lo usás menos, cada hora cuesta más.',
+      hint: 'Las horas que el equipo trabaja en un mes entre todos tus trabajos. Su costo del mes se divide por estas horas para sacar el valor hora: con menos horas, cada hora cuesta más.',
     });
     // Nombre: un equipo en blanco que resulta ser un vehículo arranca con 0 h en la locación.
     const nameField = () => {
@@ -888,7 +914,7 @@ export function render(container, ctx) {
           if (!l) return '';
           const units = `${formatNumber(l.quantity, { decimals: 2 })} ${plural(l.quantity, 'unidad', 'unidades')}`;
           // 0.18.0: por tiempo usado, lo que define el costo de tenerlo son sus horas en el trabajo.
-          if (l.timeBasis && l.time) return `${units} · ${formatNumber(l.time.hoursPerDay, { decimals: 2 })} h por día`;
+          if (l.timeBasis && l.time) return `${Math.abs(l.quantity - 1) < 1e-9 ? '' : `${units} · `}${pu(r) ? `${formatNumber(l.time.hoursPerDay / pu(r).f, { decimals: 2 })} h asignado por ${pu(r).one}` : `${formatNumber(l.time.hoursPerDay, { decimals: 2 })} h asignado por día`}`;
           if (vehicle) return l.hoursPerActiveDay > 0 ? `${units} · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h por día trabajando en la locación` : `${units} · vehículo (sólo viaja)`;
           return `${units} · ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h de uso por día de trabajo`;
         }),
@@ -904,10 +930,10 @@ export function render(container, ctx) {
         fromResource ? null : nameField(),
         // 0.18.0 (Joaco, 2026-11-20): primero las horas del equipo en el trabajo (o en el mes, si
         // se cobra por mes); con ellas y el valor de su hora sale lo que cuesta tenerlo.
-        timeBasis ? jobHoursField() : monthField(),
-        kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true }),
+        timeBasis ? (assignedKey(line) === 'assignedHoursPerUnit' ? unitField() : jobHoursField()) : monthField(),
         vehicle || timeBasis ? null : hoursField(),
-        timeBasis ? billableField() : null,
+        // Sin "Cantidad" (Joaco, 2026-11-20): si hay otro equipo igual, se agrega otra vez. Una línea con otra cantidad la sigue mostrando.
+        line.quantity !== null && line.quantity !== undefined && line.quantity !== '' && Math.abs(Number(line.quantity) - 1) < 1e-9 ? null : kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true, hint: 'Cargada antes. Para sumar otro equipo igual, agregalo otra vez.' }),
         operatorField(i),
         fromResource ? null : acquisitionField(i),
         ...(fromResource ? [] : valueFields()),
@@ -919,15 +945,61 @@ export function render(container, ctx) {
       // Seguro, patente y mantenimiento plegados sólo si el equipo se carga acá (el de Recursos ya los trae).
       fromResource ? null : holdingBlock(),
       kit.out((r) => wearWarningsRegion(r, i) || '', { tag: 'div', allowEmpty: true }),
+      // 0.19.0 (Joaco, 2026-11-20): el valor hora del equipo a la vista, como en Personal. Asignado
+      // paga su valor hora; cada hora de uso efectivo suma encima el desgaste.
+      timeBasis
+        ? h('div', { class: 'qe-person-rates' },
+          h('p', { class: 'qe-person-rates-title' }, fromResource ? 'Lo que te cuesta el equipo (viene de Recursos)' : 'Lo que te cuesta el equipo'),
+          kit.stats(
+            kit.stat('Por mes', (r) => (at(r) && at(r).ownership.totalMonthly > 0 ? formatMoney(at(r).ownership.totalMonthly) : EMPTY), { hint: 'Amortización, seguro, patente y demás costos del mes, lo uses o no.' }),
+            kit.stat('Valor hora', (r) => {
+              const l = at(r);
+              if (!l || !l.time) return EMPTY;
+              // El mismo número que usa la cuenta de la línea; con horas andando distintas, sólo tenerlo.
+              const full = equipmentFullHourRate(l);
+              const rate = full !== null ? full : l.time.hourlyCost;
+              return rate > 0 ? formatMoney(rate) : EMPTY;
+            }, {
+              emphasis: true,
+              hint: (r) => {
+                const l = at(r);
+                if (!l || !l.time) return '';
+                const own = `${formatMoney(l.time.hourlyCost)} de tenerlo (${timeEquipmentHourHint(l).replace(/\.$/, '')})`;
+                if (!(l.hoursPerActiveDay > 0)) return `${own}. El combustible y el desgaste van por km, en «¿Cómo llega?».`;
+                return equipmentFullHourRate(l) !== null
+                  ? `${own} + ${formatMoney(l.operation.totalPerHour)} de usarlo (combustible, mantenimiento y neumáticos por hora). El traslado va aparte, en «¿Cómo llega?».`
+                  : `${own}. Aparte, cada hora con el motor andando suma ${formatMoney(l.operation.totalPerHour)} (combustible, mantenimiento y neumáticos).`;
+              },
+            }),
+          ))
+        : null,
       kit.keyline({
         // Precio cerrado con un trabajo por mes: la cifra es la del trabajo (revisión UX tanda novatos).
-        label: (r) => `Costo del equipo en el ${quoteUnitPlace(r)}`,
-        value: (r) => (at(r) ? formatMoney(inQuoteUnit(r, monthlyAtEstimate(r, at(r)))) : EMPTY),
+        label: (r) => (timeBasis && pu(r) ? `Costo del equipo por ${pu(r).one}` : `Costo del equipo en el ${quoteUnitPlace(r)}`),
+        value: (r) => {
+          const l = at(r);
+          if (!l) return EMPTY;
+          if (l.timeBasis && pu(r)) {
+            // Lo del mes ÷ unidades facturadas (como el motor); sin días todavía, lo de un día ÷ unidades por día.
+            const units = nonNegative(r.activity.billableQuantityPerMonth);
+            return formatMoney(units > 0 && r.activity.activeDaysPerMonth > 0 ? monthlyAtEstimate(r, l) / units : equipmentPerActiveDay(l) / pu(r).f);
+          }
+          return formatMoney(inQuoteUnit(r, monthlyAtEstimate(r, l)));
+        },
         hint: (r) => {
           const l = at(r);
           if (!l) return '';
           // Por tiempo usado: tenerlo por día de trabajo (horas × valor de la hora), no por mes.
           // Precio cerrado (M1): la cuenta en el trabajo, como en Personal.
+          if (l.timeBasis && pu(r) && l.time) {
+            const full = equipmentFullHourRate(l);
+            const { f, one } = pu(r);
+            const many = l.quantity > 0 && Math.abs(l.quantity - 1) > 1e-9 ? ` × ${formatNumber(l.quantity, { decimals: 2 })} unidades` : '';
+            const month = r.activity.activeDaysPerMonth > 0 ? ` En el mes: ${formatMoney(monthlyAtEstimate(r, l))}.` : '';
+            return full !== null
+              ? `${formatNumber(l.time.hoursPerDay / f, { decimals: 2 })} h por ${one} × ${formatMoney(full)} la hora${many} = ${formatMoney(equipmentPerActiveDay(l) / f)} por ${one}.${month}`
+              : `${timeEquipmentUseText(l)} ÷ ${formatNumber(f, { decimals: 2 })} ${billingUnitOf(quote).plural} por día.${month}`;
+          }
           if (l.timeBasis) {
             const job = timeEquipmentJobText(r, l);
             return job ? `${job}.` : `${timeEquipmentUseText(l)} · con ${workDaysText(r.activity.activeDaysPerMonth)}${jobsSplitText(r)}.`;
@@ -957,13 +1029,14 @@ export function render(container, ctx) {
             return illustrative ? h('span', {}, `${text.charAt(0).toUpperCase()}${text.slice(1)}.`, illustrativeTag()) : `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
           },
         },
+        // 0.19.0: una sola pregunta a la vista; de qué horas sale el valor hora y el motor andando, acá.
+        timeBasis ? kit.group('Valor hora', formGrid(3, billableField(), vehicle ? null : hoursField())) : null,
         fromResource
           ? h('p', { class: 'qe-note' }, 'Estos datos se cargan una sola vez en ', h('a', { href: '#/recursos' }, 'Recursos'), '. Si los cambiás acá, cambian sólo en esta cotización.')
           : null,
         fromResource
           ? kit.group('Datos del equipo', formGrid(3, kit.text(`${p}.name`, { label: 'Nombre', maxLength: 120 }), acquisitionField(i), ...dataFields()))
           : null,
-        timeBasis && !vehicle ? kit.group('Uso del equipo', formGrid(3, hoursField())) : null,
         fromResource ? wear[0] : null,
         kit.group(
           'Otros costos de tenerlo (aunque no trabaje)',
@@ -1409,13 +1482,13 @@ export function render(container, ctx) {
       return `${formatMoney(inQuoteUnit(r, month))}${perBilledUnitSuffix(r, quote, month)}`;
     },
     // Por tiempo usado, lo de tener los equipos propios va en lo de cada día de trabajo.
-    hint: (r) => timeEquipmentTotalText(r, closedJobsPerMonth(r) !== null ? inQuoteUnit(r, r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0)) : null) || `${r.model.timeBasis && !(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0) > 0.005) ? 'Sin fijo del mes ·' : `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes ·`} variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + equipmentPerActiveDay(e), 0))} por día de trabajo${jobsSplitText(r)} (incluye ${r.model.timeBasis && r.model.equipment.some((e) => e.timeBasis) ? 'tener los equipos propios esas horas, ' : ''}combustible y la movilización que cobran los proveedores).`,
+    hint: (r) => (timeBasis && perUnitView(r) && r.model.timeBasis && !(r.model.equipment.reduce((acc, e) => acc + (e.fixedMonthly || 0), 0) > 0.005) ? `${formatMoney(r.model.equipment.reduce((acc, e) => acc + equipmentPerActiveDay(e), 0) / perUnitView(r).f)} por ${perUnitView(r).one}: las horas asignadas de cada equipo × su valor hora.` : '') || timeEquipmentTotalText(r, closedJobsPerMonth(r) !== null ? inQuoteUnit(r, r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0)) : null) || `${r.model.timeBasis && !(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0) > 0.005) ? 'Sin fijo del mes ·' : `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes ·`} variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + equipmentPerActiveDay(e), 0))} por día de trabajo${jobsSplitText(r)} (incluye ${r.model.timeBasis && r.model.equipment.some((e) => e.timeBasis) ? 'tener los equipos propios esas horas, ' : ''}combustible y la movilización que cobran los proveedores).`,
     className: 'qe-keyline-total',
   });
 
   mount(
     container,
-    card({ title: 'Agregá los equipos y vehículos', subtitle: 'Cada vehículo una sola vez (camionetas incluidas).' }, toolbar, fuelNote),
+    card({ title: 'Agregá los equipos y vehículos', subtitle: 'Camionetas incluidas. Si hay dos iguales, agregalo dos veces.' }, toolbar, fuelNote),
     lineCards.length
       ? h('div', { class: 'qe-lines' }, ...lineCards)
       : emptyState({

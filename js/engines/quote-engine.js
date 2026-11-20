@@ -16,7 +16,7 @@ import { nonNegative, safeDivide, isFiniteNumber } from '../core/money.js';
 import { createTrace } from '../core/trace.js';
 import { formatPercent, formatDays, formatNumber, formatMoney } from '../core/format.js';
 import { validateQuote } from '../core/validation.js';
-import { buildCostModel, costStructure, componentCostSplitAt, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
+import { buildCostModel, normalizeActivity, costStructure, componentCostSplitAt, costAtActivity, traceTotalCost, monthsFactor, activationRoundingAt, activationBreakpoints } from './cost-engine.js';
 import { hasOutOfHours, isOutOfHoursExtra, normalHourEquivalent, resourceNormalHourCost, MAN_HOUR_UNIT } from './out-of-hours-engine.js';
 import { createEconomicsContext, evaluateAt, requiredRatesAt, linearDecomposition, revenueAt, grossUpPctOf } from './economics-engine.js';
 import { withCompanyVatCondition } from '../domain/vat-finance.js';
@@ -30,7 +30,7 @@ import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
 import { summarizeEconomicBase } from './economic-base-engine.js';
 import { rateUpdateState, proposeLaborRaisePct } from './rate-update-engine.js';
-import { usesTimeBasis } from '../domain/cost-basis.js';
+import { usesTimeBasis, resolveUnitHours } from '../domain/cost-basis.js';
 import { assignedEquipmentHours } from './equipment-engine.js';
 import { periodFromDate } from '../domain/economic-base.js';
 import { contractOf, contractUnits, modeForUnit } from '../domain/contract.js';
@@ -361,8 +361,10 @@ function componentCostsOf(model, D, estimate, contract, unitInfo, eecc) {
  */
 export function computeQuote(quoteInput = {}, { settings = {}, listRateOverride = null } = {}) {
   // Costo financiero del IVA (K-03): con monotributo o exento (Configuración) nunca aplica.
-  const quote = withCompanyVatCondition(quoteInput, settings);
-  const issues = validateQuote(quote);
+  const rawQuote = withCompanyVatCondition(quoteInput, settings);
+  const issues = validateQuote(rawQuote);
+  // 0.19.0: horas de cada recurso en la unidad de cobro → horas por día (para los controles de abajo).
+  const quote = resolveUnitHours(rawQuote, normalizeActivity(rawQuote));
   const model = buildCostModel(quote);
   // Un valor en otra moneda sin tipo de cambio NO se suma al costo: error en rojo.
   model.currency.gaps.forEach((g) => {
@@ -379,6 +381,38 @@ export function computeQuote(quoteInput = {}, { settings = {}, listRateOverride 
   if (withOutOfHours) {
     const base = computeQuote({ ...quote, extras: quote.extras.filter((e) => !isOutOfHoursExtra(e)) }, { settings, listRateOverride });
     referenceHourPrice = base.outOfHours.rateHourPrice;
+  }
+  // 0.19.0 (auditoría de costos): horas de un recurso por encima del día de trabajo no se cuentan;
+  // antes el recorte era silencioso y el costo quedaba de menos. Se avisa en la línea.
+  if (usesTimeBasis(quote)) {
+    const dayHours = normalizeActivity(quote).hoursPerActiveDay;
+    const over = (list, key, nameOf, own) => (Array.isArray(list) ? list : []).forEach((line, i) => {
+      if (!line || (own && !own(line))) return;
+      const hours = nonNegative(line[key]);
+      if (!(dayHours > 0) || !(hours > dayHours + 1e-6)) return;
+      const raw = rawQuote[list === quote.labor ? 'labor' : 'equipment'][i] || {};
+      const field = nonNegative(raw.assignedHoursPerUnit) > 0 && nonNegative(raw[key]) !== hours ? 'assignedHoursPerUnit' : key;
+      issues.push({
+        path: `${list === quote.labor ? 'labor' : 'equipment'}.${i}.${field}`,
+        message: `"${nameOf(line)}": sus horas dan ${formatNumber(hours, { decimals: 2 })} h por día de trabajo y el día tiene ${formatNumber(dayHours, { decimals: 2 })} h: las horas de más no se están contando en el costo. Bajá sus horas, subí las horas por día de trabajo o agregá otro recurso igual.`,
+        severity: 'warning',
+      });
+    });
+    over(quote.labor, 'coverageHoursPerDay', (l) => l.role || 'Personal');
+    over(quote.equipment, 'assignedHoursPerDay', (e) => e.name || 'Equipo', (e) => e.acquisition !== 'rented' && e.acquisition !== 'outsourced');
+    // Horas con el motor andando por encima de las asignadas: mandan las andando (regla de §36). Se avisa,
+    // porque un equipo agregado antes de la 0.19.0 las trae cargadas con el día entero.
+    (Array.isArray(quote.equipment) ? quote.equipment : []).forEach((e, i) => {
+      if (!e || e.acquisition === 'rented' || e.acquisition === 'outsourced') return;
+      const assigned = assignedEquipmentHours(e, dayHours);
+      const running = Math.min(nonNegative(e.hoursPerActiveDay), dayHours > 0 ? dayHours : 24);
+      if (!(assigned > 0) || !(running > assigned + 1e-6)) return;
+      issues.push({
+        path: `equipment.${i}.hoursPerActiveDay`,
+        message: `"${e.name || 'Equipo'}": tiene ${formatNumber(running, { decimals: 2 })} h por día con el motor andando y ${formatNumber(assigned, { decimals: 2 })} h asignadas: se están contando ${formatNumber(running, { decimals: 2 })} h. Si la asignación es la correcta, borrá las horas con el motor andando (en "Cambiar sus datos…").`,
+        severity: 'warning',
+      });
+    });
   }
   const ctx = createEconomicsContext(quote, model, { referenceHourPrice, referenceHourCost: resourceNormalHourCost(model.outOfHours) });
   issues.push(...unitIssues(quote, ctx));
