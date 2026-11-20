@@ -419,7 +419,7 @@ export function render(container, ctx) {
 
   // -------------------------------------------------------------- líneas
   /** ¿La cantidad es 1 (o no está)? Entonces no se muestra: un recurso asignado es ese recurso. */
-  const singleUnit = (v) => v === null || v === undefined || v === '' || Math.abs(Number(v) - 1) < 1e-9;
+  const singleUnit = (v) => v !== null && v !== undefined && v !== '' && Math.abs(Number(v) - 1) < 1e-9;
   /** Horas por día de cada persona en el trabajo (vacío = las del servicio). */
   const hoursPerDayField = (i, line) => kit.num(`labor.${i}.coverageHoursPerDay`, {
     label: timeBasis ? 'Horas efectivas de trabajo' : 'Horas por día de cada persona',

@@ -403,7 +403,7 @@ export function evaluateCompleteness(quote = {}) {
     const item = rule('relief', 'Cobertura de todo el día', 'labor', 1, ok ? 'ok' : 'warning',
       ok ? 'Hay más de una persona para cubrir el servicio de todo el día.'
         : alone
-          ? `Servicio de todo el día y todos los días con una sola persona en "${name}": nadie la reemplaza en francos ni vacaciones. Sumá personas que se turnen (con sus horas por día de cada una) o cargá las horas extra.`
+          ? `Servicio de todo el día y todos los días con una sola persona en "${name}": nadie la reemplaza en francos ni vacaciones. Sumá los puestos que se turnen (cada uno con sus horas efectivas de trabajo) o cargá las horas extra.`
           : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.');
     if (alone) item.focus = `labor.${labor.indexOf(alone)}.positions`;
     items.push(item);
@@ -532,7 +532,7 @@ export function evaluateCompleteness(quote = {}) {
       const missing = Math.min(H, 24) - g.covered;
       const more = Math.ceil(missing / g.c - 1e-9);
       const item = rule('labor_day_gap', 'Horas del día sin cubrir', 'labor', 1, 'warning',
-        `"${name}": ${fmt(g.n)} ${Math.abs(g.n - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(g.c)} h = ${fmt(g.covered)} h por día, y el servicio pide ${fmt(Math.min(H, 24))} h por día. Si el servicio necesita gente todas esas horas, faltan ${fmt(missing)} h por día: sumá ${fmt(more)} ${more === 1 ? 'persona' : 'personas'} de ${fmt(g.c)} h o subí sus horas por día. Si no hace falta cubrir todas las horas, está bien así. No cambia el costo.${hoursFix(Math.min(H, 24), false)}`);
+        `"${name}": ${fmt(g.n)} ${Math.abs(g.n - 1) < 1e-9 ? 'persona' : 'personas'} × ${fmt(g.c)} h = ${fmt(g.covered)} h por día, y el servicio pide ${fmt(Math.min(H, 24))} h por día. Si el servicio necesita gente todas esas horas, faltan ${fmt(missing)} h por día: sumá ${fmt(more)} ${more === 1 ? 'persona' : 'personas'} de ${fmt(g.c)} h o subí sus horas efectivas de trabajo. Si no hace falta cubrir todas las horas, está bien así. No cambia el costo.${hoursFix(Math.min(H, 24), false)}`);
       item.focus = `labor.${g.index}.positions`;
       item.targets = gaps.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
@@ -1393,7 +1393,7 @@ export function evaluateCompleteness(quote = {}) {
         step: 'labor',
         severity: 'info',
         label: 'Puesto sin personas',
-        message: `"${name}" tiene sueldo pero 0 personas: no suma costo. Si trabaja en el servicio, cargá cuántas personas; si no, quitá la línea.`,
+        message: `"${name}" tiene sueldo pero 0 personas: no suma costo. Si trabaja en el servicio, poné 1 en Cantidad; si no, quitá la línea.`,
         focus: `labor.${index}.positions`,
         targets: [{ list: 'labor', index, name }],
       });

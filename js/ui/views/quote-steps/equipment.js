@@ -256,7 +256,7 @@ function equipmentTrace(result, index, source) {
       { label: 'Valor residual', value: o.residual, format: 'money' },
       { label: 'Vida útil (años)', value: o.lifeYears, format: 'number' },
       { label: 'Cantidad', value: line.quantity, format: 'number' },
-      { label: 'Horas de uso por día de trabajo', value: line.hoursPerActiveDay, format: 'hours' },
+      { label: line.timeBasis ? 'Horas de uso efectivo por día' : 'Horas de uso por día de trabajo', value: line.hoursPerActiveDay, format: 'hours' },
       { label: 'Días de trabajo por mes', value: result.activity.activeDaysPerMonth, format: 'days' },
       op.fuelNotApplicable ? { label: 'Combustible', value: 'No usa combustible', format: 'text' } : { label: 'Precio combustible (si lo pagamos)', value: op.fuelPricePerLiter, format: 'rate' },
       op.fuelNotApplicable ? null : { label: 'Consumo', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
@@ -295,7 +295,7 @@ function equipmentTrace(result, index, source) {
       line.timeBasis ? 'Por tiempo usado: el equipo no carga su mes completo ni un % de su mes. Tenerlo cuesta las horas del día de trabajo × (lo de tenerlo en el mes ÷ horas que trabaja y factura por mes). Usarlo sigue el uso real.' : null,
       line.shared ? 'Equipo compartido: el % asignado reparte sólo los costos fijos (lo cargás vos; no sale de los días que trabaje). La operación sigue el uso real.' : null,
       source && (source.hoursPerActiveDay === null || source.hoursPerActiveDay === undefined || source.hoursPerActiveDay === '')
-        ? 'Horas de uso vacías: se usan las horas por día de trabajo de la cotización.'
+        ? (line.timeBasis && line.time && line.time.ownHours ? 'Horas de uso efectivo vacías: se usan las horas asignadas.' : 'Horas de uso vacías: se usan las horas por día de trabajo de la cotización.')
         : null,
       hoursCapNote(source),
     ],
@@ -804,11 +804,13 @@ export function render(container, ctx) {
     const dataFields = () => [...valueFields(), ...holdingFields(), ...(vehicle ? [] : fuelFields())];
     const hoursField = () => kit.num(`${p}.hoursPerActiveDay`, vehicle
       ? {
-        label: 'Horas trabajando en la locación por día',
+        label: timeBasis ? 'Horas de uso efectivo' : 'Horas trabajando en la locación por día',
         rule: 'hoursPerDay',
         unit: 'h/día',
         placeholder: timeBasis && nonNegative(line.assignedHoursPerDay) > 0 ? 'Las mismas que asignado' : activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
-        hint: 'Sólo las horas con el motor trabajando parado (bombeo, grúa, generador). Si sólo lleva gente o carga: 0. Con 0 h no suman el consumo ni el mantenimiento por hora: lo de la ruta va en "Desgaste por km".',
+        hint: timeBasis
+          ? 'Las horas por día con el motor trabajando en el lugar (bombeo, grúa, generador). Si sólo lleva gente o carga y queda quieta: 0. Cada hora suma el costo de uso encima del valor hora; lo de la ruta va en "Desgaste por km".'
+          : 'Sólo las horas con el motor trabajando parado (bombeo, grúa, generador). Si sólo lleva gente o carga: 0. Con 0 h no suman el consumo ni el mantenimiento por hora: lo de la ruta va en "Desgaste por km".',
       }
       : {
         label: timeBasis ? 'Horas de uso efectivo' : 'Horas de uso por día de trabajo',
@@ -817,7 +819,7 @@ export function render(container, ctx) {
         placeholder: timeBasis ? 'Las mismas que asignado' : activityHours !== null && activityHours !== undefined ? String(activityHours) : '',
         // M9 (2026-11-18): por tiempo usado, tenerlo va por las horas del día de trabajo, no por las de motor.
         hint: timeBasis
-          ? 'De las horas asignado, las que el equipo está andando por día. Suman el desgaste: combustible, mantenimiento y neumáticos por hora. Vacío = las mismas horas que asignado.'
+          ? 'De las horas asignado, las que el equipo está andando por día. Cada una suma el costo de uso: combustible, mantenimiento y neumáticos. Vacío = las mismas horas que asignado. Si son más que las asignadas, también pagan el valor hora.'
           : 'Cuántas horas trabaja el equipo cada día. Vacío = las horas por día del servicio.',
       });
     // 0.18.0: horas por día que el equipo está en este trabajo (vacío = todo el día de trabajo).
@@ -835,11 +837,11 @@ export function render(container, ctx) {
     const monthField = () => (!monthUnit || hasManualSharePct(line) ? null : monthHoursField(kit, ctx, { path: p, kind: 'equipment', baseHours: monthBaseHours(line) }));
     // I7 (2026-11-18): por tiempo usado, con cuántas horas por mes se reparte lo de tenerlo (a la vista, junto a las horas de uso).
     const billableField = () => kit.num(`${p}.billableHoursPerMonth`, {
-      label: 'Horas por mes de uso o alquiler (opcional)',
+      label: 'Horas por mes para el valor hora (opcional)',
       rule: 'hours',
       unit: 'h/mes',
       placeholder: billablePlaceholder(i),
-      hint: 'Lo que cuesta tenerlo en el mes se reparte entre estas horas. Si lo usás menos, cada hora cuesta más.',
+      hint: 'El costo del equipo por mes se divide por estas horas para sacar su valor hora. Con menos horas, cada hora cuesta más.',
     });
     // Nombre: un equipo en blanco que resulta ser un vehículo arranca con 0 h en la locación.
     const nameField = () => {
@@ -865,7 +867,7 @@ export function render(container, ctx) {
           return `Sí: ${formatNumber(l.hoursPerActiveDay, { decimals: 2 })} h por día · ${fuel} · ${formatMoney(l.variablePerActiveDay)} por día de trabajo.`;
         },
       },
-      formGrid(3, hoursField(), ...fuelFields()),
+      formGrid(3, timeBasis ? null : hoursField(), ...fuelFields()),
     );
     // Seguro, patente y mantenimiento: plegados, con su resumen en la línea del título (ficha corta en el celular).
     const holdingBlock = () => kit.advanced(
@@ -906,9 +908,9 @@ export function render(container, ctx) {
         // se cobra por mes); con ellas y el valor de su hora sale lo que cuesta tenerlo.
         timeBasis ? jobHoursField() : monthField(),
         // 0.19.0: las horas de uso efectivo, al lado (el desgaste se suma encima del valor hora).
-        vehicle ? null : hoursField(),
+        vehicle && !timeBasis ? null : hoursField(),
         // Sin "Cantidad" (Joaco, 2026-11-20): si hay otro equipo igual, se agrega otra vez. Una línea con otra cantidad la sigue mostrando.
-        line.quantity === null || line.quantity === undefined || line.quantity === '' || Math.abs(Number(line.quantity) - 1) < 1e-9 ? null : kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true, hint: 'Cargada antes. Para sumar otro equipo igual, agregalo otra vez.' }),
+        line.quantity !== null && line.quantity !== undefined && line.quantity !== '' && Math.abs(Number(line.quantity) - 1) < 1e-9 ? null : kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true, hint: 'Cargada antes. Para sumar otro equipo igual, agregalo otra vez.' }),
         timeBasis ? billableField() : null,
         operatorField(i),
         fromResource ? null : acquisitionField(i),
@@ -929,7 +931,7 @@ export function render(container, ctx) {
           kit.stats(
             kit.stat('Por mes', (r) => (at(r) && at(r).ownership.totalMonthly > 0 ? formatMoney(at(r).ownership.totalMonthly) : EMPTY), { emphasis: true, hint: 'Amortización, seguro, patente y demás costos del mes, lo use o no.' }),
             kit.stat('Valor hora asignado', (r) => (at(r) && at(r).time && at(r).time.hourlyCost > 0 ? formatMoney(at(r).time.hourlyCost) : EMPTY), { hint: (r) => timeEquipmentHourHint(at(r)) }),
-            kit.stat('Desgaste por hora de uso', (r) => (at(r) ? formatMoney(at(r).operation.totalPerHour) : EMPTY), { hint: 'Combustible, mantenimiento y neumáticos por cada hora andando. Se suma al valor hora.' }),
+            kit.stat('Costo por hora de uso', (r) => (at(r) ? formatMoney(at(r).operation.totalPerHour) : EMPTY), { hint: 'Combustible, mantenimiento y neumáticos por cada hora andando. Se suma al valor hora.' }),
           ))
         : null,
       kit.keyline({
