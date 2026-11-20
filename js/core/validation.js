@@ -184,6 +184,8 @@ export function validateQuote(quote) {
       check(`labor.${i}.rotation.daysPerMonth`, ro.daysPerMonth, 'daysInMonth');
     }
     // PLAN-2026-012: persona compartida → % explícito de su costo fijo (vacío: se toma 100 %).
+    check(`labor.${i}.coverageHoursPerDay`, l.coverageHoursPerDay, 'hoursPerDay');
+    check(`labor.${i}.assignedHoursPerMonth`, l.assignedHoursPerMonth, 'hours');
     checkShare(`labor.${i}`, l);
   });
 
@@ -196,6 +198,9 @@ export function validateQuote(quote) {
       issues.push({ path: `equipment.${i}.residualValue`, message: 'El valor residual supera el valor de reposición.', severity: 'warning' });
     }
     check(`equipment.${i}.hoursPerActiveDay`, e.hoursPerActiveDay, 'hoursPerDay');
+    // 0.18.0: horas por día en el trabajo (por tiempo usado) y horas por mes en el servicio (por mes).
+    check(`equipment.${i}.assignedHoursPerDay`, e.assignedHoursPerDay, 'hoursPerDay');
+    check(`equipment.${i}.assignedHoursPerMonth`, e.assignedHoursPerMonth, 'hours');
     // Mantenimiento y neumáticos (PLAN-2026-007): montos y vidas útiles no negativos.
     check(`equipment.${i}.maintenanceServiceCost`, e.maintenanceServiceCost, 'money');
     check(`equipment.${i}.maintenanceServiceHours`, e.maintenanceServiceHours, 'intervalHours');

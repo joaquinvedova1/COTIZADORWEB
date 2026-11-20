@@ -105,8 +105,8 @@ export function mainValueOf(type, values) {
  */
 const KEEP_ON_UPDATE = Object.freeze({
   // assignment / fixedCostSharePct (PLAN-2026-012): la asignación es de la cotización, nunca del recurso.
-  laborProfiles: ['id', 'positions', 'peoplePerPosition', 'overtimeHoursPerActiveDay', 'overtime', 'overtimeBilled', 'overtime50HoursPerMonth', 'overtime100HoursPerMonth', 'people', 'minutesPerBatch', 'assignment', 'fixedCostSharePct', 'coverageHoursPerDay', 'payrollHeadcount', 'rotation'],
-  equipment: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'minutesPerBatch', 'energyPerHour', 'fixedSharePct', 'shareMode', 'supplierPayDays', 'assignment', 'fixedCostSharePct'],
+  laborProfiles: ['id', 'positions', 'peoplePerPosition', 'overtimeHoursPerActiveDay', 'overtime', 'overtimeBilled', 'overtime50HoursPerMonth', 'overtime100HoursPerMonth', 'people', 'minutesPerBatch', 'assignment', 'fixedCostSharePct', 'assignedHoursPerMonth', 'coverageHoursPerDay', 'payrollHeadcount', 'rotation'],
+  equipment: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'minutesPerBatch', 'energyPerHour', 'fixedSharePct', 'shareMode', 'supplierPayDays', 'assignment', 'fixedCostSharePct', 'assignedHoursPerMonth', 'assignedHoursPerDay'],
   externalServices: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'supplierPayDays'],
   materials: ['id', 'quantity', 'basis', 'providedBy', 'per', 'useUnit', 'billedSeparately', 'usagePct', 'outputUnit', 'outputPerActiveDay'],
 });

@@ -12,6 +12,16 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-20
+
+**Cada recurso asignado dice sus horas en el trabajo (pedido del dueño).** Un recurso asignado es ese recurso: ya no se pregunta "¿cuántas personas van?". Se paga por mes, así que la cotización pide cuántas horas lo usa: con ellas y el valor de su hora (costo del mes ÷ horas del mes) sale su costo. Sin cambio de esquema. Ninguna cotización guardada cambia de números. Reglas: docs/CALCULATION_RULES.md §36.
+
+### Cambiado
+
+- **Personal en la cotización**: primero "Horas por día en este trabajo" (antes "Horas por día de cada una en esto"); vacío = todo el día de trabajo. La cantidad ya viene en 1 ("Cantidad", antes "¿Cuántas personas de «Chofer» van?") y sólo se cambia si van varias personas con el mismo sueldo.
+- **Equipos propios en la cotización (por trabajo, hora, día o unidad)**: campo nuevo "Horas por día en este trabajo" (`assignedHoursPerDay`). Con el dato, tenerlo (amortización, seguro, patente) se cobra por esas horas; antes se cobraba siempre el día de trabajo entero aunque se usara 2 h. Vacío = el día de trabajo entero, como antes. Las horas con el equipo andando (combustible, mantenimiento) sin dato pasan a ser esas mismas horas; el campo queda en "Cambiar sus datos…".
+- **Cobro por mes**: personal y equipos propios piden "Horas por mes en este servicio" (`assignedHoursPerMonth`) en vez de "todo su mes / una parte con %". Vacío = todo el mes; con menos horas se guarda el % = horas ÷ horas del mes del recurso (`fixedCostSharePct`, la regla de siempre). Un % cargado a mano antes se sigue viendo como estaba.
+
 ## [0.17.0] - 2026-11-19
 
 **Menos texto y el precio primero (comparación con cotizadores del mercado, ver docs/informes/2026-11-mercado.md).** Sin cambio de esquema ni de fórmulas: ninguna cotización cambia de números.

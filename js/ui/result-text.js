@@ -1077,7 +1077,7 @@ export function timeEquipmentOwnershipHint(line) {
   if (!line || !line.timeBasis || !line.time || !line.ownership) return '';
   const t = line.time;
   const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? ` × ${n2(line.quantity)} unidades` : '';
-  return `Tenerlo en el mes ${formatMoney(line.ownership.totalMonthly)} ÷ ${n2(t.billableHoursPerMonth)} ${equipmentHoursNoun(t)} × ${n2(t.hoursPerDay)} h del día de trabajo${units}.`;
+  return `Tenerlo en el mes ${formatMoney(line.ownership.totalMonthly)} ÷ ${n2(t.billableHoursPerMonth)} ${equipmentHoursNoun(t)} × ${n2(t.hoursPerDay)} h ${t.ownHours ? 'por día en este trabajo' : 'del día de trabajo'}${units}.`;
 }
 
 /** "Tenerlo en el mes $ 2.090.000 ÷ 220 horas por mes (…), por unidad." (o ''): la hora de tenerlo (I7). */

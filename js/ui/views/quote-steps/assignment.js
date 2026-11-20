@@ -11,7 +11,8 @@
 
 import { formGrid } from '../../components.js';
 import { LABOR_ASSIGNMENTS, EQUIPMENT_ASSIGNMENTS } from '../../../domain/assignment.js';
-import { formatMoney, formatPercent } from '../../../core/format.js';
+import { formatMoney, formatNumber, formatPercent } from '../../../core/format.js';
+import { roundRate } from '../../../core/money.js';
 
 export const ASSIGNMENT_HELP = 'Compartida / compartido: el recurso también trabaja para otros servicios o contratos y esta cotización carga sólo un % de sus costos fijos. Esto no depende de cuántos días trabaje: un equipo on-call puede trabajar 15 días y aun así quedar reservado 100 % para este contrato. El uso real mueve sólo los costos variables.';
 
@@ -89,4 +90,45 @@ export function assignmentBlock(kit, { path, line, kind, at }) {
     ),
     kit.out((r) => assignmentRemainderText(at(r), kind), { tag: 'p', className: 'qe-note is-warning', allowEmpty: true }),
   );
+}
+
+/** ¿Hay un número cargado (no vacío)? */
+const filled = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+
+/**
+ * ¿La línea tiene un % de su mes cargado a mano (antes de la 0.18.0), sin horas por mes? Se sigue
+ * mostrando y editando como %, con los mismos números.
+ */
+export function hasManualSharePct(line) {
+  return Boolean(line) && line.assignment === 'shared' && !filled(line.assignedHoursPerMonth);
+}
+
+/**
+ * Horas por mes en este servicio (0.18.0, cotizaciones que se cobran por mes): el recurso se paga
+ * por mes y el servicio usa una parte de sus horas. Un solo campo:
+ *   vacío (o las horas del mes, o más)  → todo el mes (100 %)
+ *   menos horas                         → compartido, % = horas ÷ horas del mes del recurso
+ * El % queda guardado como dato explícito de la línea (regla de siempre, AGENTS §5.1): el motor no
+ * cambia. `baseHours` = horas del mes del recurso (las que cobra a clientes o las normales).
+ */
+export function monthHoursField(kit, ctx, { path, baseHours, kind }) {
+  const base = Number(baseHours) > 0 ? Number(baseHours) : 0;
+  const baseText = base > 0 ? formatNumber(base, { decimals: 2 }) : '';
+  return kit.num(`${path}.assignedHoursPerMonth`, {
+    label: 'Horas por mes en este servicio',
+    rule: 'hours',
+    unit: 'h/mes',
+    placeholder: baseText ? `${baseText} (todo el mes)` : 'Todo el mes',
+    hint: `${kind === 'labor' ? 'Las horas por mes que le dedica a este servicio' : 'Las horas por mes que está en este servicio'}. Vacío: todo el mes. Con menos horas, el servicio paga esa parte de su costo mensual${baseText ? ` (horas ÷ ${baseText} h del mes)` : ''}.`,
+    onValue: (value) => {
+      const hours = filled(value) ? Number(value) : 0;
+      if (hours > 0 && base > 0 && hours < base) {
+        ctx.update(`${path}.assignment`, 'shared');
+        ctx.update(`${path}.fixedCostSharePct`, roundRate((hours / base) * 100));
+      } else {
+        ctx.update(`${path}.assignment`, kind === 'labor' ? 'dedicated' : 'reserved');
+        ctx.update(`${path}.fixedCostSharePct`, null);
+      }
+    },
+  });
 }

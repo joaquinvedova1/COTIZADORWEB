@@ -2098,3 +2098,42 @@ financiero      = max(0, financiero − alivio)                         (fijo y 
 **Ejemplo:** 2 soldadores a 50.000 por día y un sereno a 600.000 por mes, 10 días de trabajo: `2 × 50.000 × 10 + 600.000 = 1.600.000` por mes en Mano de obra.
 
 **Salidas (sólo presentación, `activationsMatter` en `js/domain/contract.js`).** "Días por salida", "salidas por día" y "salidas por mes" se preguntan y se muestran sólo si algo de la cotización se paga por salida: se cobra por llamado, trabajo, hito, viaje o km; hay traslado; un insumo u otro costo "por salida"; un alquilado o tercerizado que se paga por salida, viaje o km, con mínimo o con movilización aparte; un mínimo, un cargo o una movilización que se cobra por salida; o "se cobran salidas completas". Las cotizaciones sin "¿Qué incluye?" (anteriores) las muestran como siempre. El motor no cambia: los datos guardados se siguen usando igual. Con "¿Qué incluye?" elegido, la activación se nombra **salida** (antes "intervención"); cobrar por llamado o por trabajo conserva su nombre.
+
+
+## 36. Horas de cada recurso en el trabajo (0.18.0, 2026-11-20)
+
+**Pedido del dueño:** un recurso asignado a la cotización es ese recurso y se paga por mes; lo que la cotización tiene que saber es cuántas horas lo usa. Cada recurso dice sus horas (el chofer 5 h, la hidrogrúa 2 h por día) y "¿cuánto trabajás?" (días, trabajos, cantidad) sigue siendo una sola pregunta para toda la cotización:
+
+```
+costo del recurso = cantidad × horas por día en el trabajo × días de trabajo × valor de su hora
+valor de la hora  = costo del mes ÷ horas del mes del recurso (§29)
+```
+
+**Personal (sin cambio de fórmula).** `coverageHoursPerDay` ya regía por tiempo usado (§29): las horas propias, hasta las del día de trabajo; vacío = el día de trabajo. Cambia la pantalla: es el primer dato del puesto y la cantidad (`positions`) viene en 1.
+
+**Equipos propios por tiempo usado (cambio de fórmula, sólo con el dato nuevo).** Archivo: `js/engines/equipment-engine.js` (`computeEquipmentLine`, `assignedEquipmentHours`). Dato nuevo opcional de la línea: `assignedHoursPerDay` (0–24).
+
+```
+horas en el trabajo  = min(assignedHoursPerDay, horas del día de trabajo)        (24 si el servicio no las tiene)
+horas andando        = hoursPerActiveDay de la línea o, vacío, las horas en el trabajo
+horas de tenerlo     = min(max(horas en el trabajo, horas andando), horas del día de trabajo)
+tenerlo por día      = posesión del mes ÷ horas facturables × horas de tenerlo × cantidad
+usarlo por día       = operación por hora × horas andando × cantidad
+```
+
+Sin `assignedHoursPerDay` (todas las cotizaciones anteriores): tenerlo por el día de trabajo entero y horas andando = las del día de trabajo, como en §29. Fuera de "por tiempo usado" el dato no se lee.
+
+Caso (hidrogrúa con posesión de 1.000.000 por mes y 200 h por mes = 5.000 la hora, día de trabajo de 8 h):
+
+| | Tenerla por día de trabajo |
+|---|---|
+| Antes (y hoy sin el dato) | 8 h × 5.000 = 40.000 |
+| Con 2 h por día en el trabajo | 2 h × 5.000 = 10.000 |
+
+**Límite conocido.** Si el equipo queda inmovilizado todo el día aunque trabaje 2 h (no puede ir a otro trabajo), hay que dejar el campo vacío o cargar el día entero: con 2 h, las otras 6 no las paga nadie.
+
+**Cobro por mes (sin cambio de fórmula).** La pantalla pide `assignedHoursPerMonth` ("Horas por mes en este servicio") y guarda el % explícito de siempre: `fixedCostSharePct = horas ÷ horas del mes del recurso × 100` con `assignment = 'shared'`; vacío, 0 o las horas del mes (o más) = `dedicated` / `reserved` sin %. Horas del mes: personal, `billableHoursPerMonth` o las normales; equipo propio, `billableHoursPerMonth` o `defaultEquipmentBillableHours`. El % queda guardado (AGENTS §5.1): no se recalcula solo si después cambian las horas del mes del recurso. Una línea compartida con % y sin horas (cargada antes) se sigue editando como %.
+
+**Validación.** `coverageHoursPerDay` y `assignedHoursPerDay`: 0–24. `assignedHoursPerMonth`: 0–744.
+
+Tests: `tests/engines/horas-por-recurso-2026-11.test.js`.
