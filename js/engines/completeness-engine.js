@@ -987,6 +987,8 @@ export function evaluateCompleteness(quote = {}) {
     const idle = equipment.filter((e) => {
       if (!(nonNegative(e.quantity) > 0) || !isBlank(e.hoursPerActiveDay)) return false;
       if (isExt(e)) return extOf(e).unit === 'hour' && nonNegative(extOf(e).price) > 0 && !hourless.includes(e);
+      // 0.18.0: con horas propias en el trabajo (por tiempo usado) el uso ya se suma con ésas.
+      if (usesTimeBasis(quote) && nonNegative(e.assignedHoursPerDay) > 0) return false;
       // Con 1 h por día: ¿el equipo tiene algún costo que dependa de las horas?
       return computeEquipmentLine(e, { fuelPricePerLiter: nonNegative(fuel.pricePerLiter), fuelPaidByUs, defaultHoursPerActiveDay: 1 }).variablePerActiveDay > 0;
     });

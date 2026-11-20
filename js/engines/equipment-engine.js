@@ -196,13 +196,29 @@ export function equipmentHoursPerDay(lineHours, defaultHours = 0) {
 }
 
 /**
+ * Horas por día que un equipo propio está en el trabajo (`assignedHoursPerDay`, 0.18.0): las
+ * cargadas, hasta las del día de trabajo (o 24 si el servicio no las tiene). 0 = sin dato.
+ */
+export function assignedEquipmentHours(line = {}, serviceHoursPerDay = 0) {
+  const own = nonNegative(line && line.assignedHoursPerDay);
+  if (!(own > 0)) return 0;
+  const service = Math.min(nonNegative(serviceHoursPerDay), MAX_EQUIPMENT_HOURS_PER_DAY);
+  return Math.min(own, service > 0 ? service : MAX_EQUIPMENT_HOURS_PER_DAY);
+}
+
+/**
  * Línea de equipo dentro de una cotización.
  * Posesión → fijo mensual (× % asignado si se comparte, PLAN-2026-012);
  * operación → variable por día de trabajo según el uso (no se reduce).
  */
 export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPaidByUs = true, defaultHoursPerActiveDay = 0, timeBasis = false, defaultBillableHours = 0 } = {}) {
   const quantity = nonNegative(line.quantity);
-  const hoursPerActiveDay = equipmentHoursPerDay(line.hoursPerActiveDay, defaultHoursPerActiveDay);
+  // Horas por día en este trabajo (0.18.0, por tiempo usado): si el equipo está en el trabajo sólo
+  // una parte del día (la hidrogrúa va 2 h), tenerlo se cobra por esas horas, nunca más que las del
+  // día de trabajo. Sin dato: el día de trabajo entero, como siempre. Las horas de uso (motor) sin
+  // dato pasan a ser esas mismas horas.
+  const assignedHours = timeBasis ? assignedEquipmentHours(line, defaultHoursPerActiveDay) : 0;
+  const hoursPerActiveDay = equipmentHoursPerDay(line.hoursPerActiveDay, assignedHours > 0 ? assignedHours : defaultHoursPerActiveDay);
   const ownership = computeOwnership(line);
   const operation = computeOperation(line, { fuelPricePerLiter, fuelPaidByUs });
   // Equipo compartido (PLAN-2026-012): esta cotización carga el % EXPLÍCITO de
@@ -210,11 +226,13 @@ export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPai
   const allocation = timeBasis ? { assignment: null, shared: false, sharePct: 100, share: 1, missing: false } : fixedCostShareOf(line);
   const share = allocation.shared ? allocation.share : 1;
   const fullFixedMonthly = ownership.totalMonthly * quantity;
-  // Por tiempo usado (2026-11-18): el equipo queda ocupado las horas del día de trabajo (aunque
-  // el motor ande menos): tenerlo cuesta esas horas × (posesión del mes ÷ horas facturables).
+  // Por tiempo usado (2026-11-18): tenerlo cuesta las horas que está en el trabajo × (posesión del
+  // mes ÷ horas facturables). Sin horas propias (0.18.0) es el día de trabajo entero, aunque el motor ande menos.
   if (timeBasis) {
     const billableHours = billableHoursOf(line, defaultBillableHours);
-    const occupiedHours = Math.min(nonNegative(defaultHoursPerActiveDay) > 0 ? nonNegative(defaultHoursPerActiveDay) : hoursPerActiveDay, MAX_EQUIPMENT_HOURS_PER_DAY);
+    const dayHours = Math.min(nonNegative(defaultHoursPerActiveDay) > 0 ? nonNegative(defaultHoursPerActiveDay) : hoursPerActiveDay, MAX_EQUIPMENT_HOURS_PER_DAY);
+    // Con horas propias en el trabajo: esas (o las de uso, si son más), hasta el día de trabajo.
+    const occupiedHours = assignedHours > 0 ? Math.min(Math.max(assignedHours, hoursPerActiveDay), dayHours) : dayHours;
     const hourly = safeDivide(ownership.totalMonthly, billableHours, 0);
     const cashHourly = safeDivide(ownership.cashMonthly, billableHours, 0);
     const ownershipPerActiveDay = hourly * occupiedHours * quantity;
@@ -230,7 +248,7 @@ export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPai
       fixedCostSharePct: 100,
       shareMissing: false,
       timeBasis: true,
-      time: { billableHoursPerMonth: billableHours, ownBillableHours: nonNegative(line.billableHoursPerMonth) > 0, hourlyCost: hourly, hoursPerDay: occupiedHours, perActiveDay: ownershipPerActiveDay },
+      time: { billableHoursPerMonth: billableHours, ownBillableHours: nonNegative(line.billableHoursPerMonth) > 0, hourlyCost: hourly, hoursPerDay: occupiedHours, ownHours: assignedHours > 0, perActiveDay: ownershipPerActiveDay },
       fullFixedMonthly,
       unassignedFixedMonthly: 0,
       fixedMonthly: 0,
