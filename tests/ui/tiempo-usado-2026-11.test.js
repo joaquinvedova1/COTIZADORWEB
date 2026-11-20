@@ -114,7 +114,7 @@ describe('Equipos propios por tiempo usado', () => {
     const r = computeQuote(generatorJob());
     const e = r.model.equipment[0];
     assert.equal(e.timeBasis, true);
-    assert.equal(norm(timeEquipmentUseText(e)), norm(`Asignado: ${formatMoney(e.ownershipPerActiveDay)} por día de trabajo (8 h × ${formatMoney(e.time.hourlyCost)} la hora) · uso efectivo: ${formatMoney(e.variablePerActiveDay)} por día de trabajo`));
+    assert.equal(norm(timeEquipmentUseText(e)), norm(`8 h asignado × ${formatMoney((e.ownershipPerActiveDay + e.variablePerActiveDay) / 8)} la hora = ${formatMoney(e.ownershipPerActiveDay + e.variablePerActiveDay)} por día de trabajo`));
     assert.equal(norm(timeEquipmentOwnershipHint(e)), norm(`Tenerlo en el mes ${formatMoney(e.ownership.totalMonthly)} ÷ 176 horas por mes (si trabaja todo el mes a este ritmo) × 8 h del día de trabajo.`));
     // Lo de cada día incluye tenerlo (el motor lo deja aparte de la operación).
     close(equipmentPerActiveDay(e), e.variablePerActiveDay + e.ownershipPerActiveDay);
@@ -182,7 +182,7 @@ describe('Revisión UX (2026-11-18): textos por tiempo usado', () => {
     const e = r.model.equipment[0];
     const own = e.ownershipPerActiveDay * 3;
     const use = e.variablePerActiveDay * 3;
-    assert.equal(norm(timeEquipmentJobText(r, e)), norm(`Asignado: 8 h × 3 días × ${formatMoney(e.time.hourlyCost)} la hora = ${formatMoney(own)} · uso efectivo (combustible y mantenimiento): ${formatMoney(use)} · en el trabajo`));
+    assert.equal(norm(timeEquipmentJobText(r, e)), norm(`8 h × 3 días × ${formatMoney((own + use) / 24)} la hora = ${formatMoney(own + use)} en el trabajo`));
     close(own, e.time.hourlyCost * 8 * 3);
   });
 
@@ -191,7 +191,7 @@ describe('Revisión UX (2026-11-18): textos por tiempo usado', () => {
     const e = r.model.equipment[0];
     const own = e.ownershipPerActiveDay * 3;
     const use = e.variablePerActiveDay * 3;
-    assert.equal(norm(timeEquipmentTotalText(r)), norm(`${formatMoney(own + use)} en el trabajo: asignados ${formatMoney(own)} + uso efectivo ${formatMoney(use)}.`));
+    assert.equal(norm(timeEquipmentTotalText(r)), norm(`${formatMoney(own + use)} en el trabajo: las horas asignadas de cada equipo × su valor hora.`));
     assert.ok(!/fijo|variable/i.test(timeEquipmentTotalText(r)));
   });
 
@@ -201,7 +201,7 @@ describe('Revisión UX (2026-11-18): textos por tiempo usado', () => {
     q.equipment = [owned({ name: 'Camioneta', replacementValue: 40_000_000, usefulLifeYears: 8, fuelLitersPerHour: 2 })];
     const r = computeQuote(q);
     const e = r.model.equipment[0];
-    assert.equal(norm(timeEquipmentTotalText(r)), norm(`${formatMoney(e.ownershipPerActiveDay + e.variablePerActiveDay)} por día de trabajo: asignados ${formatMoney(e.ownershipPerActiveDay)} + uso efectivo ${formatMoney(e.variablePerActiveDay)}.`));
+    assert.equal(norm(timeEquipmentTotalText(r)), norm(`${formatMoney(e.ownershipPerActiveDay + e.variablePerActiveDay)} por día de trabajo: las horas asignadas de cada equipo × su valor hora.`));
     assert.equal(timeEquipmentJobText(r, e), '');
   });
 
@@ -223,7 +223,9 @@ describe('Revisión UX (2026-11-18): textos por tiempo usado', () => {
     const l = r.model.labor.lines[0];
     const e = r.model.equipment[0];
     assert.equal(norm(timeStaffHoursText(r, l)), norm(`1 persona × 24 h × ${formatMoney(l.time.hourlyCost)} la hora`));
-    assert.equal(norm(timeEquipmentHoursText(r, e)), norm(`Generador: 24 h × ${formatMoney(e.time.hourlyCost)} la hora`));
+    assert.equal(norm(timeEquipmentHoursText(r, e)), norm(`Generador: 24 h × ${formatMoney((e.ownershipPerActiveDay + e.variablePerActiveDay) / 8)} la hora`));
+    // 0.19.0: el valor hora completo = tenerlo + usarlo por hora.
+    close((e.ownershipPerActiveDay + e.variablePerActiveDay) / 8, e.time.hourlyCost + e.operation.totalPerHour);
   });
 
   test('I8: por hora, "2 personas × 8 h por día × $ X la hora"', () => {

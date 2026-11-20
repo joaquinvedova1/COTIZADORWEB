@@ -295,6 +295,8 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
             const eq = r.model.equipment && r.model.equipment[i];
             if (!eq || !(eq.variablePerActiveDay > 0)) return '';
             const liters = eq.fuelLitersPerActiveDay > 0 ? `${formatValue(eq.fuelLitersPerActiveDay, 'liters')} de combustible y ` : '';
+            // 0.19.0: por tiempo usado el valor hora cubre las horas asignadas; acá va sólo el viaje.
+            if (eq.timeBasis) return 'Acá va sólo el traslado: combustible y desgaste por km. Si el equipo queda ocupado mientras viaja, sumá esas horas a las asignadas.';
             return `Además, trabajando en la locación suma ${liters}${formatMoney(eq.variablePerActiveDay)} por día (${formatNumber(eq.hoursPerActiveDay, { decimals: 2 })} h de uso × combustible, mantenimiento y neumáticos por hora). Si sólo lleva gente o carga y queda parado, poné 0 en las horas de uso (trabajando en la locación).`;
           }, { tag: 'p', className: 'qe-warn', allowEmpty: true }), (r) => {
             const eq = r.model.equipment && r.model.equipment[i];

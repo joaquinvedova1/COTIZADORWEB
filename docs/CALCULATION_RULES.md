@@ -2140,6 +2140,33 @@ Caso (hidrogrúa con posesión de 1.000.000 por mes y 200 h por mes = 5.000 la h
 
 Tests: `tests/engines/horas-por-recurso-2026-11.test.js`.
 
-### 36.1 Nombres en pantalla (0.19.0)
+### 36.1 Una sola pregunta por recurso (0.19.0)
 
-Sin cambio de fórmulas. `coverageHoursPerDay` y, en personal por mes, `assignedHoursPerMonth` se muestran como "Horas efectivas de trabajo"; `assignedHoursPerDay` (y `assignedHoursPerMonth` de un equipo) como "Horas asignado a esta cotización"; `hoursPerActiveDay` de un equipo propio por tiempo usado como "Horas de uso efectivo". La cantidad (`positions`, `quantity` de un equipo propio) no se pide: vale 1 y, para sumar otro, el recurso se asigna otra vez; una línea con otra cantidad la sigue mostrando y calculando igual.
+Sin cambio de fórmulas. `coverageHoursPerDay` (y, en personal por mes, `assignedHoursPerMonth`) se muestran como "Horas efectivas de trabajo"; `assignedHoursPerDay` (y `assignedHoursPerMonth` de un equipo) como "Horas asignado a esta cotización". "Cantidad" no se muestra en personal ni en equipos propios cuando es 1.
+
+Equipo propio por tiempo usado: la pantalla pide sólo las horas asignado. Las horas con el motor andando (`hoursPerActiveDay`) vacías = las asignadas (regla de §36), así que el costo es
+
+```
+costo = horas asignado × valor hora
+valor hora = tenerlo por mes ÷ horas del mes  +  usarlo por hora (combustible, mantenimiento, neumáticos)
+```
+
+Si se cargan menos horas andando (dato opcional), las quietas pagan sólo tenerlo. Un vehículo llega con 0 h andando en la locación: su valor hora es el de tenerlo y su uso va por km en la movilización (sin repetir amortización). El tiempo de viaje no se cobra solo: si el equipo queda ocupado mientras viaja, esas horas se suman a las asignadas (pendiente: llevarlas a la movilización).
+
+### 36.2 Horas en la unidad de cobro (0.19.0)
+
+Dato nuevo opcional de la línea de personal y de equipo propio: `assignedHoursPerUnit`. Sólo rige por tiempo usado y según la unidad de cobro (`resourceHoursBasis`, `js/domain/cost-basis.js`):
+
+| Unidad de cobro | El dato es | Horas por día de trabajo |
+|---|---|---|
+| Contable (unidad propia, unidad, pieza, pozo, ensayo, lote, juego, etapa, conexión, junta, boca, viaje, contenedor) | horas por unidad | horas × unidades por día de trabajo |
+| Trabajo o llamado | horas en el trabajo | horas ÷ días del trabajo (días de trabajo del mes ÷ trabajos del mes; sin eso, días por salida) |
+| Día, hora, unidades de medida (km, m³, kg, HH…) | no se usa (se piden por día) | — |
+| Mes | no se usa (§36: horas por mes → %) | — |
+
+El resultado reemplaza, sólo para calcular, a `coverageHoursPerDay` (personal) o `assignedHoursPerDay` (equipo propio); después valen las reglas de §29 y §36, incluido el tope del día de trabajo. Sin rendimiento cargado (unidades por día o días) el dato no se aplica: cuenta el día entero. No se aplica a alquilados ni tercerizados. Al cambiar la unidad de cobro el dato se limpia y se avisa (`applyUnitChange`).
+
+Caso: grúa con valor hora de tenerla $ 5.000 y usarla $ 16.000; 0,5 h por válvula; 4 válvulas por día → 2 h por día → $ 42.000 por día → $ 10.500 por válvula. Con 2 válvulas por día: 1 h por día → $ 21.000 por día → $ 10.500 por válvula (el costo por unidad no depende del ritmo).
+
+**Aviso de horas de más:** si las horas por día de un recurso (cargadas o derivadas) superan las horas del día de trabajo, el motor sigue contando sólo las del día y agrega un aviso en la línea ("las horas de más no se están contando en el costo"). Antes el recorte era silencioso.
+

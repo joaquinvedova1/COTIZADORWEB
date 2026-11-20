@@ -1060,11 +1060,28 @@ export function laborHourStat(line, normalHours) {
  *   "Tenerlo: $ 95.000 por día de trabajo (8 h × $ 11.875 la hora) · usarlo: $ 40.000 por día de trabajo"
  * '' si la línea no es por tiempo usado. Sólo texto: los montos son los del motor.
  */
+/**
+ * Valor hora COMPLETO de un equipo propio por tiempo usado (0.19.0): tenerlo + usarlo, por hora y
+ * por unidad, cuando todas sus horas asignadas llevan el motor andando (lo normal). null si las
+ * horas andando son otras (ahí la cuenta se muestra en dos partes). Sale de los montos del motor.
+ */
+export function equipmentFullHourRate(line) {
+  if (!line || !line.timeBasis || !line.time) return null;
+  const h = line.time.hoursPerDay;
+  const q = line.quantity > 0 ? line.quantity : 0;
+  // Un solo valor hora: todas las horas con el motor andando, o ninguna (vehículo: sólo tenerlo).
+  const run = line.hoursPerActiveDay || 0;
+  if (!(h > 0) || !(q > 0) || (Math.abs(run - h) > 1e-6 && run > 1e-6)) return null;
+  return ((line.ownershipPerActiveDay || 0) + (line.variablePerActiveDay || 0)) / (h * q);
+}
+
 export function timeEquipmentUseText(line) {
   if (!line || !line.timeBasis || !line.time) return '';
   const t = line.time;
   const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? ` × ${n2(line.quantity)} unidades` : '';
-  return `Asignado: ${formatMoney(line.ownershipPerActiveDay)} por día de trabajo (${n2(t.hoursPerDay)} h × ${formatMoney(t.hourlyCost)} la hora${units}) · uso efectivo: ${formatMoney(line.variablePerActiveDay)} por día de trabajo`;
+  const full = equipmentFullHourRate(line);
+  if (full !== null) return `${n2(t.hoursPerDay)} h asignado × ${formatMoney(full)} la hora${units} = ${formatMoney((line.ownershipPerActiveDay || 0) + (line.variablePerActiveDay || 0))} por día de trabajo`;
+  return `Asignado: ${formatMoney(line.ownershipPerActiveDay)} por día de trabajo (${n2(t.hoursPerDay)} h × ${formatMoney(t.hourlyCost)} la hora${units}) · motor andando: ${formatMoney(line.variablePerActiveDay)} por día de trabajo`;
 }
 
 /** "horas que lo usás o alquilás por mes" / "horas por mes (si trabaja todo el mes a este ritmo)". */
@@ -1101,7 +1118,9 @@ export function timeEquipmentJobText(r, line) {
   const days = D / jobs;
   const t = line.time;
   const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? `${n2(line.quantity)} unidades × ` : '';
-  return `Asignado: ${units}${n2(t.hoursPerDay)} h × ${daysCountText(days)} × ${formatMoney(t.hourlyCost)} la hora = ${formatMoney((line.ownershipPerActiveDay || 0) * days)} · uso efectivo (combustible y mantenimiento): ${formatMoney((line.variablePerActiveDay || 0) * days)} · en el trabajo`;
+  const full = equipmentFullHourRate(line);
+  if (full !== null) return `${units}${n2(t.hoursPerDay)} h × ${daysCountText(days)} × ${formatMoney(full)} la hora = ${formatMoney(((line.ownershipPerActiveDay || 0) + (line.variablePerActiveDay || 0)) * days)} en el trabajo`;
+  return `Asignado: ${units}${n2(t.hoursPerDay)} h × ${daysCountText(days)} × ${formatMoney(t.hourlyCost)} la hora = ${formatMoney((line.ownershipPerActiveDay || 0) * days)} · motor andando (combustible y mantenimiento): ${formatMoney((line.variablePerActiveDay || 0) * days)} · en el trabajo`;
 }
 
 /**
@@ -1119,10 +1138,9 @@ export function timeEquipmentTotalText(r, total = null) {
   const D = r.activity ? r.activity.activeDaysPerMonth || 0 : 0;
   if (jobs !== null && jobs > 0 && D > 0) {
     const job = Number.isFinite(total) ? total : ((own + use) * D) / jobs;
-    const ownJob = (own * D) / jobs;
-    return `${formatMoney(job)} en el trabajo: asignados ${formatMoney(ownJob)} + uso efectivo ${formatMoney(job - ownJob)}.`;
+    return `${formatMoney(job)} en el trabajo: las horas asignadas de cada equipo × su valor hora.`;
   }
-  return `${formatMoney(own + use)} por día de trabajo: asignados ${formatMoney(own)} + uso efectivo ${formatMoney(use)}.`;
+  return `${formatMoney(own + use)} por día de trabajo: las horas asignadas de cada equipo × su valor hora.`;
 }
 
 /**
@@ -1139,7 +1157,8 @@ export function timeStaffHoursText(r, line) {
 export function timeEquipmentHoursText(r, line) {
   if (!r || !line || !line.timeBasis || !line.time) return '';
   const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? `${n2(line.quantity)} unidades × ` : '';
-  return `${line.name || 'Equipo'}: ${units}${jobHoursText(r, line.time.hoursPerDay)} × ${formatMoney(line.time.hourlyCost)} la hora`;
+  const full = equipmentFullHourRate(line);
+  return `${line.name || 'Equipo'}: ${units}${jobHoursText(r, line.time.hoursPerDay)} × ${formatMoney(full !== null ? full : line.time.hourlyCost)} la hora`;
 }
 
 /** "24 h" (horas del trabajo, precio cerrado) o "8 h por día". */

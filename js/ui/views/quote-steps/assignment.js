@@ -111,6 +111,34 @@ export function hasManualSharePct(line) {
  * El % queda guardado como dato explícito de la línea (regla de siempre, AGENTS §5.1): el motor no
  * cambia. `baseHours` = horas del mes del recurso (las que cobra a clientes o las normales).
  */
+/**
+ * Horas del recurso EN LA UNIDAD DE COBRO (0.19.0, pedido del dueño): "horas por válvula" o "horas
+ * en el trabajo". El motor las lleva a horas por día con el rendimiento de la cotización.
+ * @param {{ path: string, kind: 'labor'|'equipment', basis: 'unit'|'job', unit: object, ready: boolean, where: string }} o
+ *   `ready` = ya está cargado el rendimiento (unidades por día / días del trabajo); `where` = dónde se carga.
+ */
+export function unitHoursField(kit, { path, kind, basis, unit, ready, where, onValue = null }) {
+  const one = basis === 'job' ? `cada ${unit.singular || 'trabajo'}` : `cada ${unit.singular || 'unidad'}`;
+  const who = kind === 'labor' ? 'Las horas efectivas de trabajo de este puesto' : 'Las horas que el equipo queda asignado';
+  const cost = kind === 'labor' ? 'el valor de su hora' : 'su valor hora (amortización, seguro, patente, mantenimiento y combustible)';
+  const pending = ready ? '' : ` Falta cargar ${basis === 'job' ? 'los días del trabajo' : `cuántos ${unit.plural || 'unidades'} hacés por día`} en «${where}»: hasta entonces cuenta todo el día.`;
+  return kit.num(`${path}.assignedHoursPerUnit`, {
+    label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignado a esta cotización',
+    rule: 'hours',
+    unit: `h/${unit.short || unit.singular || 'unidad'}`,
+    placeholder: 'Todo el día de trabajo',
+    hint: `${who} en ${one}. Su costo = esas horas × ${cost}. Vacío = todo el día de trabajo; más que eso no se cuenta.${pending}`,
+    ...(typeof onValue === 'function' ? { onValue } : {}),
+  });
+}
+
+/** ¿La línea pide sus horas en la unidad de cobro? No, si ya tiene horas por día cargadas antes. */
+export function asksUnitHours(basis, line, perDayKey) {
+  if (basis !== 'unit' && basis !== 'job') return false;
+  const has = (v) => v !== null && v !== undefined && v !== '' && Number(v) > 0;
+  return has(line && line.assignedHoursPerUnit) || !has(line && line[perDayKey]);
+}
+
 export function monthHoursField(kit, ctx, { path, baseHours, kind }) {
   const base = Number(baseHours) > 0 ? Number(baseHours) : 0;
   const baseText = base > 0 ? formatNumber(base, { decimals: 2 }) : '';

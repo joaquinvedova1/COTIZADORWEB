@@ -48,7 +48,7 @@ import { outputPerActiveDayOf, outputMatchesBilling, normalizeBasisId } from './
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf, resourceOvertimeHoursOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
-import { usesTimeBasis } from '../domain/cost-basis.js';
+import { usesTimeBasis, resolveUnitHours } from '../domain/cost-basis.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
 import { normalizePriceAdjustment, priceAdjustmentOf, contingencyPriceOverlap } from '../domain/price-adjustment.js';
@@ -207,7 +207,9 @@ function assumptionChanges(confirmed, current) {
  * @param {object} quote
  * @returns {{ scorePct: number, items: object[], pending: object[], counts: {ok:number, warning:number, missing:number} }}
  */
-export function evaluateCompleteness(quote = {}) {
+export function evaluateCompleteness(quoteInput = {}) {
+  // 0.19.0: horas de cada recurso en la unidad de cobro → horas por día (para los avisos de horas).
+  const quote = resolveUnitHours(quoteInput, normalizeActivity(quoteInput));
   const items = [];
   // La activación con el nombre de la cotización y los rótulos que se citan (PLAN-2026-014, LAB-D8).
   const T = activationTerms(quote);
@@ -405,7 +407,8 @@ export function evaluateCompleteness(quote = {}) {
         : alone
           ? `Servicio de todo el día y todos los días con una sola persona en "${name}": nadie la reemplaza en francos ni vacaciones. Sumá los puestos que se turnen (cada uno con sus horas efectivas de trabajo) o cargá las horas extra.`
           : 'Cobertura 24/7 con una sola persona por posición: revisá relevos, francos y vacaciones.');
-    if (alone) item.focus = `labor.${labor.indexOf(alone)}.positions`;
+    // 0.19.0: con una persona "Cantidad" no se muestra: el aviso lleva a sus horas.
+    if (alone) item.focus = `labor.${labor.indexOf(alone)}.${Math.abs(nonNegative(alone.positions) - 1) < 1e-9 ? 'coverageHoursPerDay' : 'positions'}`;
     items.push(item);
   }
 

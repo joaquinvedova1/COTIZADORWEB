@@ -14,16 +14,28 @@ Reglas para este archivo:
 
 ## [0.19.0] - 2026-11-20
 
-**Horas efectivas de trabajo y sin "Cantidad" (correcciones del dueño a la 0.18.0).** Sólo pantalla: sin cambio de esquema ni de fórmulas, ninguna cotización cambia de números.
+**Una sola pregunta por recurso, en la unidad de cobro (correcciones del dueño a la 0.18.0).** Cada recurso propio asignado dice sus horas para esta cotización y su costo es esas horas × su valor hora. Sin cambio de esquema; dato nuevo opcional `assignedHoursPerUnit` en las líneas de personal y de equipos. Ninguna cotización guardada cambia de números. Reglas: docs/CALCULATION_RULES.md §36.1 y §36.2.
+
+### Agregado
+
+- **Horas en la unidad de cobro** (`assignedHoursPerUnit`): cobrando por una unidad contable (válvula, pozo, pieza, viaje, unidad propia…) la cotización pregunta "horas por válvula"; cobrando por trabajo o por llamado, las horas en el trabajo. El motor las lleva a horas por día con el rendimiento cargado (unidades por día, o días del trabajo). Cobrando por día, por hora o por una unidad de medida (km, m³, kg…) se siguen pidiendo por día; por mes, por mes. Al cambiar la unidad de cobro esas horas se limpian, con aviso.
+- **Aviso de horas de más**: si las horas de un recurso superan el día de trabajo, la línea lo dice (antes se recortaban en silencio y el costo quedaba de menos).
+- Tarjeta del equipo propio: "Por mes" y "Valor hora" (tenerlo + usarlo por hora; en un vehículo que sólo viaja, sólo tenerlo: su uso va por km).
 
 ### Cambiado
 
-- **Personal**: el campo se llama "Horas efectivas de trabajo" (las de ese puesto para esta cotización; por día de trabajo o, cobrando por mes, por mes).
-- **Equipos propios**: dos datos a la vista, "Horas asignado a esta cotización" (pagan su valor hora: amortización, seguro y patente del mes ÷ horas del mes, esté andando o quieto) y "Horas de uso efectivo" (suman el desgaste: combustible, mantenimiento y neumáticos). La tarjeta muestra el costo del mes, el valor hora asignado y el desgaste por hora de uso; la cuenta dice "Asignado … · uso efectivo …".
+- **Personal**: el campo se llama "Horas efectivas de trabajo" (las de ese puesto para esta cotización).
+- **Equipos propios**: una sola pregunta, "Horas asignado a esta cotización". Su costo = esas horas × el valor hora completo. Las horas con el motor andando quedan como dato opcional en "Cambiar sus datos…" (vacío = todas las asignadas) y un equipo agregado desde Recursos ya no las trae precargadas con las horas del día (así las horas asignadas mandan). Los vehículos siguen llegando con 0 h en la locación.
+- Las cuentas de cada línea y el total de Equipos se dicen en la unidad cuando se cobra por unidad contable ("0,5 h por válvula × $ … la hora = $ … por válvula").
+- El aviso de "Cobertura de todo el día" lleva al campo de horas cuando el puesto es de una persona.
 
 ### Eliminado
 
 - "Cantidad" en personal y en equipos propios: un recurso asignado es ese recurso; si van dos, se asigna dos veces. Una línea que ya tenía otra cantidad la sigue mostrando. En alquilados y tercerizados sigue.
+
+### Pendiente (análisis de costos 2026-11-20, para la versión siguiente)
+
+- Horas de viaje del equipo y del chofer dentro de la movilización; valor hora del equipo con un divisor propio del recurso (hoy, sin horas del mes cargadas, depende de la jornada de la cotización); resumen y resultado por unidad primero; la misma pregunta para alquilados, tercerizados y personal tercerizado; materiales y otros gastos "por unidad" por defecto; horas sin absorber por recurso.
 
 ## [0.18.0] - 2026-11-20
 

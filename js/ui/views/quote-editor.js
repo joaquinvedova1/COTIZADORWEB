@@ -2142,8 +2142,12 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   function focusField(path) {
     let controls = [...stepBody.querySelectorAll(`[name="${cssEscape(path)}"]`)];
     // 0.19.0: "Cantidad" no se muestra en un puesto de una persona: el aviso lleva a sus horas.
-    if (controls.length === 0 && /^labor\.\d+\.positions$/.test(path)) {
-      controls = [...stepBody.querySelectorAll(`[name="${cssEscape(path.replace(/positions$/, 'coverageHoursPerDay'))}"]`)];
+    if (controls.length === 0 && /^labor\.\d+\.(positions|coverageHoursPerDay)$/.test(path)) {
+      const alt = ['coverageHoursPerDay', 'assignedHoursPerUnit', 'assignedHoursPerMonth'];
+      alt.some((key) => {
+        controls = [...stepBody.querySelectorAll(`[name="${cssEscape(path.replace(/[A-Za-z]+$/, key))}"]`)];
+        return controls.length > 0;
+      });
     }
     // En un grupo de opciones, la elegida (así el teclado sigue en el mismo lugar).
     const control = controls.find((c) => c.type === 'radio' && c.checked) || controls[0];
