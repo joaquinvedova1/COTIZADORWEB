@@ -115,11 +115,11 @@ export function monthHoursField(kit, ctx, { path, baseHours, kind }) {
   const base = Number(baseHours) > 0 ? Number(baseHours) : 0;
   const baseText = base > 0 ? formatNumber(base, { decimals: 2 }) : '';
   return kit.num(`${path}.assignedHoursPerMonth`, {
-    label: 'Horas por mes en este servicio',
+    label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignado a esta cotización',
     rule: 'hours',
     unit: 'h/mes',
     placeholder: baseText ? `${baseText} (todo el mes)` : 'Todo el mes',
-    hint: `${kind === 'labor' ? 'Las horas por mes que le dedica a este servicio (si van varias personas, las de cada una)' : 'Las horas por mes que está en este servicio'}. Vacío = todo el mes. Con menos horas, el servicio paga esa parte de su costo mensual${baseText ? ` (horas ÷ ${baseText} h del mes)` : ''}.`,
+    hint: `${kind === 'labor' ? 'Las horas efectivas de trabajo de este puesto para esta cotización, por mes' : 'Las horas por mes que el equipo queda asignado a esta cotización, esté andando o quieto'}. Vacío = todo el mes. Con menos horas, el servicio paga esa parte de su costo mensual${baseText ? ` (horas ÷ ${baseText} h del mes)` : ''}.`,
     onValue: (value) => {
       const hours = filled(value) ? Number(value) : 0;
       if (hours > 0 && base > 0 && hours < base) {

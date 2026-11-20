@@ -1064,7 +1064,7 @@ export function timeEquipmentUseText(line) {
   if (!line || !line.timeBasis || !line.time) return '';
   const t = line.time;
   const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? ` × ${n2(line.quantity)} unidades` : '';
-  return `Tenerlo: ${formatMoney(line.ownershipPerActiveDay)} por día de trabajo (${n2(t.hoursPerDay)} h × ${formatMoney(t.hourlyCost)} la hora${units}) · usarlo: ${formatMoney(line.variablePerActiveDay)} por día de trabajo`;
+  return `Asignado: ${formatMoney(line.ownershipPerActiveDay)} por día de trabajo (${n2(t.hoursPerDay)} h × ${formatMoney(t.hourlyCost)} la hora${units}) · uso efectivo: ${formatMoney(line.variablePerActiveDay)} por día de trabajo`;
 }
 
 /** "horas que lo usás o alquilás por mes" / "horas por mes (si trabaja todo el mes a este ritmo)". */
@@ -1077,7 +1077,7 @@ export function timeEquipmentOwnershipHint(line) {
   if (!line || !line.timeBasis || !line.time || !line.ownership) return '';
   const t = line.time;
   const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? ` × ${n2(line.quantity)} unidades` : '';
-  return `Tenerlo en el mes ${formatMoney(line.ownership.totalMonthly)} ÷ ${n2(t.billableHoursPerMonth)} ${equipmentHoursNoun(t)} × ${n2(t.hoursPerDay)} h ${t.ownHours ? 'por día en este trabajo' : 'del día de trabajo'}${units}.`;
+  return `Tenerlo en el mes ${formatMoney(line.ownership.totalMonthly)} ÷ ${n2(t.billableHoursPerMonth)} ${equipmentHoursNoun(t)} × ${n2(t.hoursPerDay)} h ${t.ownHours ? 'asignado por día' : 'del día de trabajo'}${units}.`;
 }
 
 /** "Tenerlo en el mes $ 2.090.000 ÷ 220 horas por mes (…), por unidad." (o ''): la hora de tenerlo (I7). */
@@ -1090,7 +1090,7 @@ export function timeEquipmentHourHint(line) {
 
 /**
  * Equipo propio por tiempo usado en precio cerrado (M1, 2026-11-18), con los montos del motor:
- *   "Tenerlo: 8 h × 3 días × $ 2.367 la hora = $ 56.818 · usarlo (combustible y mantenimiento): $ 360.000 · en el trabajo"
+ *   "Tenerlo: 8 h × 3 días × $ 2.367 la hora = $ 56.818 · uso efectivo (combustible y mantenimiento): $ 360.000 · en el trabajo"
  * '' si no es por tiempo usado, no es precio cerrado o todavía no hay días.
  */
 export function timeEquipmentJobText(r, line) {
@@ -1101,7 +1101,7 @@ export function timeEquipmentJobText(r, line) {
   const days = D / jobs;
   const t = line.time;
   const units = line.quantity > 0 && Math.abs(line.quantity - 1) > EPS ? `${n2(line.quantity)} unidades × ` : '';
-  return `Tenerlo: ${units}${n2(t.hoursPerDay)} h × ${daysCountText(days)} × ${formatMoney(t.hourlyCost)} la hora = ${formatMoney((line.ownershipPerActiveDay || 0) * days)} · usarlo (combustible y mantenimiento): ${formatMoney((line.variablePerActiveDay || 0) * days)} · en el trabajo`;
+  return `Asignado: ${units}${n2(t.hoursPerDay)} h × ${daysCountText(days)} × ${formatMoney(t.hourlyCost)} la hora = ${formatMoney((line.ownershipPerActiveDay || 0) * days)} · uso efectivo (combustible y mantenimiento): ${formatMoney((line.variablePerActiveDay || 0) * days)} · en el trabajo`;
 }
 
 /**
@@ -1120,9 +1120,9 @@ export function timeEquipmentTotalText(r, total = null) {
   if (jobs !== null && jobs > 0 && D > 0) {
     const job = Number.isFinite(total) ? total : ((own + use) * D) / jobs;
     const ownJob = (own * D) / jobs;
-    return `${formatMoney(job)} en el trabajo: tenerlos ${formatMoney(ownJob)} + usarlos ${formatMoney(job - ownJob)}.`;
+    return `${formatMoney(job)} en el trabajo: asignados ${formatMoney(ownJob)} + uso efectivo ${formatMoney(job - ownJob)}.`;
   }
-  return `${formatMoney(own + use)} por día de trabajo: tenerlos ${formatMoney(own)} + usarlos ${formatMoney(use)}.`;
+  return `${formatMoney(own + use)} por día de trabajo: asignados ${formatMoney(own)} + uso efectivo ${formatMoney(use)}.`;
 }
 
 /**

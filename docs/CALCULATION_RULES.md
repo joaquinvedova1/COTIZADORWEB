@@ -2139,3 +2139,7 @@ Caso (hidrogrúa con posesión de 1.000.000 por mes y 200 h por mes = 5.000 la h
 **Validación.** `coverageHoursPerDay` y `assignedHoursPerDay`: 0–24. `assignedHoursPerMonth`: 0–744.
 
 Tests: `tests/engines/horas-por-recurso-2026-11.test.js`.
+
+### 36.1 Nombres en pantalla (0.19.0)
+
+Sin cambio de fórmulas. `coverageHoursPerDay` y, en personal por mes, `assignedHoursPerMonth` se muestran como "Horas efectivas de trabajo"; `assignedHoursPerDay` (y `assignedHoursPerMonth` de un equipo) como "Horas asignado a esta cotización"; `hoursPerActiveDay` de un equipo propio por tiempo usado como "Horas de uso efectivo". La cantidad (`positions`, `quantity` de un equipo propio) no se pide: vale 1 y, para sumar otro, el recurso se asigna otra vez; una línea con otra cantidad la sigue mostrando y calculando igual.

@@ -12,6 +12,19 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-20
+
+**Horas efectivas de trabajo y sin "Cantidad" (correcciones del dueño a la 0.18.0).** Sólo pantalla: sin cambio de esquema ni de fórmulas, ninguna cotización cambia de números.
+
+### Cambiado
+
+- **Personal**: el campo se llama "Horas efectivas de trabajo" (las de ese puesto para esta cotización; por día de trabajo o, cobrando por mes, por mes).
+- **Equipos propios**: dos datos a la vista, "Horas asignado a esta cotización" (pagan su valor hora: amortización, seguro y patente del mes ÷ horas del mes, esté andando o quieto) y "Horas de uso efectivo" (suman el desgaste: combustible, mantenimiento y neumáticos). La tarjeta muestra el costo del mes, el valor hora asignado y el desgaste por hora de uso; la cuenta dice "Asignado … · uso efectivo …".
+
+### Eliminado
+
+- "Cantidad" en personal y en equipos propios: un recurso asignado es ese recurso; si van dos, se asigna dos veces. Una línea que ya tenía otra cantidad la sigue mostrando. En alquilados y tercerizados sigue.
+
 ## [0.18.0] - 2026-11-20
 
 **Cada recurso asignado dice sus horas en el trabajo (pedido del dueño).** Un recurso asignado es ese recurso: ya no se pregunta "¿cuántas personas van?". Se paga por mes, así que la cotización pide cuántas horas lo usa: con ellas y el valor de su hora (costo del mes ÷ horas del mes) sale su costo. Sin cambio de esquema. Ninguna cotización guardada cambia de números. Reglas: docs/CALCULATION_RULES.md §36.
