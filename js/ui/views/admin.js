@@ -14,6 +14,7 @@ import { banner, button, card, kpi, pageIntro, table } from '../components.js';
 import { formatDate, formatDateTime } from '../../core/format.js';
 import { logger } from '../../core/logger.js';
 import { ADMIN_NO_ACCESS, PLATFORM_ADMIN_LABEL } from '../../services/admin-service.js';
+import { renderReports } from './admin-reports.js';
 
 /** ¿Se puede intentar abrir el panel? (sólo UX: la autoridad es Postgres). */
 export function canOpenAdmin(ctx) {
@@ -56,16 +57,19 @@ export async function render(root, app) {
     { key: 'updatedAt', label: 'Última actualización', render: (r) => h('span', { title: r.revision !== null ? `Revisión ${r.revision} · esquema ${r.schemaVersion ?? '—'} · ${r.workspaceBytes ?? '—'} bytes` : '' }, dateOr(r.updatedAt, formatDateTime)) },
   ];
 
+  const reportsRoot = h('div', { class: 'admin-reports', id: 'reportes' });
   mount(
     root,
     h(
       'div',
       { class: 'admin' },
-      pageIntro({ eyebrow: 'Plataforma', title: 'Usuarios y empresas de RATEOS', text: 'Metadata de usuarios y empresas. No incluye cotizaciones, costos, márgenes ni tarifas de ninguna empresa.', level: 2 }),
+      pageIntro({ eyebrow: 'Plataforma', title: 'Usuarios, empresas y reportes de RATEOS', text: 'Metadata de usuarios y empresas, y los reportes de problemas. No incluye cotizaciones, costos, márgenes ni tarifas de ninguna empresa.', level: 2 }),
+      reportsRoot,
       h('div', { class: 'kpi-grid admin-kpis' }, ...res.summary.map((s) => kpi({ label: s.label, value: s.value === null ? '—' : String(s.value), hint: s.hint }))),
       card({ title: 'Usuarios', subtitle: res.generatedAt ? `Actualizado: ${formatDateTime(res.generatedAt)}` : null, level: 3 },
         table({ columns, rows: res.rows, emptyText: 'Todavía no hay usuarios.', className: 'admin-table table-cards' })),
     ),
   );
+  await renderReports(reportsRoot, app.reports || null);
   return undefined;
 }

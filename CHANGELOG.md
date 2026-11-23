@@ -12,6 +12,29 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-11-23
+
+**Beta pública: reportes, respaldo, privacidad.** Revisión de lanzamiento (project files `beta-publica/`). Sin cambio de esquema del workspace ni de fórmulas: ninguna cotización cambia sus números. Requiere aplicar en Supabase las migraciones `20261123221818` y `20261123223000` y volver a desplegar la Edge Function `bug-report-submit`.
+
+### Agregado
+
+- **Reportar un problema · tipo**: primero se elige qué se quiere contar (Algo no funciona · Un cálculo no me cierra · Un texto o campo confuso · No encuentro o no entiendo algo · Una sugerencia) y las dos preguntas cambian según el tipo. En el celular, etiquetas cortas.
+- **RATEOS Admin › Reportes** (#/admin, sólo la cuenta master): pendientes, sin revisar, a corregir y resueltos; severidad (crítica, alta, media, baja), estado, tipo, versión en que se corrigió y nota de seguimiento. Nunca muestra quién reportó. Abrir y actualizar queda auditado.
+- **Historial del trabajo de cada empresa** (`private.workspace_state_history`): una foto cada 30 minutos como máximo mientras se trabaja, hasta 100 fotos y 25 MB por empresa, 30 días. Restauración desde el SQL Editor (`docs/BACKUPS.md`). Sin acceso desde la API.
+- **Privacidad y condiciones de la beta** (#/privacidad): qué se guarda, dónde, quién lo ve, reportes, copias, borrar la cuenta, contacto. Enlazada en el pie y en "Crear cuenta". `SUPPORT_EMAIL` en `js/config.js`.
+
+### Cambiado
+
+- **Editor**: "Continuar" se recalcula al cambiar la cotización: al agregar un equipo, lleva a "Movilización y viajes" (antes salteaba el paso hasta volver a entrar).
+- Días de trabajo por mes: hasta 31 (antes aceptaba hasta 366).
+- Cuenta sin plantillas: "¿Qué servicio vas a cotizar?" ya no pide elegir una plantilla que no existe.
+
+### Seguridad
+
+- Los reportes **ya no se publican solos en GitHub** (repositorio público) y el plan B si falla el envío es copiar el texto o el email de soporte, nunca un sitio público (S-04).
+- El contexto de un reporte guarda sólo las claves conocidas (modo, idioma, tipo) (S-03).
+- `bug-report-submit`: el límite por origen usa la IP que pone Cloudflare y corta por tamaño antes de leer (S-05).
+
 ## [0.21.0] - 2026-11-23
 
 **Auditoría para cerrar la beta, tanda 1: números y PDF para el cliente.** Informe en project files `auditoria-beta/VEREDICTO.md`. Sin cambio de esquema ni de fórmulas del motor de cotizaciones: ninguna cotización guardada cambia sus números.

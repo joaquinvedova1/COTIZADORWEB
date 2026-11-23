@@ -147,7 +147,7 @@ export function validateQuote(quote) {
   // Precio fijo con inflación esperada (K-01).
   if (isPlainObject(quote.priceAdjustment)) check('priceAdjustment.expectedMonthlyInflationPct', quote.priceAdjustment.expectedMonthlyInflationPct, 'inflationPct');
   const a = isPlainObject(quote.activity) ? quote.activity : {};
-  check('activity.activeDaysPerMonth', a.activeDaysPerMonth, 'days');
+  check('activity.activeDaysPerMonth', a.activeDaysPerMonth, 'daysInMonth');
   check('activity.availableDaysPerMonth', a.availableDaysPerMonth, 'availableDays');
   check('activity.daysPerActivation', a.daysPerActivation, 'positiveDays');
   check('activity.unitsPerTrip', a.unitsPerTrip, 'quantity');

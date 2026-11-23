@@ -2247,10 +2247,14 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
 
   // ------------------------------------------------------------- estructura
   // Pasos a la vista: Personal, Equipos, Materiales y Viajes se saltean si el servicio no los incluye (isStepHidden).
-  const navSteps = QUOTE_STEPS.filter((s) => s.id === stepId || !isStepHidden(s.id, state.quote));
-  const currentIndex = navSteps.findIndex((s) => s.id === stepId);
-  const prevStep = currentIndex > 0 ? navSteps[currentIndex - 1] : null;
-  const nextStep = currentIndex < navSteps.length - 1 ? navSteps[currentIndex + 1] : null;
+  // Se recalculan al cambiar la cotización (syncStepNav): agregar un equipo, por ejemplo, hace
+  // aparecer "Movilización y viajes" y "Continuar" tiene que llevar ahí (simulación beta 2026-11).
+  const neighborSteps = () => {
+    const visible = QUOTE_STEPS.filter((s) => s.id === stepId || !isStepHidden(s.id, state.quote));
+    const at = visible.findIndex((s) => s.id === stepId);
+    return { prev: at > 0 ? visible[at - 1] : null, next: at < visible.length - 1 ? visible[at + 1] : null };
+  };
+  let { prev: prevStep, next: nextStep } = neighborSteps();
   const { stage: currentStage, index: stageIndex } = stageOfStep(stepId);
   const baseCopy = STEP_COPY[stepId] || { question: stepShortLabel(stepId), why: '' };
   // Cuenta sin puestos en Recursos (tanda novatos 2026-11): "ya están en Recursos" sería falso.
@@ -2323,19 +2327,26 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     }
     return { kicker: direction === 'next' ? 'Continuar' : 'Atrás', text: stepShortLabel(step.id) };
   }
-  const prevTarget = navTarget(prevStep, 'prev');
-  const nextTarget = navTarget(nextStep, 'next');
-
-  const stepNav = h(
-    'nav',
-    { class: 'qe-step-nav', 'aria-label': 'Navegación entre pasos' },
+  const navButtons = () => {
+    const prevTarget = navTarget(prevStep, 'prev');
+    const nextTarget = navTarget(nextStep, 'next');
+    return [
     prevStep
       ? h('a', { class: 'btn btn-secondary qe-nav-btn', href: stepHref(prevStep.id), rel: 'prev', 'aria-label': `Atrás: ${prevTarget.text}` }, icon('chevronLeft'), h('span', { class: 'qe-nav-text' }, h('span', { class: 'qe-nav-kicker' }, 'Atrás'), h('span', { class: 'qe-nav-dest' }, prevTarget.text)))
       : h('span'),
     nextStep
       ? h('a', { class: 'btn btn-primary btn-lg qe-nav-btn is-next', href: stepHref(nextStep.id), rel: 'next', 'aria-label': `${nextTarget.kicker}: ${nextTarget.text}` }, h('span', { class: 'qe-nav-text' }, h('span', { class: 'qe-nav-kicker' }, nextTarget.kicker), h('span', { class: 'qe-nav-dest' }, nextTarget.text)), icon('arrowRight'))
       : h('a', { class: 'btn btn-secondary qe-nav-btn is-next', href: '#/cotizaciones' }, h('span', { class: 'qe-nav-text' }, h('span', { class: 'qe-nav-kicker' }, 'Listo'), h('span', { class: 'qe-nav-dest' }, 'Volver a Cotizaciones'))),
-  );
+    ];
+  };
+  const stepNav = h('nav', { class: 'qe-step-nav', 'aria-label': 'Navegación entre pasos' }, ...navButtons());
+  function syncStepNav() {
+    const fresh = neighborSteps();
+    if ((fresh.prev && fresh.prev.id) === (prevStep && prevStep.id) && (fresh.next && fresh.next.id) === (nextStep && nextStep.id)) return;
+    prevStep = fresh.prev;
+    nextStep = fresh.next;
+    mount(stepNav, ...navButtons());
+  }
 
   // Aviso de valores ILUSTRATIVOS de la cotización (se actualiza al confirmar líneas).
   const illustrativeHolder = h('div', { class: 'qe-illustrative', hidden: true });
@@ -2800,6 +2811,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   }
 
   function refreshAll() {
+    syncStepNav();
     syncIllustrativeBanner();
     syncInvalidState();
     if (unitBadge) unitBadge.textContent = unitBadgeText(state.quote);
