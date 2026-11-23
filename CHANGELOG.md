@@ -14,7 +14,7 @@ Reglas para este archivo:
 
 ## [0.21.1] - 2026-11-23
 
-**Beta pública: reportes, respaldo, privacidad.** Revisión de lanzamiento (project files `beta-publica/`). Sin cambio de esquema del workspace ni de fórmulas: ninguna cotización cambia sus números. Requiere aplicar en Supabase las migraciones `20261123221818` y `20261124120100` y volver a desplegar la Edge Function `bug-report-submit`.
+**Beta pública: reportes, respaldo, privacidad.** Revisión de lanzamiento (project files `beta-publica/`). Sin cambio de esquema del workspace ni de fórmulas: ninguna cotización cambia sus números. Requiere aplicar en Supabase las migraciones `20261123221818` y `20261123223000` y volver a desplegar la Edge Function `bug-report-submit`.
 
 ### Agregado
 

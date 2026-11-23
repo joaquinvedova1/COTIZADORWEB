@@ -4,7 +4,7 @@
 
 | Capa | Qué guarda | Quién lo usa |
 | --- | --- | --- |
-| Historial en la base (`private.workspace_state_history`, migración `20261124120100`) | Una foto del workspace de cada empresa como mucho cada 30 minutos mientras trabaja; hasta 100 fotos y 25 MB por empresa, ninguna de más de 30 días. Lo de los últimos 30 minutos puede no estar | El dueño, desde el SQL Editor de Supabase |
+| Historial en la base (`private.workspace_state_history`, migración `20261123223000`) | Una foto del workspace de cada empresa como mucho cada 30 minutos mientras trabaja; hasta 100 fotos y 25 MB por empresa, ninguna de más de 30 días. Lo de los últimos 30 minutos puede no estar | El dueño, desde el SQL Editor de Supabase |
 | Copia local del navegador (`rateos.cloud.*`) | Los cambios sin subir de esa computadora | La app, sola, al volver a entrar |
 | Backup JSON (Configuración → Datos y backup → exportar) | Todo el workspace de la empresa, descargado por el usuario | El usuario, cuando quiera |
 | Backups de Supabase | **Plan gratuito: no hay backups diarios descargables.** Con plan Pro: diarios, 7 días | El dueño, desde Database → Backups |
