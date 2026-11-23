@@ -12,6 +12,29 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-23
+
+**La cotización en la unidad de cobro (primera tanda de la evaluación contra la ruta).** El ritmo de trabajo se pregunta apenas se elige la unidad, las pantallas y el Resultado dicen cada cifra primero en la unidad de cobro, y se corrigen dos errores de costo. Sin cambio de esquema. Reglas: docs/CALCULATION_RULES.md §36.3.
+
+### Cambiado
+
+- **El ritmo va en el paso 1**: cuántas unidades por mes y por día, días del trabajo y horas por día se cargan en "El servicio", debajo de la unidad de cobro (antes, en "Cómo se cobra", después de los recursos). "Cómo se cobra" lo muestra y enlaza al paso 1. Los pendientes y avisos de esos datos llevan al paso 1.
+- **Primero la unidad de cobro**: cobrando por hora, día o unidad, el resumen en vivo dice "Costo $ X / válvula" y el Resultado "Te cuesta $ X / válvula" y "Ganás $ X / válvula" (lo del mes queda debajo). Los totales de Personal, Equipos, Movilización, Imprevistos, Estructura y Financiación se leen "$ X por válvula · $ Y por mes". La estructura de costos suma una columna "Por válvula".
+- El paso 1 se llama "El servicio" en todos los textos (antes algunos decían "Contrato").
+- **Sin "horas por m3"** (pedido del dueño): cobrando por cualquier cantidad (m³, válvula, unidad propia…) el rendimiento del día se carga una vez en el paso 1 y cada recurso dice sus horas por día de trabajo; el costo por unidad se calcula y se muestra. Las horas por unidad ya cargadas se siguen viendo y contando igual. Por trabajo se siguen pidiendo las horas en el trabajo. No cambia ningún resultado.
+
+### Corregido
+
+- **Vehículos por tiempo usado**: un vehículo agregado a la cotización se trata como cualquier equipo (horas asignadas × su valor hora completo). Antes nacía con 0 h de uso y un camión con chofer cobrado por hora no sumaba combustible ni mantenimiento (en la simulación, −46 % de costo). Las líneas ya guardadas no cambian.
+- **Cobro por mes**: un equipo con horas asignadas por mes usa esas horas, no el día entero de servicio. **Cambia el resultado** de esas cotizaciones (baja el costo de uso a las horas asignadas).
+- Ya no se sugiere sumar las horas de viaje a las horas asignadas (se contaban dos veces con el traslado por km).
+
+### Pendiente (próxima versión)
+
+- Ver la capacidad ociosa y la sobreasignación de un recurso entre cotizaciones por tiempo usado.
+- Que la misma camioneta cueste lo mismo cargada en Traslados o en Equipos.
+- Menos pantallas, campos y palabras.
+
 ## [0.19.0] - 2026-11-20
 
 **Una sola pregunta por recurso, en la unidad de cobro (correcciones del dueño a la 0.18.0).** Cada recurso propio asignado dice sus horas para esta cotización y su costo es esas horas × su valor hora. Sin cambio de esquema; dato nuevo opcional `assignedHoursPerUnit` en las líneas de personal y de equipos. Ninguna cotización guardada cambia de números. Reglas: docs/CALCULATION_RULES.md §36.1 y §36.2.

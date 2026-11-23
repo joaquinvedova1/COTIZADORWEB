@@ -136,6 +136,8 @@ export function unitHoursField(kit, { path, kind, basis, unit, ready, where, onV
 export function asksUnitHours(basis, line, perDayKey) {
   if (basis !== 'unit' && basis !== 'job') return false;
   const has = (v) => v !== null && v !== undefined && v !== '' && Number(v) > 0;
+  // 0.20.0: por unidad sólo se sigue mostrando el dato ya cargado (heredado); lo nuevo va por día.
+  if (basis === 'unit') return has(line && line.assignedHoursPerUnit);
   return has(line && line.assignedHoursPerUnit) || !has(line && line[perDayKey]);
 }
 

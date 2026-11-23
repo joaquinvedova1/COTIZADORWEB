@@ -41,8 +41,8 @@ import { transportOf, providerActivityText, providerRouteText, routeName } from 
 import { fieldHref } from '../../field-links.js';
 import { assignmentBlock, monthHoursField, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
-import { closedJobsPerMonth, quoteUnitPlace, perBilledUnitSuffix, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText, equipmentFullHourRate } from '../../result-text.js';
-import { usesTimeBasis, resourceHoursBasis, unitHoursFactor } from '../../../domain/cost-basis.js';
+import { closedJobsPerMonth, quoteUnitPlace, unitAmountText, costPlaceLabel, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText, equipmentFullHourRate } from '../../result-text.js';
+import { usesTimeBasis, unitHoursConversion, showsPerUnit, unitHoursFactor } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { workDaysText } from '../../unit-text.js';
 import { isVehicleFamily, looksLikeVehicleName } from '../../../domain/equipment-catalog.js';
@@ -465,11 +465,13 @@ export function render(container, ctx) {
   // propio cuesta las horas del trabajo × el valor de su hora. No hay "% de sus costos fijos".
   const timeBasis = usesTimeBasis(quote);
   // 0.19.0: las horas de cada equipo se piden en la unidad de cobro (por válvula, en el trabajo) o por día.
-  const hoursBasis = resourceHoursBasis(quote);
+  // Cómo se convierte el dato "en la unidad": 'job' (horas en el trabajo) o 'unit' (heredado de la 0.19.0).
+  const hoursBasis = unitHoursConversion(quote);
+  const perUnitShown = showsPerUnit(quote);
   const unitHoursReady = () => unitHoursFactor(hoursBasis, ctx.result && ctx.result.activity ? ctx.result.activity : {}) > 0;
   /** Cobro por unidad contable con el rendimiento cargado: las cuentas se dicen "por válvula" (0.19.0). */
   const perUnitView = (r) => {
-    const f = hoursBasis === 'unit' && r && r.activity ? nonNegative(r.activity.unitsPerActiveDay) : 0;
+    const f = perUnitShown && r && r.activity ? nonNegative(r.activity.unitsPerActiveDay) : 0;
     return f > 0 ? { f, one: billingUnitOf(quote).singular || 'unidad' } : null;
   };
   const assignedKey = (line) => (asksUnitHours(hoursBasis, line, 'assignedHoursPerDay') ? 'assignedHoursPerUnit' : 'assignedHoursPerDay');
@@ -503,9 +505,11 @@ export function render(container, ctx) {
     const opts = { hoursPerActiveDay: timeBasis && eq ? null : hoursDefault(), now: new Date().toISOString(), currency };
     const line = eq ? equipmentLineFromLibrary(eq, opts) : externalLineFromService(service, opts);
     // Vehículo nuevo: 0 h trabajando en la locación (una camioneta estacionada no gasta combustible).
+    // 0.20.0: por tiempo usado un vehículo se trata como cualquier equipo (horas asignadas × su
+    // valor hora completo); antes quedaba con 0 h y un camión que trabaja no sumaba su uso.
     const vehicle = isVehicleLine(line);
     if (vehicle) {
-      line.hoursPerActiveDay = 0;
+      line.hoursPerActiveDay = timeBasis ? null : 0;
       // Un vehículo llega por sus medios (su consumo en ruta queda a la vista); se puede cambiar.
       if (!line.mobilization || !line.mobilization.mode) line.mobilization = createMobilization({ ...(line.mobilization || {}), mode: 'self' });
     }
@@ -519,7 +523,7 @@ export function render(container, ctx) {
     if (vehicle) {
       // Vehículo nuevo: sólo viaja (0 h en la locación); el consumo se pide en ruta.
       line.name = 'Nuevo vehículo';
-      line.hoursPerActiveDay = 0;
+      line.hoursPerActiveDay = timeBasis ? null : 0;
       line.mobilization = createMobilization({ ...line.mobilization, mode: 'self' });
     } else if (acquisition === 'owned') {
       freshBlankIds.add(line.id);
@@ -535,7 +539,7 @@ export function render(container, ctx) {
     freshBlankIds.delete(line.id);
     ctx.mutate((q) => {
       const l = q.equipment[i];
-      l.hoursPerActiveDay = 0;
+      if (!timeBasis) l.hoursPerActiveDay = 0;
       if (!l.mobilization || !l.mobilization.mode) l.mobilization = createMobilization({ ...(l.mobilization || {}), mode: 'self' });
     });
     ctx.toast(`"${line.name}" es un vehículo: su consumo se pide en ruta (L/100 km).`, 'info');
@@ -813,14 +817,16 @@ export function render(container, ctx) {
       }),
     ];
     const dataFields = () => [...valueFields(), ...holdingFields(), ...(vehicle ? [] : fuelFields())];
-    const hoursField = () => kit.num(`${p}.hoursPerActiveDay`, timeBasis && !vehicle
+    const hoursField = () => kit.num(`${p}.hoursPerActiveDay`, timeBasis
       ? {
         // 0.19.0 (Joaco): una sola pregunta (horas asignado × valor hora completo). Esto es opcional, plegado.
         label: 'Horas con el motor andando (opcional)',
         rule: 'hoursPerDay',
         unit: 'h/día',
         placeholder: 'Todas las asignadas',
-        hint: 'Vacío = todas las horas asignadas llevan el valor hora completo (lo normal). Si parte de ese tiempo el equipo queda quieto, cargá las horas por día de trabajo con el motor andando: las quietas no suman combustible, mantenimiento ni neumáticos.',
+        hint: vehicle
+          ? 'Vacío = todas las horas asignadas llevan el valor hora completo (lo normal). Si el vehículo sólo lleva gente y queda estacionado, poné 0: paga sólo tenerlo, y el combustible y el desgaste van por km.'
+          : 'Vacío = todas las horas asignadas llevan el valor hora completo (lo normal). Si parte de ese tiempo el equipo queda quieto, cargá las horas por día de trabajo con el motor andando: las quietas no suman combustible, mantenimiento ni neumáticos.',
       }
       : vehicle
         ? {
@@ -854,9 +860,9 @@ export function render(container, ctx) {
       // Vehículo: sus horas trabajando en la locación toman este dato si están vacías (se redibuja).
       structural: vehicle,
       onValue: dropInheritedHours,
-      hint: `Las horas por día de trabajo que el equipo queda asignado a esta cotización (mientras tanto no puede estar en otro trabajo). Su costo = esas horas × su valor hora (amortización, seguro, patente, mantenimiento y combustible). Ejemplo: de un día de 8 h, la hidrogrúa va 2 → 2. ${vehicle ? ' En un vehículo el valor hora es el de tenerlo; el combustible y el desgaste van por km en «¿Cómo llega?».' : ''} Si queda ocupado durante el viaje, sumá esas horas. Vacío = todo el día de trabajo${dayHours !== null && dayHours > 0 ? ` (${formatNumber(dayHours, { decimals: 2 })} h)` : ''}; más que eso no se cuenta.`,
+      hint: `Las horas por día de trabajo que el equipo queda asignado a esta cotización (mientras tanto no puede estar en otro trabajo). Su costo = esas horas × su valor hora (amortización, seguro, patente, mantenimiento y combustible). Ejemplo: de un día de 8 h, la hidrogrúa va 2 → 2. Vacío = todo el día de trabajo${dayHours !== null && dayHours > 0 ? ` (${formatNumber(dayHours, { decimals: 2 })} h)` : ''}; más que eso no se cuenta.`,
     });
-    const unitField = () => unitHoursField(kit, { path: p, kind: 'equipment', basis: hoursBasis, unit: billingUnitOf(quote), ready: unitHoursReady(), where: stepName('modality'), onValue: dropInheritedHours });
+    const unitField = () => unitHoursField(kit, { path: p, kind: 'equipment', basis: hoursBasis, unit: billingUnitOf(quote), ready: unitHoursReady(), where: stepName('service'), onValue: dropInheritedHours });
     // Por mes: horas por mes en el servicio (vacío = todo el mes). Un % cargado antes se ve en "Más detalle".
     const monthField = () => (!monthUnit || hasManualSharePct(line) ? null : monthHoursField(kit, ctx, { path: p, kind: 'equipment', baseHours: monthBaseHours(line) }));
     // I7 (2026-11-18): por tiempo usado, con cuántas horas por mes se reparte lo de tenerlo (a la vista, junto a las horas de uso).
@@ -931,17 +937,18 @@ export function render(container, ctx) {
         // 0.18.0 (Joaco, 2026-11-20): primero las horas del equipo en el trabajo (o en el mes, si
         // se cobra por mes); con ellas y el valor de su hora sale lo que cuesta tenerlo.
         timeBasis ? (assignedKey(line) === 'assignedHoursPerUnit' ? unitField() : jobHoursField()) : monthField(),
-        vehicle || timeBasis ? null : hoursField(),
+        // 0.20.0: en un vehículo por tiempo usado las horas con el motor andando van a la vista (0 = sólo viaja).
+        vehicle ? (timeBasis ? hoursField() : null) : (timeBasis ? null : hoursField()),
         // Sin "Cantidad" (Joaco, 2026-11-20): si hay otro equipo igual, se agrega otra vez. Una línea con otra cantidad la sigue mostrando.
         line.quantity !== null && line.quantity !== undefined && line.quantity !== '' && Math.abs(Number(line.quantity) - 1) < 1e-9 ? null : kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true, hint: 'Cargada antes. Para sumar otro equipo igual, agregalo otra vez.' }),
         operatorField(i),
         fromResource ? null : acquisitionField(i),
         ...(fromResource ? [] : valueFields()),
-        ...(fromResource || vehicle ? [] : fuelFields()),
+        ...(fromResource || (vehicle && !timeBasis) ? [] : fuelFields()),
       ),
       // Vehículo: primero cómo viaja (consumo en ruta); trabajar parado en la locación, plegado.
       vehicle ? mobilityNote(i) : null,
-      vehicle ? locationBlock() : null,
+      vehicle && !timeBasis ? locationBlock() : null,
       // Seguro, patente y mantenimiento plegados sólo si el equipo se carga acá (el de Recursos ya los trae).
       fromResource ? null : holdingBlock(),
       kit.out((r) => wearWarningsRegion(r, i) || '', { tag: 'div', allowEmpty: true }),
@@ -975,7 +982,7 @@ export function render(container, ctx) {
         : null,
       kit.keyline({
         // Precio cerrado con un trabajo por mes: la cifra es la del trabajo (revisión UX tanda novatos).
-        label: (r) => (timeBasis && pu(r) ? `Costo del equipo por ${pu(r).one}` : `Costo del equipo en el ${quoteUnitPlace(r)}`),
+        label: (r) => (timeBasis && pu(r) ? `Costo del equipo por ${pu(r).one}` : costPlaceLabel(r, quote, 'Equipo')),
         value: (r) => {
           const l = at(r);
           if (!l) return EMPTY;
@@ -984,7 +991,7 @@ export function render(container, ctx) {
             const units = nonNegative(r.activity.billableQuantityPerMonth);
             return formatMoney(units > 0 && r.activity.activeDaysPerMonth > 0 ? monthlyAtEstimate(r, l) / units : equipmentPerActiveDay(l) / pu(r).f);
           }
-          return formatMoney(inQuoteUnit(r, monthlyAtEstimate(r, l)));
+          return closedJobsPerMonth(r) !== null ? formatMoney(inQuoteUnit(r, monthlyAtEstimate(r, l))) : unitAmountText(r, quote, monthlyAtEstimate(r, l));
         },
         hint: (r) => {
           const l = at(r);
@@ -1476,10 +1483,10 @@ export function render(container, ctx) {
   const lineCards = lines.map((line, i) => (isExternalLine(line) ? externalCard(line, i) : ownedCard(line, i)));
 
   const totals = kit.keyline({
-    label: (r) => `Equipos en el costo del ${quoteUnitPlace(r)}`,
+    label: (r) => costPlaceLabel(r, quote, 'Equipos'),
     value: (r) => {
       const month = r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0);
-      return `${formatMoney(inQuoteUnit(r, month))}${perBilledUnitSuffix(r, quote, month)}`;
+      return closedJobsPerMonth(r) !== null ? formatMoney(inQuoteUnit(r, month)) : unitAmountText(r, quote, month);
     },
     // Por tiempo usado, lo de tener los equipos propios va en lo de cada día de trabajo.
     hint: (r) => (timeBasis && perUnitView(r) && r.model.timeBasis && !(r.model.equipment.reduce((acc, e) => acc + (e.fixedMonthly || 0), 0) > 0.005) ? `${formatMoney(r.model.equipment.reduce((acc, e) => acc + equipmentPerActiveDay(e), 0) / perUnitView(r).f)} por ${perUnitView(r).one}: las horas asignadas de cada equipo × su valor hora.` : '') || timeEquipmentTotalText(r, closedJobsPerMonth(r) !== null ? inQuoteUnit(r, r.model.equipment.reduce((acc, e) => acc + monthlyAtEstimate(r, e), 0)) : null) || `${r.model.timeBasis && !(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0) > 0.005) ? 'Sin fijo del mes ·' : `Fijo: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + e.fixedMonthly, 0))} por mes ·`} variable: ${formatMoney(r.model.equipment.reduce((acc, e) => acc + equipmentPerActiveDay(e), 0))} por día de trabajo${jobsSplitText(r)} (incluye ${r.model.timeBasis && r.model.equipment.some((e) => e.timeBasis) ? 'tener los equipos propios esas horas, ' : ''}combustible y la movilización que cobran los proveedores).`,

@@ -17,8 +17,8 @@ import { laborLineFromProfile, createContractedStaff } from '../../../domain/quo
 import { vatIsCost } from '../../../domain/catalogs.js';
 import { openNewLaborProfileDialog } from '../library.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
-import { closedJobsPerMonth, quoteUnitPlace, lineMonthAtEstimate, perBilledUnitSuffix, roleOvertimeMonth, overtimeWorkLabel, closedLaborCostText, timeLaborCostText, laborHourStat, BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT } from '../../result-text.js';
-import { usesTimeBasis, resourceHoursBasis, unitHoursFactor } from '../../../domain/cost-basis.js';
+import { closedJobsPerMonth, lineMonthAtEstimate, perBilledUnitSuffix, unitAmountText, costPlaceLabel, roleOvertimeMonth, overtimeWorkLabel, closedLaborCostText, timeLaborCostText, laborHourStat, BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT } from '../../result-text.js';
+import { usesTimeBasis, unitHoursConversion, showsPerUnit, unitHoursFactor } from '../../../domain/cost-basis.js';
 import { nonNegative, isFiniteNumber, roundRate } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
@@ -173,13 +173,15 @@ export function render(container, ctx) {
 
   // 0.18.0: lo que se pide de cada recurso asignado son sus horas (por día de trabajo o por mes).
   // 0.19.0: en la unidad de cobro (por válvula, en el trabajo) cuando la unidad lo permite.
-  const hoursBasis = resourceHoursBasis(quote);
+  // Cómo se convierte el dato "en la unidad": 'job' (horas en el trabajo) o 'unit' (heredado de la 0.19.0).
+  const hoursBasis = unitHoursConversion(quote);
+  const perUnitShown = showsPerUnit(quote);
   /** Cobro por unidad contable con el rendimiento cargado: las cuentas se dicen "por válvula". */
   const perUnitView = (r) => {
-    const f = hoursBasis === 'unit' && r && r.activity ? nonNegative(r.activity.unitsPerActiveDay) : 0;
+    const f = perUnitShown && r && r.activity ? nonNegative(r.activity.unitsPerActiveDay) : 0;
     return f > 0 ? { f, one: billingUnitOf(quote).singular || 'unidad' } : null;
   };
-  const hoursKey = timeBasis ? (hoursBasis === 'unit' || hoursBasis === 'job' ? 'assignedHoursPerUnit' : 'coverageHoursPerDay') : billingUnitOf(quote).kind === 'month' ? 'assignedHoursPerMonth' : 'positions';
+  const hoursKey = timeBasis ? (hoursBasis === 'job' ? 'assignedHoursPerUnit' : 'coverageHoursPerDay') : billingUnitOf(quote).kind === 'month' ? 'assignedHoursPerMonth' : 'positions';
   const hoursWhat = timeBasis || billingUnitOf(quote).kind === 'month' ? 'horas efectivas de trabajo' : 'datos en esta cotización';
 
   // ------------------------------------------------------------ acciones
@@ -434,7 +436,7 @@ export function render(container, ctx) {
     unit: 'h/día',
     placeholder: line.rotation && nonNegative(line.rotation.hoursPerShift) > 0
       ? `${n2(nonNegative(line.rotation.hoursPerShift))} (turno cargado antes)`
-      : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (${timeBasis ? 'todo el día' : 'las del servicio'})` : `Las del servicio («${stepName('modality')}»)`,
+      : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (${timeBasis ? 'todo el día' : 'las del servicio'})` : `Las del servicio («${stepName('service')}»)`,
     hint: timeBasis
       ? `Las horas efectivas de trabajo de este puesto para esta cotización, por día de trabajo. Su costo = esas horas × el valor de su hora. Ejemplo: de un día de 8 h, el chofer maneja 5 → 5. Vacío = todo el día de trabajo${serviceHours > 0 ? ` (${formatNumber(serviceHours, { decimals: 2 })} h)` : ` (se carga en «${stepName('modality')}»)`}; más que eso no se cuenta.`
       : 'Vacío = trabajan todas las horas por día del servicio. Si se turnan (por ejemplo 3 personas de 8 h para 24 h), cargá las de cada una. Sirve para avisarte si faltan horas.',
@@ -449,7 +451,7 @@ export function render(container, ctx) {
     if (timeBasis) {
       if (!asksUnitHours(hoursBasis, line, 'coverageHoursPerDay')) return hoursPerDayField(i, line);
       const ready = unitHoursFactor(hoursBasis, ctx.result && ctx.result.activity ? ctx.result.activity : {}) > 0;
-      return unitHoursField(kit, { path: `labor.${i}`, kind: 'labor', basis: hoursBasis, unit: billingUnitOf(quote), ready, where: stepName('modality') });
+      return unitHoursField(kit, { path: `labor.${i}`, kind: 'labor', basis: hoursBasis, unit: billingUnitOf(quote), ready, where: stepName('service') });
     }
     const p = `labor.${i}`;
     // 0.18.0: por mes se piden las horas por mes en el servicio (vacío = todo el mes). Un % cargado
@@ -604,7 +606,7 @@ export function render(container, ctx) {
           const v = l.timeBasis ? perUnitView(r) : null;
           const billed = nonNegative(r.activity.billableQuantityPerMonth);
           if (v && r.activity.activeDaysPerMonth > 0) return `${formatMoney(month / (billed > 0 ? billed : r.activity.activeDaysPerMonth * v.f))} por ${v.one} · ${formatMoney(month)} por mes`;
-          return `${formatMoney(month)} por mes${perBilledUnitSuffix(r, quote, month)}`;
+          return unitAmountText(r, quote, month);
         },
         hint: (r) => {
           const l = at(r);
@@ -823,7 +825,7 @@ export function render(container, ctx) {
           rule: 'hoursPerDay',
           unit: 'h/día',
           placeholder: serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (las del trabajo)` : 'Las del trabajo',
-          hint: `Vacío = las horas por día del trabajo (se cargan en "${stepName('modality')}").`,
+          hint: `Vacío = las horas por día del trabajo (se cargan en "${stepName('service')}").`,
         }) : null,
       ),
       kit.keyline({
@@ -836,13 +838,13 @@ export function render(container, ctx) {
           if (jobs !== null) return `${formatMoney(month / jobs)} en el trabajo`;
           if (l.unit === 'month') return `${formatMoney(l.fixedMonthly)} por mes${perBilledUnitSuffix(r, quote, month)}`;
           if (!(r.activity.activeDaysPerMonth > 0)) return `${formatMoney(l.variablePerActiveDay)} por día de trabajo`;
-          return `${formatMoney(month)} por mes${perBilledUnitSuffix(r, quote, month)}`;
+          return unitAmountText(r, quote, month);
         },
         hint: (r) => {
           const l = at(r);
           if (!l) return '';
           if (!(l.rate > 0)) return 'Falta cuánto le pagás.';
-          if (l.hoursMissing) return `Faltan las horas por día: cargalas acá o en "${stepName('modality')}".`;
+          if (l.hoursMissing) return `Faltan las horas por día: cargalas acá o en "${stepName('service')}".`;
           const who = `${n2(l.people)} ${plural(l.people, 'persona', 'personas')}`;
           const D = r.activity.activeDaysPerMonth;
           const days = D > 0 ? ` · ${formatNumber(D, { decimals: 2 })} días de trabajo en el mes` : '';
@@ -870,13 +872,13 @@ export function render(container, ctx) {
   const contractedMonth = (r) => (r.model.contractedStaff ? r.model.contractedStaff.lines.reduce((acc, l) => acc + lineMonthAtEstimate(r, l), 0) : 0);
   const totals = kit.toggle(
     kit.keyline({
-      label: (r) => (anyStaff ? `Personal en el costo del ${quoteUnitPlace(r)}` : 'Mano de obra en la estructura de costos'),
+      label: (r) => (anyStaff ? costPlaceLabel(r, quote, 'Personal') : 'Mano de obra en la estructura de costos'),
       value: (r) => {
         const row = laborRow(r);
         if (!row) return EMPTY;
         const jobs = closedJobsPerMonth(r);
         if (jobs !== null && anyStaff) return formatMoney(row.amount / jobs);
-        if (anyStaff) return `${formatMoney(row.amount)}${perBilledUnitSuffix(r, quote, row.amount)}`;
+        if (anyStaff) return unitAmountText(r, quote, row.amount);
         // Sin puestos: "$ X · Y %" (monto e incidencia en la estructura de costos).
         return `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}`;
       },

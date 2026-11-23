@@ -111,7 +111,7 @@ test('avisos: cobro por hora de equipo compara con las horas en el trabajo; sin 
 });
 
 // ---- 0.19.0: horas del recurso en la unidad de cobro (CALCULATION_RULES §36.2) ----
-import { resourceHoursBasis, unitHoursFactor, resolveUnitHours } from '../../js/domain/cost-basis.js';
+import { resourceHoursBasis, unitHoursConversion, showsPerUnit, unitHoursFactor, resolveUnitHours } from '../../js/domain/cost-basis.js';
 import { applyUnitChange } from '../../js/domain/unit-change.js';
 import { billingUnitOf } from '../../js/domain/billing-units.js';
 
@@ -127,8 +127,15 @@ const valveQuote = (o = {}) => {
   return q;
 };
 
-test('en qué se piden las horas: por unidad contable, por trabajo, por día', () => {
-  assert.equal(resourceHoursBasis(valveQuote()), 'unit');
+test('en qué se piden las horas: por trabajo o por día (0.20.0: por cantidad, por día con el rendimiento del paso 1)', () => {
+  assert.equal(resourceHoursBasis(valveQuote()), 'day');
+  // El dato "horas por válvula" cargado en la 0.19.0 se sigue convirtiendo; por m³ no existe.
+  assert.equal(unitHoursConversion(valveQuote()), 'unit');
+  assert.equal(unitHoursConversion(valveQuote({ unit: 'm3' })), null);
+  assert.equal(unitHoursConversion(valveQuote({ unit: 'job' })), 'job');
+  assert.equal(showsPerUnit(valveQuote()), true);
+  assert.equal(showsPerUnit(valveQuote({ unit: 'm3' })), true);
+  assert.equal(showsPerUnit(valveQuote({ unit: 'day' })), false);
   const job = valveQuote({ unit: 'job' });
   assert.equal(resourceHoursBasis(job), 'job');
   ['day', 'hour', 'km', 'm3', 'manhour'].forEach((unit) => assert.equal(resourceHoursBasis(valveQuote({ unit })), 'day', unit));

@@ -634,7 +634,42 @@ export function perBilledUnitSuffix(r, quote, monthly) {
 export function unitAmountText(r, quote, monthly) {
   const v = Number.isFinite(monthly) ? monthly : 0;
   if (closedJobsPerMonth(r) !== null) return perQuoteUnit(r, v).text;
-  return `${formatMoney(v)} por mes${perBilledUnitSuffix(r, quote, v)}`;
+  // 0.20.0: primero en la unidad de cobro; el mes, como dato secundario.
+  const per = perBilledUnitAmount(r, quote, v);
+  if (per === null) return `${formatMoney(v)} por mes`;
+  return `${formatMoney(per)}\u00a0por\u00a0${unitSingularOf(quote)} · ${formatMoney(v)}\u00a0por\u00a0mes`;
+}
+
+/** Singular de la unidad de cobro, sin cortes de línea ("metro\u00a0lineal"). */
+function unitSingularOf(quote) {
+  return String(billingUnitOf(quote).singular || 'unidad').replace(/ /g, '\u00a0');
+}
+
+/**
+ * Una cifra del mes llevada a la unidad de cobro (÷ unidades a facturar por mes), o null si no
+ * aplica: precio cerrado (se dice "en el trabajo"), cobro por mes o sin unidades cargadas.
+ * Sólo presentación (0.20.0: todo se lee primero en la unidad de cobro).
+ */
+export function perBilledUnitAmount(r, quote, monthly) {
+  if (isClosedPrice(r) || !quote) return null;
+  const info = billingUnitOf(quote);
+  if (info.kind === 'month') return null;
+  const units = r && r.estimate && r.estimate.revenue ? r.estimate.revenue.billableUnits : null;
+  if (!(Number.isFinite(units) && units > 1e-9) || !(monthly > 0.005)) return null;
+  return monthly / units;
+}
+
+/**
+ * Rótulo de un total por categoría en la unidad de la cotización (0.20.0): "Equipos en el costo
+ * por válvula" / "… del trabajo" / "… del mes".
+ */
+export function costPlaceLabel(r, quote, what) {
+  if (closedJobsPerMonth(r) !== null) return `${what} en el costo del trabajo`;
+  const info = quote ? billingUnitOf(quote) : null;
+  const units = r && r.estimate && r.estimate.revenue ? r.estimate.revenue.billableUnits : null;
+  if (!info || isClosedPrice(r) || info.kind === 'month' || !(Number.isFinite(units) && units > 1e-9)) return `${what} en el costo del mes`;
+  // El valor ya dice "por válvula · por mes": el rótulo no lo repite.
+  return `${what} en el costo`;
 }
 
 /** "trabajo" / "mes" para rótulos ("Costo del equipo en el trabajo"): trabajo sólo con trabajos cargados. */

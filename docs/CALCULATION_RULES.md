@@ -2170,3 +2170,25 @@ Caso: grúa con valor hora de tenerla $ 5.000 y usarla $ 16.000; 0,5 h por válv
 
 **Aviso de horas de más:** si las horas por día de un recurso (cargadas o derivadas) superan las horas del día de trabajo, el motor sigue contando sólo las del día y agrega un aviso en la línea ("las horas de más no se están contando en el costo"). Antes el recorte era silencioso.
 
+**0.20.0 · el rendimiento se pregunta una vez; las horas, por día.** Cobrando por cualquier cantidad (m³, tonelada, válvula, unidad propia…) ya no se preguntan "horas por unidad" (nadie sabe cuántas horas lleva un m³): el rendimiento del día (`activity.unitsPerActiveDay`, "unidades por día de trabajo") se carga en el paso 1 y cada recurso propio dice sus **horas por día de trabajo** (vacío = todo el día). El costo por unidad se calcula y se muestra:
+
+```
+costo por unidad = horas por día × valor hora ÷ unidades por día de trabajo
+```
+
+Hormigón por m³, 60 m³ por día: cuadrilla 4 × 8 h × $ 8.000 = $ 256.000 por día → $ 4.267 por m³; bomba 8 h × $ 25.000 → $ 3.333 por m³. Por válvula, 8 por día: grúa 4 h por día × $ 21.000 → $ 10.500 por válvula (lo mismo que 0,5 h por válvula). El dato `assignedHoursPerUnit` ya cargado se sigue convirtiendo igual (tabla de arriba) y se muestra en su línea; las líneas nuevas no lo piden. Por trabajo o llamado se siguen pidiendo las horas en el trabajo. **No cambia ningún resultado.**
+
+### 36.3 Cobro por mes: las horas de uso no superan las asignadas (0.20.0)
+
+Cobrando por mes, un equipo propio con "horas asignado por mes" (`assignedHoursPerMonth`) no puede andar más horas que las asignadas. Sus horas de uso por día de servicio quedan, como mucho, en:
+
+```
+horas de uso por día = min(horas de uso cargadas (vacío = horas de servicio por día), horas asignadas del mes ÷ días de servicio por mes)
+```
+
+(`capMonthlyRunningHours` en `js/domain/cost-basis.js`; se aplica sólo para calcular, no cambia lo guardado). Antes el uso (combustible, mantenimiento y neumáticos por hora) contaba el día entero de servicio aunque el equipo estuviera asignado unas pocas horas: el % sólo bajaba el costo de tenerlo. Las horas de uso cargadas más bajas se respetan (un vehículo con 0 h sigue en 0). Sólo aplica cobrando por mes y a un equipo compartido (horas asignadas menores que las de su mes); no aplica a alquilados, tercerizados ni a cotizaciones por tiempo usado.
+
+Caso: hidrogrúa asignada 20 h por mes en un servicio de 22 días × 9 h. Antes: 198 h de uso. Ahora: 20 h de uso (0,91 h por día). **Cambia el resultado** de las cotizaciones por mes que tengan equipos con horas asignadas por mes menores que las del servicio: su costo de uso baja a las horas asignadas.
+
+**Vehículos por tiempo usado (0.20.0):** un vehículo agregado a una cotización por tiempo usado queda con las horas de uso vacías, como cualquier equipo (vacío = las horas asignadas: valor hora completo). Antes nacía con 0 h de uso y un camión que trabaja no sumaba combustible ni mantenimiento por hora. Si el vehículo sólo lleva gente y queda estacionado, se carga 0 en "Horas con el motor andando" (paga sólo tenerlo; el combustible y el desgaste van por km en el traslado). Las líneas ya guardadas no cambian. Si ese vehículo además llega por sus medios con km cargados, el motor avisa en la línea (puede estar contando el viaje por hora y por km): las horas con el motor andando son las de trabajo; el viaje va por km.
+

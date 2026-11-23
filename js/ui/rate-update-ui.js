@@ -47,7 +47,7 @@ function rateWithUnit(rate, unitShort) {
 
 /** Celda de período: "nov-26" con "base oct-26" debajo si ya se actualizó. */
 export function ratePeriodNode(state) {
-  if (!state || !state.period) return h('span', { class: 'muted', title: 'Sin fecha de la oferta: cargala en "Contrato".' }, 'Sin período');
+  if (!state || !state.period) return h('span', { class: 'muted', title: 'Sin fecha de la oferta: cargala en "El servicio".' }, 'Sin período');
   return h(
     'span',
     { class: 'rate-period' },

@@ -324,7 +324,7 @@ export const CATEGORY_PAY_GROUP = deepFreeze({
  * avisos "Ir a…"): no repetirlos a mano en las vistas.
  */
 export const QUOTE_STEPS = deepFreeze([
-  { id: 'service', label: 'Contrato' },
+  { id: 'service', label: 'El servicio' },
   // Primero los recursos, después cómo se cobra (PLAN-2026-025): la tarifa sale de lo que cuestan.
   { id: 'labor', label: 'Personal' },
   { id: 'equipment', label: 'Equipos' },

@@ -9,7 +9,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { loadedFor, blockedRemovalText, unitNextStepText } from '../../js/ui/views/quote-steps/service.js';
+import { loadedFor, blockedRemovalText } from '../../js/ui/views/quote-steps/service.js';
 import { isStepHidden } from '../../js/ui/views/quote-editor.js';
 import { displayCostRows, costRowLabel } from '../../js/ui/cost-breakdown.js';
 import { chosenResourceRows } from '../../js/ui/views/quote-steps/modality.js';
@@ -148,11 +148,10 @@ describe('U8–U12 · textos', () => {
     assert.match(s, /'aria-label': `Quitar \$\{name\}`/);
   });
 
-  test('U9: ayuda del paso 1 en la unidad', () => {
-    assert.equal(unitNextStepText({ unit: 'custom', unitName: 'diagnóstico' }), 'En «Cómo se cobra» cargás cuántos diagnósticos hacés por mes.');
-    assert.equal(unitNextStepText({ unit: 'hour' }), 'En «Cómo se cobra» cargás cuánto trabajás: cuántas horas por día y cuántos días por mes.');
-    assert.equal(unitNextStepText({ unit: 'job' }), 'En «Cómo se cobra» cargás cuántos días lleva el trabajo.');
-    assert.equal(unitNextStepText({ unit: 'month' }), 'En «Cómo se cobra» cargás qué cubre la tarifa del mes.');
+  test('U9 (0.20.0): el ritmo se pregunta en el paso 1, debajo de la unidad', () => {
+    const s = code('js/ui/views/quote-steps/service.js');
+    assert.match(s, /renderCharge\(rhythm, \{ \.\.\.ctx, part: 'rhythm' \}\)/);
+    assert.match(s, /mount\(container, identity, unitCard, rhythm, includes/);
   });
 
   test('U10: "Lo que ya cargaste" sólo con las categorías elegidas', () => {
@@ -164,8 +163,6 @@ describe('U8–U12 · textos', () => {
     assert.equal(v.equipmentLabel, 'Vehículos');
     assert.equal(v.otherLabel, 'Combustible y viajes');
     assert.equal(chosenResourceRows({}).otherLabel, 'Materiales, combustible y viajes');
-    const m = code('js/ui/views/quote-steps/modality.js');
-    assert.match(m, /Los costos se calculan con los días de trabajo; el precio, \$\{perText\(info\)\}\./);
   });
 
   test('U11: unidad de cobro definida; tarifa del mes', () => {

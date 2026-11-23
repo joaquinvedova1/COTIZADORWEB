@@ -23,7 +23,7 @@ import { formatMoney, formatMoneyCeil, formatPercent, formatNumber, formatDays, 
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
 import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields, guaranteeLoaded } from './shared.js';
 import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
-import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, perBilledUnitSuffix, lineMonthAtEstimate, longClosedJobNote, salaryMonthsAt, timeBasisWithoutFixed } from '../../result-text.js';
+import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, unitAmountText, lineMonthAtEstimate, longClosedJobNote, salaryMonthsAt, timeBasisWithoutFixed } from '../../result-text.js';
 import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
 import { CAPACITY_UNITS } from '../../../engines/transport-engine.js';
@@ -335,6 +335,10 @@ export function dedicationOccupancyText(proposal, quote = {}) {
 export function render(container, ctx) {
   const { quote, kit, settings } = ctx;
   const info = billingUnitOf(quote);
+  // 0.20.0: el ritmo de trabajo (cuánto se hace por mes y por día) se pregunta en el paso 1,
+  // apenas se elige la unidad: de ahí en más toda la cotización se lleva a esa unidad. Este
+  // módulo dibuja las dos partes: `part: 'rhythm'` (paso 1) y el resto ("Cómo se cobra").
+  const rhythmPart = ctx.part === 'rhythm';
   // Unidad "viaje" (PLAN-2026-012): los viajes físicos por intervención se
   // derivan de los viajes por día × días por intervención. Al editar esos
   // datos se deja el mismo número en "Viajes por llamado" (que con esta unidad
@@ -442,7 +446,7 @@ export function render(container, ctx) {
   const knownRate = quote.pricingMode === 'known_rate';
   const Plural = capitalizeUnitPhrase(info.plural);
 
-  const modeCard = card(
+  const modeCard = rhythmPart ? null : card(
     {},
     kit.choice('pricingMode', {
       label: `¿Ya sabés qué ${rateWord} vas a cobrar?`,
@@ -455,9 +459,6 @@ export function render(container, ctx) {
       `Cobrás por ${info.singular || 'unidad'}. `,
       h('a', { href: ctx.href('service') }, `Se cambia en «${stepName('service')}»`),
       '.'),
-    byQuantity
-      ? h('p', { class: 'qe-note' }, `Los costos se calculan con los días de trabajo; el precio, ${perText(info)}.`)
-      : null,
     knownRate
       ? formGrid(
         2,
@@ -606,7 +607,7 @@ export function render(container, ctx) {
         placeholder: tripUnit ? 'Ej.: 2' : 'Ej.: 500',
         hint: tripUnit
           ? `Viajes que hacés en un día de trabajo. Con esto se calculan los días de trabajo (personal, equipos) y los viajes ${T.per}; los km del mes salen de los viajes que facturás.`
-          : 'Lo que hacés en un día de trabajo (rendimiento). Con esto se calculan los días de trabajo: lo que consume personal, equipos y combustible.',
+          : `Tu rendimiento: lo que hace todo el equipo en un día de trabajo. Con esto cada costo del día (personal, equipos, combustible) se lleva a ${perText(info)}.`,
         onValue: (value) => {
           syncRouteTrips();
           deriveManHourDay(value);
@@ -813,7 +814,8 @@ export function render(container, ctx) {
     : null;
   const timePaceInMain = Boolean(timePace) && Math.abs(storedPace - 1) > 1e-9;
   // Por viaje: "Trabajo fuera del horario normal" va plegado en "Más detalle" si no está en uso.
-  const oohInFold = tripFold && !(Array.isArray(quote.extras) && quote.extras.some((x) => isOutOfHoursExtra(x)));
+  // 0.20.0: el ritmo va en el paso 1; las horas fuera de horario quedan siempre en "Cómo se cobra".
+  const oohInFold = false && tripFold && !(Array.isArray(quote.extras) && quote.extras.some((x) => isOutOfHoursExtra(x)));
   const oohSlot = h('div', { class: 'qe-ooh-fold' });
   const activityCard = card(
     {},
@@ -963,6 +965,33 @@ export function render(container, ctx) {
     ),
   );
 
+  const question = monthlyContract
+    ? kit.question('¿Qué cubre la tarifa del mes?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo": quedan dentro de la tarifa del mes.')
+    : singleJob
+    ? kit.question('¿Cuántos días lleva el trabajo?', 'Los costos (personal, equipos, combustible) se calculan con los días de trabajo que lleva hacerlo. Si hacés más de un trabajo así por mes, cargalo en "Más detalle".')
+    : byQuantity && info.id === 'job' && contract.mode === 'closed'
+    ? kit.question('¿Cuántos trabajos como este hacés por mes?', 'Si es uno solo, dejá 1. Los costos se calculan con los días de trabajo que lleva hacerlo.')
+    : byQuantity
+    ? kit.question(texts.quantityQuestion, `Los costos se calculan con los días de trabajo que lleva hacerlo; la facturación, con ${texts.los} ${info.plural}. Cuanto menos factures, mayor deberá ser la tarifa ${perText(info)} para cubrir los costos fijos.`)
+    : byTime
+    ? kit.question(`Tu precio es por ${info.singular}: ¿cuánto trabajás?`, timeNoFixed
+      ? `Tu horario normal de cada día y, como estimación, cuántos días por mes. Tu gente y tus equipos cuestan sus horas en el trabajo: el precio por ${info.singular} no depende de cuántos días trabajes.`
+      : `Tu horario normal de cada día y, como estimación, cuántos días por mes. Cuantos menos días trabajes, más alto tiene que ser tu precio por ${info.singular} para pagar los costos fijos del mes.`)
+    : kit.question('¿Cuánto esperás trabajar por mes?', 'Los días con trabajo y tu horario normal. Cuantos menos días trabajes, más alta tiene que ser la tarifa para pagar a tu gente y tus equipos.');
+
+  if (rhythmPart) {
+    const body = activityCard.querySelector('.card-body');
+    body.insertBefore(question, body.firstChild);
+    activityCard.classList.add('qe-rhythm-card');
+    mount(container, activityCard);
+    return { update() {} };
+  }
+  // En "Cómo se cobra" el ritmo sólo se muestra (se carga en el paso 1).
+  const rhythmSummary = card(
+    { className: 'qe-rhythm-summary' },
+    byQuantity ? quantityKeyline : daysKeyline,
+  );
+
   // ------------------------------------------------------------------------------------
   // PLAN-2026-025 · Cotización guiada por recursos
   // ------------------------------------------------------------------------------------
@@ -997,7 +1026,7 @@ export function render(container, ctx) {
     const D = r.activity.activeDaysPerMonth;
     const text = resourceCostSameUnitText({ fixedMonthly: fixed, variablePerDay: variable, activeDays: D, jobsPerMonth: closedJobs(r) });
     // M7: por hora, día o cantidad, también "≈ $ X por hora".
-    return D > 0 && closedJobs(r) === null ? `${text}${perBilledUnitSuffix(r, quote, fixed + variable * D)}` : text;
+    return D > 0 && closedJobs(r) === null && (fixed > 0.005 || variable > 0.005) ? unitAmountText(r, quote, fixed + variable * D) : text;
   }, {
     hint: (r) => {
       const fixed = sumLines(r, test, 'fixedMonthly');
@@ -1234,7 +1263,7 @@ export function render(container, ctx) {
     const line = (r.model.lines || []).find((x) => x.key === 'labor:overtime-work');
     const month = line ? lineMonthAtEstimate(r, line) : 0;
     if (closedJobsPerMonth(r) !== null) return perQuoteUnit(r, month).text;
-    return `${formatMoney(month)} por mes${owPerMonth ? '' : perBilledUnitSuffix(r, quote, month)}`;
+    return owPerMonth ? `${formatMoney(month)} por mes` : unitAmountText(r, quote, month);
   };
   const setOw = (patch) => ctx.mutate((q) => {
     const cur = q.overtimeWork && typeof q.overtimeWork === 'object' ? q.overtimeWork : {};
@@ -1483,20 +1512,6 @@ export function render(container, ctx) {
       ),
     );
 
-  const question = monthlyContract
-    ? kit.question('¿Qué cubre la tarifa del mes?', 'Los días y las horas de servicio que el cliente tiene cubiertos. Cuántas personas hacen falta, cómo rotan y cuánto cuestan sale de Personal (el esquema de cada puesto). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo": quedan dentro de la tarifa del mes.')
-    : singleJob
-    ? kit.question('¿Cuántos días lleva el trabajo?', 'Los costos (personal, equipos, combustible) se calculan con los días de trabajo que lleva hacerlo. Si hacés más de un trabajo así por mes, cargalo en "Más detalle".')
-    : byQuantity && info.id === 'job' && contract.mode === 'closed'
-    ? kit.question('¿Cuántos trabajos como este hacés por mes?', 'Si es uno solo, dejá 1. Los costos se calculan con los días de trabajo que lleva hacerlo.')
-    : byQuantity
-    ? kit.question(texts.quantityQuestion, `Los costos se calculan con los días de trabajo que lleva hacerlo; la facturación, con ${texts.los} ${info.plural}. Cuanto menos factures, mayor deberá ser la tarifa ${perText(info)} para cubrir los costos fijos.`)
-    : byTime
-    ? kit.question(`Tu precio es por ${info.singular}: ¿cuánto trabajás?`, timeNoFixed
-      ? `Tu horario normal de cada día y, como estimación, cuántos días por mes. Tu gente y tus equipos cuestan sus horas en el trabajo: el precio por ${info.singular} no depende de cuántos días trabajes.`
-      : `Tu horario normal de cada día y, como estimación, cuántos días por mes. Cuantos menos días trabajes, más alto tiene que ser tu precio por ${info.singular} para pagar los costos fijos del mes.`)
-    : kit.question('¿Cuánto esperás trabajar por mes?', 'Los días con trabajo y tu horario normal. Cuantos menos días trabajes, más alta tiene que ser la tarifa para pagar a tu gente y tus equipos.');
-
   // ¿Cómo viaja el personal? (PLAN-2026-024): reemplaza "Días entre viajes o relevos".
   const hasPeople = contract.labor || (Array.isArray(quote.labor) && quote.labor.length > 0);
   const savedPattern = quote.activity ? quote.activity.travelPattern : null;
@@ -1578,8 +1593,7 @@ export function render(container, ctx) {
     resourcesCard,
     sectionLabel('Lo necesario', null),
     modeCard,
-    question,
-    activityCard,
+    rhythmSummary,
     travelCard,
     dedicationCard,
     sectionLabel('Opcional', null),
