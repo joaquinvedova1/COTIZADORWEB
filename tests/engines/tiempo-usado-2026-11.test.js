@@ -306,7 +306,7 @@ describe('Cotización nueva y recursos', () => {
     near(p.loadedHourlyCost, 11363.64);
   });
 
-  test('"Usado en": por tiempo usado no hay % de costos fijos', () => {
+  test('"Usado en": por tiempo usado sin actividad estimada no hay %', () => {
     const line = { ...operario(), sourceId: 'p-1' };
     const rows = (q) => resourceUsage('laborProfiles', 'p-1', [q]).rows;
     assert.equal(rows({ id: 'a', status: 'won', unit: 'job', costBasis: 'time', labor: [line] })[0].assignedPct, null);

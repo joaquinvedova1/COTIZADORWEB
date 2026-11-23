@@ -2192,6 +2192,22 @@ Caso: hidrogrúa asignada 20 h por mes en un servicio de 22 días × 9 h. Antes:
 
 **Vehículos por tiempo usado (0.20.0):** un vehículo agregado a una cotización por tiempo usado queda con las horas de uso vacías, como cualquier equipo (vacío = las horas asignadas: valor hora completo). Antes nacía con 0 h de uso y un camión que trabaja no sumaba combustible ni mantenimiento por hora. Si el vehículo sólo lleva gente y queda estacionado, se carga 0 en "Horas con el motor andando" (paga sólo tenerlo; el combustible y el desgaste van por km en el traslado). Las líneas ya guardadas no cambian. Si ese vehículo además llega por sus medios con km cargados, el motor avisa en la línea (puede estar contando el viaje por hora y por km): las horas con el motor andando son las de trabajo; el viaje va por km.
 
+### 36.4 Horas del mes que la cotización no paga (0.23.0)
+
+Por tiempo usado cada recurso propio cuesta sus horas en el trabajo × su valor hora (§29, §36). El resto de su mes lo pagan otros trabajos. Si no los hay, el precio queda por debajo del costo real. No se cambia el cálculo: se avisa.
+
+```
+horas pagadas   = horas por día en el trabajo × días de trabajo estimados     (por persona o unidad)
+horas del mes   = horas que dividen su costo del mes para el valor hora
+% del mes       = horas pagadas ÷ horas del mes
+sin cobrar acá  = (horas del mes − horas pagadas) × valor hora × personas o unidades
+```
+
+- Aviso `idle_capacity` si algún recurso propio tiene % del mes < 50 (`IDLE_NOTICE_BELOW_PCT`). Monto = suma de "sin cobrar acá" de esos recursos.
+- Aviso `over_capacity` si horas pagadas > horas del mes.
+- Ejemplo: operador de $ 1.760.000 por mes y 176 h, 2 días de 8 h: paga 16 h (9 %); quedan 160 h × $ 10.000 = $ 1.600.000 por mes sin cobrar acá. Poniendo 16 h como horas que trabaja por mes, el valor hora pasa a $ 110.000 y la cotización paga el mes entero.
+- "Usado en" (Recursos): la parte del mes de cada cotización por tiempo usado es ese mismo % × personas o unidades, con los datos crudos de la cotización (`timeShareOf`). Sin actividad estimada no hay %.
+- No aplica cobrando por mes ni con el método anterior (ahí rige el % asignado).
 
 ## 37. Una sola lista "Insumos y materiales" (0.22.0, PLAN-2026-027)
 

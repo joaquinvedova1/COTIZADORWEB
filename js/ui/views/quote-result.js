@@ -3584,10 +3584,10 @@ function renderCompleteness(v) {
   const notices = Array.isArray(c.notices) ? c.notices : [];
   const noticeBlock = notices.length
     ? h('div', { class: 'qr-notices' },
-      h('h4', { class: 'qr-subhead' }, 'Para tener en cuenta (informativo)'),
-      h('ul', { class: 'qr-checklist' }, ...notices.map((n) => h('li', { class: ['qr-check', 'qr-check-info'] },
+      h('h4', { class: 'qr-subhead' }, notices.some((n) => n.severity === 'warning') ? 'Para tener en cuenta' : 'Para tener en cuenta (informativo)'),
+      h('ul', { class: 'qr-checklist' }, ...notices.map((n) => h('li', { class: ['qr-check', n.severity === 'warning' ? 'qr-check-review' : 'qr-check-info'] },
         h('div', { class: 'qr-check-main' },
-          h('span', { class: 'qr-check-head' }, statusDot('gray', n.label), h('span', { class: ['qr-sev', 'qr-sev-info'] }, 'Info')),
+          h('span', { class: 'qr-check-head' }, statusDot(n.severity === 'warning' ? 'orange' : 'gray', n.label), h('span', { class: ['qr-sev', n.severity === 'warning' ? 'qr-sev-review' : 'qr-sev-info'] }, n.severity === 'warning' ? 'Revisar' : 'Info')),
           h('span', { class: 'qr-check-msg' }, n.message)),
         n.focus ? pendingLink(q, n) : stepLink(q, n.step || 'equipment')))))
     : null;

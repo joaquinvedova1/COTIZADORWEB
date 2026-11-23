@@ -1638,6 +1638,75 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
 }
 
 /**
+ * Horas del mes de los recursos propios que esta cotización NO paga (0.23.0, capacidad ociosa).
+ * Por tiempo usado cada recurso cuesta sus horas en el trabajo × su valor hora; el resto de su mes
+ * lo tienen que pagar otros trabajos. Con poco trabajo estimado el precio queda muy por debajo del
+ * costo real de quien sólo tiene este trabajo, y antes no se avisaba. No cambia ningún cálculo.
+ *
+ *   horas pagadas  = horas por día en el trabajo × días de trabajo estimados (por persona o unidad)
+ *   horas del mes  = las que dividen su costo del mes para el valor hora (`billableHoursPerMonth`)
+ *   sin cobrar acá = (horas del mes − horas pagadas) × valor hora × personas o unidades
+ *
+ * Se avisa cuando algún recurso queda cubierto en menos de la mitad de su mes (IDLE_NOTICE_BELOW_PCT)
+ * o cuando la cotización le pide más horas que las de su mes.
+ * @param {object} quote
+ * @param {object} model buildCostModel(quote)
+ * @param {number} activeDays D con la actividad estimada
+ * @returns {object|null}
+ */
+export const IDLE_NOTICE_BELOW_PCT = 50;
+export function idleCapacityNotice(quote = {}, model = null, activeDays = 0) {
+  if (!model || !usesTimeBasis(quote)) return null;
+  const D = nonNegative(activeDays);
+  if (!(D > 0)) return null;
+  const rows = [];
+  const add = (list, index, name, time, count) => {
+    if (!time || !(count > 0) || !(time.billableHoursPerMonth > 0) || !(time.hourlyCost > 0) || !(time.hoursPerDay > 0)) return;
+    const used = time.hoursPerDay * D;
+    const month = time.billableHoursPerMonth;
+    rows.push({ list, index, name, used, month, pct: (used / month) * 100, idleAmount: Math.max(0, month - used) * time.hourlyCost * count });
+  };
+  const laborModel = model.labor && Array.isArray(model.labor.lines) ? model.labor.lines : [];
+  objectList(quote.labor).forEach((l, i) => {
+    const m = laborModel[i];
+    if (m && m.timeBasis) add('labor', i, (typeof l.role === 'string' && l.role.trim()) || 'Personal', m.time, nonNegative(m.positions));
+  });
+  const eqModel = Array.isArray(model.equipment) ? model.equipment : [];
+  objectList(quote.equipment).forEach((e, i) => {
+    const m = eqModel[i];
+    if (m && m.acquisition === 'owned' && m.timeBasis) add('equipment', i, (typeof e.name === 'string' && e.name.trim()) || 'Equipo', m.time, nonNegative(m.quantity));
+  });
+  const h = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 0.05 ? 0 : 1 });
+  const names = (list) => list.map((r) => `"${r.name}" (${h(r.used)} de ${h(r.month)} h)`).join(', ');
+  const over = rows.filter((r) => r.used > r.month * (1 + 1e-6));
+  if (over.length) {
+    return {
+      id: 'over_capacity',
+      step: over[0].list,
+      severity: 'warning',
+      label: 'Más horas que las del mes del recurso',
+      message: `Con el trabajo estimado, esta cotización usa más horas que las que el recurso trabaja por mes: ${names(over)}. Revisá los días de trabajo, sus horas por día o sumá otro recurso igual.`,
+      focus: `${over[0].list}.${over[0].index}.billableHoursPerMonth`,
+      targets: over.map((r) => ({ list: r.list, index: r.index, name: r.name })),
+    };
+  }
+  const idle = rows.filter((r) => r.pct < IDLE_NOTICE_BELOW_PCT && r.idleAmount > 0.005);
+  if (!idle.length) return null;
+  const amount = idle.reduce((acc, r) => acc + r.idleAmount, 0);
+  return {
+    id: 'idle_capacity',
+    step: idle[0].list,
+    severity: 'warning',
+    label: 'Horas del mes que esta cotización no paga',
+    message: `Esta cotización paga sólo una parte del mes de ${names(idle)}. Quedan ${formatMoney(amount)} por mes de sus sueldos y de tener los equipos que acá no se cobran. Está bien si otros trabajos pagan ese tiempo. Si sólo tienen este trabajo, el precio queda corto: cobrá su mes completo acá (en Personal y Equipos hay un botón) o poné en cada recurso las horas que de verdad trabaja por mes.`,
+    focus: `${idle[0].list}.${idle[0].index}.billableHoursPerMonth`,
+    targets: idle.map((r) => ({ list: r.list, index: r.index, name: r.name })),
+    amount,
+    rows: idle,
+  };
+}
+
+/**
  * Menos de una salida por mes con costos por salida y "cada salida completa"
  * apagada (PLAN-2026-014, LAB-D1). La fórmula no cambia: la frecuencia es un
  * promedio y los costos por salida se cuentan en proporción. Informativo (no

@@ -12,6 +12,21 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-23
+
+**Horas del mes que la cotización no paga.** Sale de la evaluación contra la ruta y de la simulación E-01 de la beta (hidrogrúa y operador cobrando por día: el costo por día era igual con 20 o con 2 días de trabajo y no se avisaba). Sin cambio de fórmulas ni de esquema: ninguna cotización cambia sus números.
+
+### Agregado
+
+- **Aviso "Horas del mes que esta cotización no paga"** (Resultado, Personal y Equipos; cotizaciones por tiempo usado): cuando un recurso propio queda cubierto en menos de la mitad de su mes, dice cuántas horas paga la cotización de las de su mes y cuánta plata por mes queda sin cobrar acá. Explica cuándo está bien (otros trabajos pagan ese tiempo) y qué hacer si no. En Personal y Equipos el aviso trae el botón "Sólo tiene este trabajo: cobrar su mes completo acá": pone en cada recurso, como horas que trabaja por mes, las que esta cotización le paga, y su valor hora pasa a cubrir el mes entero (se deshace borrando ese dato). Elegido por el dueño entre avisar, avisar y dejar elegir, o cargar el mes completo por defecto. CALCULATION_RULES §36.4.
+- **Aviso "Más horas que las del mes del recurso"**: cuando el trabajo estimado le pide a un recurso más horas que las de su mes.
+- **Recursos › Usado en**: las cotizaciones por tiempo usado ahora suman su parte del mes del recurso (horas del trabajo estimado ÷ horas del mes), así que "Más del 100 % adjudicado" también las cuenta. Antes figuraban sin %.
+
+### Cambiado
+
+- Resultado: los avisos de "Para tener en cuenta" que piden revisar algo se muestran en naranja con la etiqueta "Revisar".
+- Traslados: el desgaste por km de un vehículo aclara que ahí se cobra sólo por los km y que un vehículo propio que queda en el trabajo va en Equipos.
+
 ## [0.22.0] - 2026-11-23
 
 **Auditoría para cerrar la beta, tanda 3: una sola lista "Insumos y materiales".** Plan en project files `auditoria-beta/PLAN-TANDA-3.md` (PLAN-2026-027). **Esquema 11.** Sin cambio de fórmulas: ninguna cotización guardada cambia sus números (comparado con `computeQuote` antes y después en la demo, los fixtures, las plantillas y los escenarios del Test Lab). Reglas: docs/CALCULATION_RULES.md §37.

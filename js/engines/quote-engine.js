@@ -24,7 +24,7 @@ import { findBreakEvenDays, findLossWindows, traceBreakEven } from './break-even
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
 import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers } from './commercial-rules-engine.js';
 import { isValidMarginPct, isValidMarginAndTaxes, suggestedRateRound, effectiveRoundingStep, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
-import { evaluateCompleteness, activationRoundingNotice, fixedCostsAbsorbedNotice, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
+import { evaluateCompleteness, activationRoundingNotice, fixedCostsAbsorbedNotice, idleCapacityNotice, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
@@ -604,6 +604,9 @@ export function computeQuote(quoteInput = {}, { settings = {}, listRateOverride 
   // Costos fijos del mes que absorbe el precio (tanda A 2026-11, A-15 a): informativo, nunca se aplica un % solo.
   const absorbed = fixedCostsAbsorbedNotice(quote, model, D);
   if (absorbed) completeness.notices.push(absorbed);
+  // Horas del mes de los recursos propios que esta cotización no paga (0.23.0): sólo avisa.
+  const idle = idleCapacityNotice(quote, model, D);
+  if (idle) completeness.notices.unshift(idle);
   // Mínimo en unidades por encima de la estimación con la sugerida (revisión de costos tanda B, B-3).
   const aboveEstimate = guaranteeAboveEstimateNotice({ ctx, D, estimate, commercialSource, targetRates, targetMarginPct, roundingStep, maxDays });
   if (aboveEstimate) completeness.notices.push(aboveEstimate);
