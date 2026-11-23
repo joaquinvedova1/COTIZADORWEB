@@ -5,16 +5,15 @@
  * - submitPublic(): sin sesión, Edge Function "bug-report-submit".
  * - submit(): public.submit_bug_report (sólo con sesión; la base valida
  *   largos y limita la cantidad por persona). Es la fuente de verdad.
- * - Después avisa a la Edge Function "bug-report-github", que crea el issue
- *   en GitHub sin datos de la persona. Si esa parte falla, el reporte ya
- *   quedó guardado: nunca se muestra como error.
- * - listForAdmin(): public.admin_bug_reports (sólo RATEOS_ADMIN, lo decide
- *   la base).
+ * - Ningún reporte se publica solo en GitHub (repositorio público, S-04):
+ *   ya no se llama a la Edge Function "bug-report-github".
+ * - listForAdmin() / updateForAdmin(): public.admin_bug_reports y
+ *   public.admin_update_bug_report (sólo RATEOS_ADMIN, lo decide la base).
  */
 
 import { workspaceErrorCode, WORKSPACE_ERRORS } from './workspace-gateway.js';
 
-export const FEEDBACK_ERRORS = Object.freeze({ ...WORKSPACE_ERRORS, rateLimited: 'rate_limited', invalid: 'invalid' });
+export const FEEDBACK_ERRORS = Object.freeze({ ...WORKSPACE_ERRORS, rateLimited: 'rate_limited', invalid: 'invalid', notReady: 'not_ready' });
 
 const REFERENCE_RE = /^R-[0-9A-F]{6}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -26,11 +25,14 @@ export function feedbackErrorCode(error) {
   const message = String(error.message || '');
   if (code === '54000' || /rate_limited/.test(message)) return FEEDBACK_ERRORS.rateLimited;
   if (code === '22023' || /invalid_report/.test(message)) return FEEDBACK_ERRORS.invalid;
+  // La RPC todavía no existe en la base (migración sin aplicar).
+  if (code === 'PGRST202' || code === '42883') return FEEDBACK_ERRORS.notReady;
   return workspaceErrorCode(error) || FEEDBACK_ERRORS.unknown;
 }
 
 /** Sólo los campos que muestra el panel de admin. */
-const ADMIN_FIELDS = Object.freeze(['reference', 'created_at', 'what_happened', 'expected', 'where_label', 'app_version', 'app_commit', 'browser', 'status', 'github_issue_url']);
+const ADMIN_FIELDS = Object.freeze(['id', 'reference', 'created_at', 'kind', 'severity', 'status', 'step', 'where_label', 'route', 'what_happened', 'expected', 'app_version', 'app_commit', 'browser', 'viewport', 'mode', 'triage_note', 'triaged_at', 'fixed_in_version']);
+const UPDATE_FIELDS = Object.freeze(['status', 'severity', 'kind', 'fixed_in_version', 'triage_note']);
 
 /**
  * @param {object} client cliente de Supabase
@@ -43,26 +45,15 @@ export function createFeedbackGateway(client) {
      * @returns {Promise<{ ok: boolean, code: string|null, reference: string|null }>}
      */
     async submit(payload) {
-      let id = null;
-      let reference = null;
       try {
         const res = await client.rpc('submit_bug_report', { p_report: payload });
         if (res && res.error) return { ok: false, code: feedbackErrorCode({ ...res.error, status: res.status }), reference: null };
         const data = res ? res.data : null;
-        id = data && typeof data.id === 'string' && UUID_RE.test(data.id) ? data.id : null;
-        reference = data && typeof data.reference === 'string' && REFERENCE_RE.test(data.reference) ? data.reference : null;
+        const reference = data && typeof data.reference === 'string' && REFERENCE_RE.test(data.reference) ? data.reference : null;
+        return { ok: true, code: null, reference };
       } catch (error) {
         return { ok: false, code: feedbackErrorCode(error) || FEEDBACK_ERRORS.unknown, reference: null };
       }
-      // Puente a GitHub: en segundo plano y sin bloquear el "¡Gracias!".
-      if (id && client.functions && typeof client.functions.invoke === 'function') {
-        try {
-          client.functions.invoke('bug-report-github', { body: { id } }).catch(() => undefined);
-        } catch {
-          /* el reporte ya quedó guardado */
-        }
-      }
-      return { ok: true, code: null, reference };
     },
 
     /**
@@ -110,6 +101,26 @@ export function createFeedbackGateway(client) {
         };
       } catch (error) {
         return { ok: false, code: feedbackErrorCode(error) || FEEDBACK_ERRORS.unknown, reports: [] };
+      }
+    },
+
+    /**
+     * Seguimiento (RATEOS_ADMIN): estado, severidad, tipo, versión y nota.
+     * @param {string} id
+     * @param {{ status?: string, severity?: string, kind?: string, fixed_in_version?: string, triage_note?: string }} changes
+     */
+    async updateForAdmin(id, changes) {
+      if (typeof id !== 'string' || !UUID_RE.test(id)) return { ok: false, code: FEEDBACK_ERRORS.invalid, report: null };
+      const clean = {};
+      UPDATE_FIELDS.forEach((f) => {
+        if (changes && changes[f] !== undefined && changes[f] !== null) clean[f] = String(changes[f]);
+      });
+      try {
+        const res = await client.rpc('admin_update_bug_report', { p_id: id, p_changes: clean });
+        if (res && res.error) return { ok: false, code: feedbackErrorCode({ ...res.error, status: res.status }), report: null };
+        return { ok: true, code: null, report: res ? res.data : null };
+      } catch (error) {
+        return { ok: false, code: feedbackErrorCode(error) || FEEDBACK_ERRORS.unknown, report: null };
       }
     },
   };

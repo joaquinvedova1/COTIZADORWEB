@@ -12,21 +12,27 @@ import { h, mount } from './dom.js';
 import { button, disclosure, icon, openDialog, selectField, textField, toast } from './components.js';
 import { onSessionReset } from './session-memory.js';
 import {
+  DEFAULT_KIND,
   MAX_EXPECTED_LENGTH,
+  REPORT_KINDS,
   MAX_WHAT_LENGTH,
   buildReportPayload,
   defaultStep,
   githubIssueUrl,
+  reportKind,
   reportText,
   stepOptions,
   technicalContext,
   validateReport,
 } from '../services/feedback-service.js';
 
-let draft = { whatHappened: '', expected: '', step: '' };
+const emptyDraft = () => ({ kind: DEFAULT_KIND, whatHappened: '', expected: '', step: '' });
+let draft = emptyDraft();
 onSessionReset(() => {
-  draft = { whatHappened: '', expected: '', step: '' };
+  draft = emptyDraft();
 });
+
+let kindGroupSeq = 0;
 
 /**
  * @param {{
@@ -35,12 +41,14 @@ onSessionReset(() => {
  *   mode: 'cuenta'|'demo'|'publico',
  *   loginTip?: boolean,  sugerir ingresar para enviar sin GitHub
  *   submit?: ((payload: object) => Promise<{ ok: boolean, message: string|null, reference: string|null }>)|null,
- *   publicList?: boolean,  con sesión el reporte puede publicarse como issue de GitHub
+ *   kind?: string,  tipo preelegido (p. ej. 'calculo' desde el Resultado)
  *   openUrl?: (url: string) => void,
  * }} options  submit null = no se puede enviar desde acá (se ofrece GitHub)
  */
-export function openReportProblem({ location, version = {}, mode = 'cuenta', loginTip = false, submit = null, publicList = false, openUrl = (url) => window.open(url, '_blank', 'noopener') }) {
+export function openReportProblem({ location, version = {}, mode = 'cuenta', loginTip = false, submit = null, kind = null, openUrl = (url) => window.open(url, '_blank', 'noopener') }) {
   const canSend = typeof submit === 'function';
+  if (kind) draft.kind = reportKind(kind).value;
+  if (!draft.kind) draft.kind = DEFAULT_KIND;
   // El paso se sugiere cada vez según dónde está la persona (se puede cambiar).
   draft.step = defaultStep(location);
   const tech = technicalContext();
@@ -66,13 +74,14 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
     },
   });
 
+  const current = reportKind(draft.kind);
   const whatField = textField({
-    label: '¿Qué pasó?',
+    label: current.what,
     value: draft.whatHappened,
     multiline: true,
     required: true,
     maxLength: MAX_WHAT_LENGTH,
-    placeholder: 'Ej.: en Equipos toco «Siguiente» y no pasa nada.',
+    placeholder: current.whatPlaceholder,
     onChange: (v) => {
       draft.whatHappened = v;
       if (!errorEl.hidden) showError(null);
@@ -81,11 +90,11 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
     },
   });
   const expectedField = textField({
-    label: '¿Qué esperabas que pasara? (opcional)',
+    label: current.expected,
     value: draft.expected,
     multiline: true,
     maxLength: MAX_EXPECTED_LENGTH,
-    placeholder: 'Ej.: que me lleve al paso Materiales.',
+    placeholder: current.expectedPlaceholder,
     onChange: (v) => {
       draft.expected = v;
       refreshPreview();
@@ -93,21 +102,49 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
   });
   refreshPreview();
 
+  // Las preguntas cambian según el tipo (sin rehacer el formulario: lo escrito queda).
+  const relabel = (field, label, placeholder) => {
+    const labelEl = field.querySelector('label');
+    const control = field.querySelector('textarea, input');
+    if (labelEl) {
+      const req = labelEl.querySelector('.req');
+      labelEl.textContent = label;
+      if (req) labelEl.appendChild(req);
+    }
+    if (control) control.setAttribute('placeholder', placeholder);
+  };
+  kindGroupSeq += 1;
+  const groupName = `report-kind-${kindGroupSeq}`;
+  const kindGroup = h('fieldset', { class: 'report-kinds' },
+    h('legend', { class: 'field-label' }, '¿Qué querés contarnos?'),
+    h('div', { class: 'report-kind-list' }, ...REPORT_KINDS.map((k) => {
+      const input = h('input', { type: 'radio', name: groupName, value: k.value, checked: k.value === draft.kind });
+      input.addEventListener('change', () => {
+        if (!input.checked) return;
+        draft.kind = k.value;
+        relabel(whatField, k.what, k.whatPlaceholder);
+        relabel(expectedField, k.expected, k.expectedPlaceholder);
+        refreshPreview();
+      });
+      return h('label', { class: 'report-kind' }, input, h('span', {}, k.label));
+    })));
+
   const auto = h('p', { class: 'report-auto' },
     icon('info', { size: 16 }),
     h('span', {}, 'Se agrega solo: la pantalla (', h('strong', {}, location.label), `), la versión${version.version ? ` ${version.version}` : ''} y tu navegador.`));
   const privacy = h('p', { class: 'report-privacy' },
     icon('lock', { size: 16 }),
     h('span', {}, canSend
-      ? `Lo recibe el equipo de RATEOS para revisarlo y corregirlo${publicList ? ' (puede quedar en una lista pública de errores)' : ''}. No lleva tu nombre, email ni empresa. No escribas nombres de clientes, precios ni otros datos confidenciales.`
+      ? 'Lo lee sólo el equipo de RATEOS, para revisarlo y corregirlo; no se publica. No se adjuntan tus cotizaciones, importes ni clientes. Evitá escribir nombres de clientes o precios reales: con el paso y los números aproximados alcanza.'
       : `Te llevamos a GitHub (un sitio público que pide una cuenta gratuita) con el reporte ya escrito. No escribas nombres de clientes ni precios.${!loginTip ? '' : ' Si tenés cuenta de RATEOS, ingresá y mandalo desde ahí, sin GitHub.'}`));
 
   const form = h('form', { class: 'report-form', novalidate: true },
-    h('p', { class: 'report-intro' }, 'Contanos qué no funcionó o qué te confundió. Lo revisamos para corregir RATEOS.'),
-    privacy,
+    h('p', { class: 'report-intro' }, 'Errores, cálculos que no te cierran, textos confusos o ideas: todo nos sirve para mejorar RATEOS.'),
+    kindGroup,
     stepField,
     whatField,
     expectedField,
+    privacy,
     auto,
     disclosure({ summary: 'Ver lo que se envía', className: 'report-preview-box' }, previewEl),
     errorEl);
@@ -195,7 +232,7 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
     sendBtn.removeAttribute('aria-busy');
     if (label) label.textContent = previous;
     const ok = Boolean(res && res.ok);
-    if (ok) draft = { whatHappened: '', expected: '', step: '' };
+    if (ok) draft = emptyDraft();
     // Si cerraron el diálogo mientras se enviaba, el resultado llega como aviso.
     if (closed) {
       toast(ok ? `¡Gracias! Recibimos tu reporte${res.reference ? ` (${res.reference})` : ''}.` : 'No pudimos enviar el reporte. Lo que escribiste sigue guardado: abrí «Reportar un problema» y probá de nuevo.', ok ? 'success' : 'warning', { timeout: 6000 });
@@ -240,7 +277,8 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
       h('p', { class: 'report-thanks-title', tabindex: '-1' }, '¡Gracias! Recibimos tu reporte.'),
       reference
         ? h('p', {}, 'Referencia ', h('strong', { class: 'mono' }, reference), '. Guardala por si nos consultás por este problema.')
-        : h('p', {}, 'Lo vamos a revisar pronto.')));
+        : null,
+      h('p', {}, 'Lo revisamos en los próximos días hábiles. Si es un error, lo corregimos en una próxima versión (el número de versión está al pie de la página).')));
     const actions = dialog.querySelector('.dialog-actions');
     if (actions) mount(actions, done);
     const title = body.querySelector('.report-thanks-title');

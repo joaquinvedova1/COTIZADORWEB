@@ -7,11 +7,12 @@
  * clientes, recursos, ids internos ni el contenido del workspace: la ruta se
  * manda como PATRÓN (p. ej. "cotizaciones/:id/equipment"), no con el id real.
  *
- * Con sesión: se guarda en Supabase (private.bug_reports) y, si el puente
- * está configurado, se publica como issue de GitHub sin nombre, email ni
- * empresa. Sin sesión (sitio público y demo): se guarda igual en
- * private.bug_reports por la Edge Function bug-report-submit (nunca va a
- * GitHub). GitHub con el issue ya escrito queda sólo como plan B.
+ * Con sesión: se guarda en Supabase (private.bug_reports). Sin sesión
+ * (sitio público y demo): se guarda igual en private.bug_reports por la
+ * Edge Function bug-report-submit. Ningún reporte se publica solo en
+ * GitHub (el repositorio es público): el dueño los ve y los sigue desde
+ * #/admin. GitHub con el issue ya escrito queda sólo como plan B, y lo
+ * manda la persona a mano.
  */
 
 import { QUOTE_STEPS } from '../domain/catalogs.js';
@@ -63,6 +64,24 @@ export function describeLocation(current) {
   return { label: step ? `${title} › ${step}` : title, route: `/${pattern}`, step };
 }
 
+/**
+ * Qué quiere contarnos la persona. Se elige primero y cambia las preguntas.
+ * Los valores son los de private.bug_reports.kind.
+ */
+export const REPORT_KINDS = Object.freeze([
+  { value: 'error', label: 'Algo no funciona', short: 'Error', what: '¿Qué pasó?', whatPlaceholder: 'Ej.: en Equipos toco «Siguiente» y no pasa nada.', expected: '¿Qué esperabas que pasara? (opcional)', expectedPlaceholder: 'Ej.: que me lleve al paso Materiales.' },
+  { value: 'calculo', label: 'Un cálculo no me cierra', short: 'Cálculo', what: '¿Qué número te parece mal y dónde lo ves?', whatPlaceholder: 'Ej.: el costo del personal por día me da el doble de lo que calculo a mano.', expected: '¿Cuánto esperabas y cómo lo calculás? (opcional)', expectedPlaceholder: 'Ej.: 2 operarios × 9 h × valor hora; no hace falta poner precios reales.' },
+  { value: 'texto', label: 'Un texto o campo confuso', short: 'Texto confuso', what: '¿Qué texto o campo no se entiende?', whatPlaceholder: 'Ej.: no sé qué poner en «Horas por mes en este servicio».', expected: '¿Cómo lo dirías vos? (opcional)', expectedPlaceholder: 'Ej.: «¿Cuántas horas por mes trabaja en este cliente?».' },
+  { value: 'no_encuentro', label: 'No encuentro o no entiendo algo', short: 'No lo encuentro', what: '¿Qué querías hacer?', whatPlaceholder: 'Ej.: quiero cargar un alquiler de grúa y no sé en qué paso va.', expected: '¿Dónde lo buscaste? (opcional)', expectedPlaceholder: 'Ej.: lo busqué en Equipos y en Recursos.' },
+  { value: 'sugerencia', label: 'Una sugerencia', short: 'Sugerencia', what: '¿Qué te gustaría que haga RATEOS?', whatPlaceholder: 'Ej.: poder copiar una cotización para otro cliente.', expected: '¿Para qué te serviría? (opcional)', expectedPlaceholder: 'Ej.: cotizo el mismo servicio a varias plantas.' },
+]);
+export const DEFAULT_KIND = 'error';
+
+/** Definición del tipo (si no existe, la de "Algo no funciona"). */
+export function reportKind(value) {
+  return REPORT_KINDS.find((k) => k.value === value) || REPORT_KINDS[0];
+}
+
 export const STEP_OTHER = 'Fuera de una cotización';
 export const STEP_GENERAL = 'En general / no sé';
 
@@ -107,7 +126,9 @@ export function technicalContext(env = globalThis) {
  * @param {{ location: { label: string, route: string }, version?: object, mode: 'cuenta'|'demo'|'publico', tech?: object }} ctx
  */
 export function buildReportPayload(form, { location, version = {}, mode = 'cuenta', tech = {} } = {}) {
+  const kind = reportKind(form && form.kind).value;
   return {
+    kind,
     what_happened: clean(form && form.whatHappened, MAX_WHAT_LENGTH),
     expected: clean(form && form.expected, MAX_EXPECTED_LENGTH),
     where_label: clean(location && location.label, 200),
@@ -117,7 +138,7 @@ export function buildReportPayload(form, { location, version = {}, mode = 'cuent
     app_commit: clean(version.commit, 64),
     browser: clean(tech.browser, 400),
     viewport: clean(tech.viewport, 40),
-    context: { mode: ['cuenta', 'demo', 'publico'].includes(mode) ? mode : 'cuenta', language: clean(tech.language, 20) },
+    context: { mode: ['cuenta', 'demo', 'publico'].includes(mode) ? mode : 'cuenta', language: clean(tech.language, 20), kind },
   };
 }
 
@@ -132,6 +153,8 @@ export function validateReport(form) {
 export function reportText(payload) {
   const q = (t) => (t ? t.split('\n').map((l) => `> ${l}`).join('\n') : '> —');
   return [
+    `### Tipo: ${reportKind(payload.kind).label}`,
+    '',
     '### ¿Qué pasó?',
     q(payload.what_happened),
     '',
@@ -182,6 +205,14 @@ const MESSAGES = Object.freeze({
   [FEEDBACK_ERRORS.forbidden]: 'Tu sesión terminó. Podés enviarlo por GitHub acá abajo, o copiar lo que escribiste antes de volver a ingresar.',
 });
 
+/** Mensajes del panel de reportes (admin). */
+export function adminErrorMessage(code) {
+  if (code === FEEDBACK_ERRORS.forbidden) return 'No tenés permisos para ver los reportes.';
+  if (code === FEEDBACK_ERRORS.network) return 'No pudimos conectarnos. Revisá tu conexión y reintentá.';
+  if (code === FEEDBACK_ERRORS.notReady) return 'Falta aplicar en Supabase la migración de seguimiento de reportes (20261124120000). Mientras tanto los reportes se guardan igual.';
+  return 'No pudimos cargar o guardar los reportes. Reintentá en unos minutos.';
+}
+
 export function feedbackErrorMessage(code) {
   return MESSAGES[code] || 'No pudimos enviar el reporte. Probá de nuevo en unos minutos.';
 }
@@ -206,8 +237,15 @@ export function createFeedbackService(gateway) {
     /** Reportes recibidos (sólo RATEOS_ADMIN). */
     async listForAdmin() {
       const res = await gateway.listForAdmin();
-      if (!res.ok) return { ok: false, message: feedbackErrorMessage(res.code), reports: [] };
-      return { ok: true, message: null, reports: res.reports };
+      if (!res.ok) return { ok: false, code: res.code, message: adminErrorMessage(res.code), reports: [] };
+      return { ok: true, code: null, message: null, reports: res.reports };
+    },
+    /** Seguimiento de un reporte desde el panel (sólo RATEOS_ADMIN). */
+    async updateForAdmin(id, changes) {
+      if (typeof gateway.updateForAdmin !== 'function') return { ok: false, message: adminErrorMessage(FEEDBACK_ERRORS.unknown), report: null };
+      const res = await gateway.updateForAdmin(id, changes);
+      if (!res.ok) return { ok: false, code: res.code, message: adminErrorMessage(res.code), report: null };
+      return { ok: true, code: null, message: null, report: res.report };
     },
   };
 }

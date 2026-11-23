@@ -35,9 +35,19 @@ function json(status: number, body: unknown, origin: string | null): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders(origin), 'Content-Type': 'application/json' } });
 }
 
+// IP que pone la plataforma (S-05): cf-connecting-ip lo escribe Cloudflare,
+// delante de Supabase, y el cliente no lo puede pisar. Sólo si falta se usa
+// x-forwarded-for (su primer valor lo puede inventar el cliente; para eso
+// está el tope global de private.submit_public_bug_report).
+export function clientIp(headers: Headers): string {
+  const cf = (headers.get('cf-connecting-ip') || '').trim();
+  if (cf) return cf;
+  const hops = (headers.get('x-forwarded-for') || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return hops.length ? hops[0] : 'sin-ip';
+}
+
 async function sourceKey(req: Request): Promise<string> {
-  const forwarded = req.headers.get('x-forwarded-for') || req.headers.get('cf-connecting-ip') || 'sin-ip';
-  const ip = forwarded.split(',')[0].trim();
+  const ip = clientIp(req.headers);
   const data = new TextEncoder().encode(`rateos-bug-report:${ip}`);
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
   return Array.from(digest.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -48,10 +58,14 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(origin) });
   if (req.method !== 'POST') return json(405, { ok: false, error: 'method_not_allowed' }, origin);
 
+  // Cortar antes de leer el cuerpo si declara ser grande.
+  const declared = Number(req.headers.get('content-length') || '0');
+  if (Number.isFinite(declared) && declared > MAX_BODY) return json(413, { ok: false, error: 'invalid_report' }, origin);
+
   let report: unknown = null;
   try {
     const raw = await req.text();
-    if (raw.length > MAX_BODY) return json(413, { ok: false, error: 'invalid_report' }, origin);
+    if (new TextEncoder().encode(raw).length > MAX_BODY) return json(413, { ok: false, error: 'invalid_report' }, origin);
     const body = JSON.parse(raw);
     report = body && typeof body === 'object' ? body.report : null;
   } catch {
