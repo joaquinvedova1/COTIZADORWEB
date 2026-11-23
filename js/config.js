@@ -47,6 +47,12 @@ export const PUBLIC_SITE_URL = PUBLIC_SITE_URLS[0];
  */
 export const MOVED_TO_SITE_URL = null;
 
+/**
+ * Email de soporte que se muestra en #/privacidad (beta pública). null = el
+ * único canal es «Reportar un problema». Lo define el dueño.
+ */
+export const SUPPORT_EMAIL = null;
+
 /** Claves de localStorage. Nunca se usa localStorage.clear(). */
 export const STORAGE_KEYS = Object.freeze({
   /** Datos del modo local anterior (sin cuenta). Nunca se borran: se ofrecen para importar. */

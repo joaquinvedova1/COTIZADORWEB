@@ -52,6 +52,7 @@ export const ROUTES = Object.freeze([
   { name: 'login', segments: ['login'], shell: 'public', access: 'guest', nav: null, title: 'Ingresar', load: () => import('./views/public/auth.js'), view: 'renderLogin' },
   { name: 'register', segments: ['registro'], shell: 'public', access: 'guest', nav: null, title: 'Crear cuenta', load: () => import('./views/public/auth.js'), view: 'renderRegister' },
   { name: 'recover', segments: ['recuperar-contrasena'], shell: 'public', access: 'public', nav: null, title: 'Recuperar contraseña', load: () => import('./views/public/auth.js'), view: 'renderRecover' },
+  { name: 'legal', segments: ['privacidad'], shell: 'public', access: 'public', nav: null, title: 'Privacidad y condiciones', load: () => import('./views/public/legal.js'), view: 'render' },
   { name: 'demo', segments: ['demo'], shell: 'public', access: 'public', nav: null, title: 'Probar con un ejemplo', load: () => import('./views/public/demo-tour.js'), view: 'render' },
   { name: 'demo-analysis', segments: ['demo', 'analisis'], shell: 'public', access: 'public', nav: null, title: 'Ejemplo: análisis completo', load: () => import('./views/public/demo-analysis.js'), view: 'render' },
   // Bienvenida (tipo de empresa y base): ahora es parte de la cuenta.

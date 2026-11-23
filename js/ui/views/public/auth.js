@@ -211,6 +211,7 @@ export function renderRegister(root, app) {
     company.el,
     email.el,
     password.el,
+    h('p', { class: 'pub-field-hint pub-auth-terms' }, 'RATEOS está en beta gratuita. Al crear tu cuenta aceptás las ', h('a', { href: '#/privacidad' }, 'condiciones de la beta y la política de privacidad'), '.'),
     submit.el,
   );
 

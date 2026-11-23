@@ -166,8 +166,8 @@ export function supabaseSurface(files) {
   return { rpcNames: [...rpcNames].sort(), tables: [...tables].sort(), mutations, features, dynamicRpc, sdkImports, clientImports };
 }
 
-const ALLOWED_RPC = Object.freeze(['admin_bug_reports', 'admin_overview', 'admin_users', 'am_i_platform_admin', 'submit_bug_report']);
-const ALLOWED_FUNCTIONS = Object.freeze(['bug-report-github', 'bug-report-submit']);
+const ALLOWED_RPC = Object.freeze(['admin_bug_reports', 'admin_update_bug_report', 'admin_overview', 'admin_users', 'am_i_platform_admin', 'submit_bug_report']);
+const ALLOWED_FUNCTIONS = Object.freeze(['bug-report-submit']);
 const ALLOWED_TABLES = Object.freeze(['organization_members', 'organizations', 'profiles', 'workspace_states']);
 
 // ------------------------------------------------------- controles estáticos

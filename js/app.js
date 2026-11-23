@@ -431,6 +431,10 @@ async function boot(root) {
     },
     auth,
     version,
+    /** Reportes recibidos y su seguimiento (sólo lo usa #/admin; la base decide quién puede). */
+    get reports() {
+      return feedback;
+    },
     /** Demo pública aislada (en memoria). */
     demo() {
       if (!demoPromise) demoPromise = createDemoContext({ appVersion: version.version });
@@ -487,10 +491,11 @@ async function boot(root) {
     },
     /**
      * "Reportar un problema": con o sin sesión se envía y queda guardado en
-     * private.bug_reports (con sesión además puede ir a GitHub). GitHub con
-     * el issue ya escrito queda sólo como plan B si el envío falla.
+     * private.bug_reports (nunca se publica solo). GitHub con el issue ya
+     * escrito queda sólo como plan B si el envío falla.
+     * @param {{ kind?: string }} [options] tipo preelegido
      */
-    reportProblem() {
+    reportProblem(options = {}) {
       const current = router ? router.current() : null;
       const routeName = current && current.route ? String(current.route.name || '') : '';
       const signedIn = auth.status === 'authenticated';
@@ -500,7 +505,7 @@ async function boot(root) {
         location: describeLocation(current),
         version,
         mode,
-        publicList: signedIn,
+        kind: options && options.kind ? options.kind : null,
         submit: canSend ? (payload) => feedback.submit(payload, { signedIn }) : null,
       });
     },
