@@ -1748,9 +1748,9 @@ function chargeLoaded(quote) {
 }
 
 /** Avisos informativos (completeness.notices) que también se muestran en su paso. */
-const STEP_NOTICE_IDS = new Set(['fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate', 'no_fuel_travels']);
+const STEP_NOTICE_IDS = new Set(['idle_capacity', 'over_capacity', 'fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate', 'no_fuel_travels']);
 
-function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null, chargeReady = () => true } = {}) {
+function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null, onChargeFullMonth = null, chargeReady = () => true } = {}) {
   const list = h('ul', { class: 'qe-notice-list' });
   // En la cotización de ejemplo, los puntos para revisar están a propósito (UX-3).
   const title = didactic ? 'Para revisar: el ejemplo lo deja a propósito' : 'Para revisar en este paso';
@@ -1777,6 +1777,16 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
     if (n.id !== 'guarantee_above_estimate' || !(Number.isFinite(n.listRateWithMinimum) && n.listRateWithMinimum > 0)) return null;
     if (typeof onUseOfferedRate !== 'function' || !hasField('pricing.offeredRateOverride')) return null;
     return goButton(`Usar ${formatMoney(n.listRateWithMinimum)} como tarifa ofrecida`, () => onUseOfferedRate(n.listRateWithMinimum));
+  };
+  /**
+   * Horas del mes que la cotización no paga (0.22.0, elección del dueño "avisar y dejar elegir"):
+   * un toque pone, en cada recurso del aviso, las horas que esta cotización le paga como las horas
+   * que trabaja por mes. Su valor hora pasa a cubrir el mes entero. Sin cuentas acá: las horas
+   * vienen del motor (`rows[].used`).
+   */
+  const fullMonthAction = (n) => {
+    if (n.id !== 'idle_capacity' || typeof onChargeFullMonth !== 'function' || !Array.isArray(n.rows) || !n.rows.length) return null;
+    return goButton(n.rows.length === 1 ? 'Sólo tiene este trabajo: cobrar su mes completo acá' : 'Sólo tienen este trabajo: cobrar su mes completo acá', () => onChargeFullMonth(n.rows));
   };
   return {
     el,
@@ -1817,9 +1827,9 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
         ...issues.map((i) => h('li', { class: ['qe-notice', `is-${i.severity === 'error' ? 'red' : 'orange'}`] }, h('span', { class: ['dot', `dot-${i.severity === 'error' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }), h('span', {}, i.message))),
         ...infos.map((n) => h(
           'li',
-          { class: ['qe-notice', 'is-info'] },
-          h('span', { class: ['dot', 'dot-blue'], 'aria-hidden': 'true' }),
-          h('span', {}, h('strong', {}, `${n.label}: `), n.message, ' ', offeredRateAction(n) || actionFor(n, quote)),
+          { class: ['qe-notice', n.severity === 'warning' ? 'is-orange' : 'is-info'] },
+          h('span', { class: ['dot', n.severity === 'warning' ? 'dot-orange' : 'dot-blue'], 'aria-hidden': 'true' }),
+          h('span', {}, h('strong', {}, `${n.label}: `), n.message, ' ', offeredRateAction(n) || fullMonthAction(n) || actionFor(n, quote)),
         )),
       );
     },
@@ -2277,6 +2287,12 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       if (!isPlainObject(q.pricing)) q.pricing = {};
       q.pricing.offeredRateOverride = value;
     }, { focus: 'pricing.offeredRateOverride' }),
+    onChargeFullMonth: (rows) => mutate((q) => {
+      rows.forEach((row) => {
+        const line = Array.isArray(q[row.list]) ? q[row.list][row.index] : null;
+        if (isPlainObject(line) && row.used > 0) line.billableHoursPerMonth = Math.round(row.used * 100) / 100;
+      });
+    }),
     hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
     stepHref,
     didactic: state.quote.illustrative === true,

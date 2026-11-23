@@ -12,11 +12,16 @@
  * reservada o contratada para el servicio) × personas (personal) o unidades
  * (equipos). Un externo (alquilado / tercerizado) se paga por uso: se lista
  * sin %. Si lo comprometido supera el 100 % se avisa; nunca se bloquea.
+ *
+ * Por tiempo usado (0.22.0): la cotización paga horas, no un %. Su parte del mes del recurso
+ * son las horas que le ocupa con la actividad estimada ÷ las horas del mes del recurso
+ * (`timeShareOf`). Sin actividad estimada no se puede saber: queda sin %.
  */
 
 import { isPlainObject } from '../core/object.js';
 import { fixedCostShareOf } from './assignment.js';
-import { usesTimeBasis } from './cost-basis.js';
+import { usesTimeBasis, monthBaseHoursOf } from './cost-basis.js';
+import { billingUnitOf } from './billing-units.js';
 
 const POTENTIAL_STATUSES = Object.freeze(['draft', 'sent']);
 const COMMITTED_STATUSES = Object.freeze(['won']);
@@ -33,6 +38,33 @@ function linkedResourceId(line) {
 function num(value, fallback = 0) {
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/** Días de trabajo por mes que estima la cotización (dato crudo, sin motor). 0 = sin estimar. */
+function estimatedDaysOf(quote) {
+  const a = isPlainObject(quote.activity) ? quote.activity : {};
+  const unit = billingUnitOf(quote);
+  if (unit.kind === 'quantity') return num(a.unitsPerActiveDay) > 0 ? num(a.billableQuantityPerMonth) / num(a.unitsPerActiveDay) : 0;
+  if (unit.kind === 'event') return num(a.billableQuantityPerMonth) * (num(a.daysPerActivation) > 0 ? num(a.daysPerActivation) : 1);
+  return num(a.activeDaysPerMonth);
+}
+
+/**
+ * Parte del mes de un recurso propio que ocupa una cotización por tiempo usado (0.22.0).
+ * @returns {{ hoursPerMonth: number, monthHours: number, sharePct: number }|null} null = sin actividad estimada
+ */
+export function timeShareOf(quote, line, kind) {
+  if (!isPlainObject(quote) || !isPlainObject(line)) return null;
+  const a = isPlainObject(quote.activity) ? quote.activity : {};
+  const dayHours = Math.min(num(a.hoursPerActiveDay), 24);
+  const days = estimatedDaysOf(quote);
+  if (!(dayHours > 0) || !(days > 0)) return null;
+  const own = kind === 'labor' ? num(line.coverageHoursPerDay) : Math.max(num(line.assignedHoursPerDay), Math.min(num(line.hoursPerActiveDay), dayHours));
+  const hoursPerDay = own > 0 ? Math.min(own, dayHours) : dayHours;
+  const monthHours = monthBaseHoursOf(quote, line, kind, a);
+  if (!(monthHours > 0)) return null;
+  const hoursPerMonth = hoursPerDay * days;
+  return { hoursPerMonth, monthHours, sharePct: (hoursPerMonth / monthHours) * 100 };
 }
 
 /**
@@ -60,7 +92,9 @@ export function resourceUsage(type, resourceId, quotes = []) {
         ? (num(line.payrollHeadcount) > 0 && num(line.positions) > 0 ? num(line.payrollHeadcount) : num(line.positions) * num(line.peoplePerPosition, 1))
         : num(line.quantity);
       // Por tiempo usado (2026-11-18): la cotización paga las horas del trabajo, sin % de costos fijos.
-      const share = external || usesTimeBasis(q) ? null : fixedCostShareOf(line);
+      const byTime = !external && usesTimeBasis(q);
+      const time = byTime ? timeShareOf(q, line, listKey) : null;
+      const share = external || byTime ? (time ? { assignment: null, sharePct: time.sharePct, shared: false } : null) : fixedCostShareOf(line);
       rows.push({
         quoteId: typeof q.id === 'string' ? q.id : null,
         code: typeof q.code === 'string' ? q.code : '',
@@ -76,6 +110,10 @@ export function resourceUsage(type, resourceId, quotes = []) {
         shared: share ? share.shared : false,
         // Personas o unidades × % de su costo fijo (en puntos: 100 = uno entero).
         assignedPct: share ? share.sharePct * units : null,
+        // Por tiempo usado: horas por mes que ocupa de las del mes del recurso (por persona o unidad).
+        byHours: !!time,
+        hoursPerMonth: time ? time.hoursPerMonth : null,
+        monthHours: time ? time.monthHours : null,
       });
     });
   });

@@ -1664,7 +1664,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const who = row.code || row.name ? `${row.code}${row.code && row.name ? ' · ' : ''}${row.name}` : 'Cotización sin nombre';
     const unitsWord = type === 'laborProfiles' ? (Math.abs(row.units - 1) < 1e-9 ? 'persona' : 'personas') : Math.abs(row.units - 1) < 1e-9 ? 'unidad' : 'unidades';
     const detail = row.assignedPct === null
-      ? `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} · se paga por uso (sin % de costos fijos)`
+      ? (row.external ? `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} · se paga por uso (sin % de costos fijos)` : `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} · se cobra por horas (falta estimar cuánto trabajo hay por mes)`)
+      : row.byHours
+        ? `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} × ${formatNumber(row.hoursPerMonth, { decimals: 1 })} h de ${formatNumber(row.monthHours, { decimals: 1 })} h por mes = ${formatPercent(row.assignedPct)}`
       : `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} × ${formatPercent(row.sharePct)}${row.shared ? ' (compartido)' : ''} = ${formatPercent(row.assignedPct)}`;
     return h('li', { class: 'lib-usage-row' },
       h('a', { href: `#/cotizaciones/${encodeURIComponent(String(row.quoteId || ''))}/result` }, who),
