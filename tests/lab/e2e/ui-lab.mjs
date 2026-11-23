@@ -615,12 +615,17 @@ async function runMode(mode) {
     await dlg.waitFor({ timeout: 4000 }).catch(() => {});
     const formFields = await dlg.evaluate((d) => [...d.querySelectorAll('label')].map((l) => l.textContent.trim()));
     check('E2E-23', 'Recursos: el formulario no pide cantidad, frecuencia ni markup', !formFields.some((t) => /^(Cantidad|Base|Markup|¿Cada cuánto)/i.test(t)), formFields.join(' · '));
-    await dlg.getByLabel('Descripción', { exact: true }).fill(NAME);
-    await dlg.getByLabel('Tipo', { exact: true }).selectOption({ label: 'Insumo o consumible' });
-    await page.waitForTimeout(200);
-    await dlg.getByLabel('Unidad', { exact: true }).selectOption('juego');
-    await page.waitForTimeout(200);
-    const cost = dlg.getByLabel(/^Costo unitario/).first();
+    // El control de un campo del formulario por el comienzo de su rótulo (label.field-label for=id).
+    const control = async (re) => {
+      const id = await dlg.locator('label.field-label').filter({ hasText: re }).first().getAttribute('for');
+      return dlg.locator(`[id="${id}"]`);
+    };
+    await (await control(/^\s*Descripción/)).fill(NAME);
+    await (await control(/^\s*Tipo/)).selectOption({ label: 'Insumo o consumible' });
+    await page.waitForTimeout(300);
+    await (await control(/^\s*Unidad/)).selectOption('juego');
+    await page.waitForTimeout(300);
+    const cost = await control(/^\s*Costo unitario/);
     await cost.fill('15000');
     await cost.press('Tab');
     await tap(dlg.getByRole('button', { name: 'Guardar' }));
