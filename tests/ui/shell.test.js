@@ -240,7 +240,7 @@ describe('Nueva cotización: plantillas', () => {
     assert.equal(empty.hasContent, false);
     // Una plantilla guardada desde una cotización también cuenta otros costos y vehículos.
     const saved = templateContents({ defaults: { otherCosts: [{}], logistics: { vehicles: [{}, {}] } } });
-    assert.match(saved.resources, /1 otro costo · 2 vehículos/);
+    assert.match(saved.resources, /1 gasto cargado antes · 2 vehículos/);
   });
 
   test('orderTemplates: primero las que traen recursos, orden estable, sin perder ninguna', () => {

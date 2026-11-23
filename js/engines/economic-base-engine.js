@@ -30,7 +30,7 @@ export const BASE_CATEGORIES = Object.freeze([
   { id: 'equipment', label: 'Equipos propios' },
   { id: 'external', label: 'Equipos y servicios externos' },
   { id: 'fuel', label: 'Combustible' },
-  { id: 'materials', label: 'Materiales' },
+  { id: 'materials', label: 'Insumos y materiales' },
   { id: 'exchange', label: 'Tipo de cambio' },
 ]);
 

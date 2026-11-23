@@ -169,7 +169,7 @@ describe('LAB-F9 · Avisos informativos (no restan puntaje)', () => {
     const q = service({ id: 'lab-f9b', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], materials: [material({ description: 'Pintura', quantity: 10, unitCost: 20000 })] });
     q.materialsNotApplicable = true;
     const n = evaluateCompleteness(q).notices.find((x) => x.id === 'materials_ignored');
-    assert.ok(n && /1 material/.test(n.message));
+    assert.ok(n && /1 línea cargada/.test(n.message) && /El servicio no usa insumos ni materiales/.test(n.message));
     assert.equal(n.focus, 'materialsNotApplicable');
   });
 });

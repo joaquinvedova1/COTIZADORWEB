@@ -40,7 +40,7 @@ import { formatMoney, formatMoneyIn, formatNumber, formatPercent, formatPeriod, 
 import { isFiniteNumber, toNumber } from '../../core/money.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
-import { AGREEMENT_TYPES, AGREEMENT_TYPES_SORTED, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_BASES, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf, vatIsCost } from '../../domain/catalogs.js';
+import { AGREEMENT_TYPES, AGREEMENT_TYPES_SORTED, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_UNIT_PRESETS, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf, vatIsCost } from '../../domain/catalogs.js';
 import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
 import { maintenanceOf } from '../../engines/equipment-engine.js';
 import { wearNote } from '../equipment-wear-ui.js';
@@ -53,6 +53,7 @@ import { BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT, BILLABLE_OVER_NORMAL_NOTE } 
 import { CURRENCY } from '../../config.js';
 import { laborLoadFactor } from '../../engines/labor-engine.js';
 import { computeMaterialLine } from '../../engines/materials-engine.js';
+import { MATERIAL_TYPES, materialTypeLabel, resourceMaterialType } from '../../domain/material-types.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { render as renderNotFound } from './not-found.js';
 import { resourceUsage } from '../../domain/resource-usage.js';
@@ -104,13 +105,13 @@ const TABS = Object.freeze([
   },
   {
     id: 'materiales',
-    label: 'Materiales',
+    label: 'Insumos y materiales',
     type: 'materials',
-    addLabel: 'Agregar material',
+    addLabel: 'Agregar insumo o material',
     icon: 'quote',
-    intro: 'Materiales e insumos con merma, logística y quién los provee.',
-    emptyTitle: 'Todavía no agregaste materiales.',
-    emptyText: 'Guardá los materiales e insumos que usás seguido y reutilizalos en tus cotizaciones.',
+    intro: 'Qué es cada uno, de qué tipo, en qué unidad lo comprás y cuánto cuesta. Cuánto usás y cada cuánto se carga en cada cotización.',
+    emptyTitle: 'Todavía no agregaste insumos ni materiales.',
+    emptyText: 'Guardá los insumos y materiales que comprás seguido, con su tipo, y usalos en tus cotizaciones.',
   },
   {
     id: 'ubicaciones',
@@ -143,7 +144,6 @@ const LOCATION_TYPES = Object.freeze([
 ]);
 
 // Recursos no tienen tipo de servicio: la activación se nombra "intervención" (PLAN-2026-014).
-const BASIS_SUFFIX = Object.freeze({ per_month: '/mes', per_active_day: '/día de trabajo', per_activation: `/${activationTerms().one}` });
 const RESOURCE_LABELS = activationFieldLabels(activationTerms());
 
 /** Pestañas con vista Simple / Detallada (Ubicaciones ya es una tabla corta). */
@@ -315,26 +315,26 @@ function equipmentTrace(eq, c) {
 }
 
 function materialTrace(m, c) {
-  const basis = labelOf(MATERIAL_BASES, c.basis).toLowerCase();
+  const unit = String(m.unit || '').trim() || 'unidad';
   return createTrace({
     id: 'material_cost',
-    title: `Costo de material — ${m.description || 'material'}`,
-    formula: 'Costo = cantidad × costo unitario × (1 + merma %) × (1 + logística %) · Si lo provee el cliente, el costo para nosotros es 0 · Precio de reventa (informativo) = costo × (1 + markup de reventa %)',
+    title: `Costo de ${m.description || 'insumo o material'}`,
+    formula: `Costo por ${unit} = costo unitario × (1 + merma %) × (1 + flete %) · Si lo provee el cliente, el costo para nosotros es 0 · Cuánto se usa y cada cuánto se carga en cada cotización`,
     inputs: [
-      { label: 'Cantidad', value: c.quantity, format: 'number', unit: m.unit || '' },
+      { label: 'Tipo', value: materialTypeLabel(resourceMaterialType(m)), format: 'text' },
       { label: 'Costo unitario', value: c.unitCost, format: 'money' },
       { label: 'Merma', value: toNumber(m.wastePct), format: 'percent' },
-      { label: 'Logística', value: toNumber(m.logisticsPct), format: 'percent' },
+      { label: 'Flete hasta la obra', value: toNumber(m.logisticsPct), format: 'percent' },
       { label: 'Quién lo provee', value: labelOf(MATERIAL_PROVIDERS, m.providedBy, 'Sin definir'), format: 'text' },
     ],
-    steps: [
-      { label: 'Costo bruto', value: c.grossCost, format: 'money' },
-      { label: 'Markup de reventa (sobre costo)', value: toNumber(m.resaleMarkupPct), format: 'percent' },
-      { label: 'Precio de reventa (informativo)', value: c.resalePrice, format: 'money' },
-    ],
-    result: { label: `Costo para nosotros (${basis})`, value: c.costForUs, format: 'money' },
-    notes: ['El markup de reventa es sobre el costo y no es margen: sólo informa a cuánto se revende el material.'],
+    steps: [{ label: `Costo por ${unit} (con merma y flete)`, value: c.grossCost, format: 'money' }],
+    result: { label: `Costo para nosotros por ${unit}`, value: c.costForUs, format: 'money' },
   });
+}
+
+/** Costo por unidad de compra de un material de Recursos (sin cantidad ni base: son de cada cotización). */
+function materialUnitCost(m) {
+  return computeMaterialLine({ ...m, quantity: 1, basis: 'per_month', resaleMarkupPct: 0 });
 }
 
 // --------------------------------------------------------- externos (resumen)
@@ -697,7 +697,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
       fields: [
         { key: 'mealPerActiveDay', label: 'Vianda o comida por día de trabajo', rule: 'money', unit: '$', hint: 'Sólo si no está en el no remunerativo. Se suma por cada día que trabaja.' },
         { key: 'insuranceMonthly', label: 'Seguros', rule: 'money', unit: '$/mes' },
-        { key: 'ppeMonthly', label: 'Ropa y elementos de protección', rule: 'money', unit: '$/mes' },
+        { key: 'ppeMonthly', label: 'Ropa de trabajo y EPP básico (por persona)', rule: 'money', unit: '$/mes', hint: 'El EPP especial del trabajo va en cada cotización, en Insumos y materiales.' },
         { key: 'trainingMonthly', label: 'Capacitación', rule: 'money', unit: '$/mes' },
         { key: 'transferMonthly', label: 'Traslado', rule: 'money', unit: '$/mes' },
         ...baseFormFields('base').slice(1),
@@ -1244,34 +1244,67 @@ function newModel() {
 }
 
 function materialSections(settings = {}) {
+  // PLAN-2026-027 (P-03, P-04): el maestro guarda qué es, de qué tipo, en qué unidad se compra,
+  // cuánto cuesta y de qué mes es el valor. Cantidad, "cada cuánto" y markup van en la cotización.
+  const presets = [...MATERIAL_UNIT_PRESETS];
   return [
     {
-      title: 'Material',
+      title: 'Insumo o material',
+      cols: 2,
       fields: [
         { key: 'description', label: 'Descripción', kind: 'text', required: true, maxLength: 160 },
-        { key: 'unit', label: 'Unidad', kind: 'text', maxLength: 30, placeholder: 'unidad, kg, m³, kit…' },
-        { key: 'providedBy', label: '¿Quién lo provee?', kind: 'select', options: options(MATERIAL_PROVIDERS), includeEmpty: true, emptyLabel: 'Sin definir' },
+        {
+          key: 'component',
+          label: 'Tipo',
+          kind: 'select',
+          options: MATERIAL_TYPES.map((t) => ({ value: t.id, label: t.label })),
+          includeEmpty: true,
+          emptyLabel: 'Sin tipo (elegilo)',
+          rerender: true,
+          hint: (d) => (MATERIAL_TYPES.find((t) => t.id === d.component) || {}).hint || 'Se elige una vez acá y lo heredan las cotizaciones: material que queda en la obra, insumo o consumible, herramienta menor, EPP especial u otro gasto.',
+        },
+        {
+          key: 'unit',
+          label: 'Unidad',
+          kind: 'select',
+          options: (d) => [
+            ...presets.map((u) => ({ value: u, label: u })),
+            ...(d.unit && !presets.includes(d.unit) ? [{ value: d.unit, label: d.unit }] : []),
+          ],
+          includeEmpty: true,
+          emptyLabel: 'Otra…',
+          rerender: true,
+        },
+        { key: 'unit', label: 'Tu unidad', kind: 'text', maxLength: 30, placeholder: 'Ej.: bidón, rollo, kit', when: (d) => !d.unit || !presets.includes(d.unit) },
       ],
     },
     {
       title: 'Costo',
+      cols: 2,
       hint: VAT_HINT,
       fields: [
-        { key: 'unitCost', label: vatIsCost(settings) ? 'Costo unitario (con IVA)' : 'Costo unitario', rule: 'money', unit: '$' },
-        { key: 'quantity', label: 'Cantidad', rule: 'quantity' },
-        { key: 'basis', label: 'Base de cálculo', kind: 'select', options: options(MATERIAL_BASES) },
-        { key: 'wastePct', label: 'Merma', rule: 'percent', unit: '%' },
-        { key: 'logisticsPct', label: 'Logística (flete, manipuleo)', rule: 'percent', unit: '%' },
-        { key: 'resaleMarkupPct', label: 'Markup de reventa (sobre costo)', rule: 'percentOpen', unit: '%', hint: 'Sólo informativo. Es markup sobre costo, no margen.' },
+        { key: 'unitCost', label: vatIsCost(settings) ? 'Costo unitario (con IVA)' : 'Costo unitario', rule: 'money', unit: (d) => `$/${String(d.unit || '').trim() || 'unidad'}` },
       ],
     },
     { title: 'Base económica', hint: 'De qué mes y en qué moneda es el costo unitario.', fields: baseFormFields('base', { currency: true }) },
+    {
+      title: 'Más detalle (opcional)',
+      key: 'material-more',
+      collapsible: true,
+      summary: (d) => `Merma ${formatPercent(toNumber(d.wastePct, 0))} · flete ${formatPercent(toNumber(d.logisticsPct, 0))} · ${labelOf(MATERIAL_PROVIDERS, d.providedBy, 'quién lo provee sin definir').toLowerCase()}`,
+      openWhen: (d) => !d.providedBy,
+      fields: [
+        { key: 'wastePct', label: 'Merma', rule: 'percent', unit: '%', hint: 'Lo que se pierde o desperdicia.' },
+        { key: 'logisticsPct', label: 'Flete hasta la obra', rule: 'percent', unit: '%', hint: 'Flete y manipuleo, como % del costo.' },
+        { key: 'providedBy', label: '¿Quién lo provee?', kind: 'select', options: options(MATERIAL_PROVIDERS), includeEmpty: true, emptyLabel: 'Sin definir' },
+      ],
+    },
     { title: 'Marca', cols: 2, fields: [illustrativeField] },
   ];
 }
 
 function newMaterial() {
-  return { description: '', unit: 'unidad', unitCost: 0, quantity: 1, basis: 'per_month', wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'contractor', base: emptyBase({ currency: CURRENCY }), illustrative: false };
+  return { description: '', component: null, unit: 'unidad', unitCost: 0, wastePct: 0, logisticsPct: 0, providedBy: 'contractor', base: emptyBase({ currency: CURRENCY }), illustrative: false };
 }
 
 function locationSections() {
@@ -1610,16 +1643,16 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         break;
       case 'materials':
         openResourceForm(app, {
-          title: isNew ? 'Nuevo material' : `Editar material — ${item.description || ''}`,
+          title: isNew ? 'Nuevo insumo o material' : `Editar — ${item.description || ''}`,
           initial: isNew ? newMaterial() : item,
           sections: materialSections(data.settings),
           preview: (draft) => {
-            const c = computeMaterialLine(draft);
+            const c = materialUnitCost(draft);
+            const unit = String(draft.unit || '').trim() || 'unidad';
             return previewKpis(
               [
-                { label: `Costo para nosotros (${BASIS_SUFFIX[c.basis] || '/mes'})`, value: formatMoneyIn(c.costForUs, draft.base && draft.base.currency), emphasis: true },
-                { label: 'Costo bruto', value: formatMoneyIn(c.grossCost, draft.base && draft.base.currency) },
-                { label: 'Precio de reventa (informativo)', value: formatMoneyIn(c.resalePrice, draft.base && draft.base.currency) },
+                { label: `Costo por ${unit}`, value: formatMoneyIn(c.costForUs, draft.base && draft.base.currency), hint: c.costForUs === 0 && c.grossCost > 0 ? 'Lo provee el cliente: no es costo tuyo.' : 'Con merma y flete.', emphasis: true },
+                { label: 'Tipo', value: materialTypeLabel(resourceMaterialType(draft)) },
               ],
               materialTrace(draft, c),
             );
@@ -1926,40 +1959,35 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   }
 
   function materialsTable(detailed) {
-    const rows = list('materials').map((m) => ({ item: m, c: computeMaterialLine(m) }));
-    const costCell = ({ item, c }) => withTrace(h('span', { class: 'nowrap' }, h('strong', {}, formatMoneyIn(c.costForUs, item.base && item.base.currency)), h('span', { class: 'unit-suffix' }, ` ${BASIS_SUFFIX[c.basis] || ''}`)), materialTrace(item, c));
-    const actions = { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.description || 'material', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.description || 'material') }) };
+    const rows = list('materials').map((m) => ({ item: m, c: materialUnitCost(m) }));
+    const costCell = ({ item, c }) => withTrace(h('span', { class: 'nowrap' }, h('strong', {}, formatMoneyIn(c.costForUs, item.base && item.base.currency)), h('span', { class: 'unit-suffix' }, ` /${String(item.unit || '').trim() || 'unidad'}`)), materialTrace(item, c));
+    const typeCell = ({ item }) => (resourceMaterialType(item) ? materialTypeLabel(resourceMaterialType(item)) : badge('Sin tipo', 'orange'));
+    const actions = { key: 'actions', label: 'Acciones', align: 'right', render: ({ item }) => rowActions({ name: item.description || 'insumo o material', onEdit: () => openEditor(item), onDelete: () => removeResource(item, item.description || 'insumo o material') }) };
     if (!detailed) {
       return table({
-        caption: 'Materiales',
+        caption: 'Insumos y materiales',
         className: 'lib-table lib-table-simple table-cards',
         columns: [
-          { key: 'description', label: 'Material', render: ({ item }) => h('div', { class: 'cell-stack' }, nameCell(item.description, null, item.illustrative), baseTag(item.base)) },
+          { key: 'description', label: 'Insumo o material', render: ({ item }) => h('div', { class: 'cell-stack' }, nameCell(item.description, null, item.illustrative), baseTag(item.base)) },
+          { key: 'type', label: 'Tipo', render: typeCell },
           { key: 'provider', label: 'Quién lo provee', render: ({ item }) => (item.providedBy ? labelOf(MATERIAL_PROVIDERS, item.providedBy) : badge('Sin definir', 'orange')) },
-          { key: 'cost', label: 'Costo para nosotros', align: 'right', render: costCell },
+          { key: 'cost', label: 'Costo por unidad', align: 'right', render: costCell },
           actions,
         ],
         rows,
       });
     }
     return table({
-      caption: 'Materiales',
+      caption: 'Insumos y materiales',
       className: 'lib-table table-cards',
       columns: [
         { key: 'description', label: 'Descripción', render: ({ item }) => h('div', { class: 'cell-stack' }, nameCell(item.description, null, item.illustrative), baseTag(item.base)) },
-        {
-          key: 'unitCost',
-          label: 'Costo unitario × cantidad',
-          align: 'right',
-          render: ({ item }) =>
-            h('div', { class: 'cell-main cell-num' }, money(item.unitCost), h('span', { class: 'cell-sub nowrap' }, `× ${formatNumber(toNumber(item.quantity, NaN), { decimals: 2 })} ${item.unit || 'unidad'}`)),
-        },
-        { key: 'basis', label: 'Base', render: ({ item }) => labelOf(MATERIAL_BASES, item.basis, 'Por mes') },
+        { key: 'type', label: 'Tipo', render: typeCell },
+        { key: 'unitCost', label: 'Costo unitario', align: 'right', render: ({ item }) => h('div', { class: 'cell-main cell-num' }, money(item.unitCost), h('span', { class: 'cell-sub nowrap' }, `por ${item.unit || 'unidad'}`)) },
         { key: 'waste', label: 'Merma', align: 'right', render: ({ item }) => percent(toNumber(item.wastePct, 0)) },
-        { key: 'logistics', label: 'Logística', align: 'right', render: ({ item }) => percent(toNumber(item.logisticsPct, 0)) },
-        { key: 'markup', label: 'Markup reventa', align: 'right', render: ({ item }) => percent(toNumber(item.resaleMarkupPct, 0)) },
+        { key: 'logistics', label: 'Flete', align: 'right', render: ({ item }) => percent(toNumber(item.logisticsPct, 0)) },
         { key: 'provider', label: 'Quién provee', render: ({ item }) => (item.providedBy ? labelOf(MATERIAL_PROVIDERS, item.providedBy) : badge('Sin definir', 'orange')) },
-        { key: 'cost', label: 'Costo para nosotros', align: 'right', render: costCell },
+        { key: 'cost', label: 'Costo por unidad', align: 'right', render: costCell },
         actions,
       ],
       rows,
@@ -2056,7 +2084,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   const VIEW_HINTS = Object.freeze({
     laborProfiles: 'Suma convenio, remunerativo, no remunerativo, neto y factor de cargas',
     equipment: 'Suma posesión, operación, utilización y costo por hora',
-    materials: 'Suma costo unitario, base, merma, logística y markup de reventa',
+    materials: 'Suma tipo, costo unitario, merma, flete y quién lo provee',
   });
 
   /** Barra de la lista: cantidad y vista Simple / Detallada. */

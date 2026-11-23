@@ -14,6 +14,7 @@ import { isStepHidden } from '../../js/ui/views/quote-editor.js';
 import { displayCostRows, costRowLabel } from '../../js/ui/cost-breakdown.js';
 import { chosenResourceRows } from '../../js/ui/views/quote-steps/modality.js';
 import { contractWithComponents, modeForUnit } from '../../js/domain/contract.js';
+import { MATERIAL_TYPES, defaultMaterialBasis } from '../../js/domain/material-types.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { service, person, material, otherCost, owned, resetIds } from '../lab/lib/build.js';
 
@@ -28,23 +29,25 @@ function quoteWith(components, { unit = 'day', ...rest } = {}) {
 }
 
 describe('U1 · desmarcar una categoría con gastos cargados', () => {
-  test('EPP con un gasto: no se puede quitar y el aviso dice cuánto y dónde borrarlo', () => {
+  // PLAN-2026-027: se cuenta por bloque de "¿Qué incluye?" (los 5 tipos son un solo bloque).
+  test('Insumos y materiales con un gasto: no se puede desmarcar y el aviso dice cuánto y dónde borrarlo', () => {
     const q = quoteWith(['labor', 'ppe', 'tools']);
     q.materialsNotApplicable = false;
     q.materials = [material({ id: 'm1', description: 'Traje', quantity: 1, unitCost: 45_000, basis: 'per_month', component: 'ppe' })];
-    assert.equal(loadedFor(q, 'ppe', ['labor', 'tools']).count, 1);
-    assert.equal(loadedFor(q, 'tools', ['labor', 'ppe']).count, 0);
+    assert.equal(loadedFor(q, 'ppe', ['labor']).count, 1);
+    assert.equal(loadedFor(q, 'tools', ['labor']).count, 1, 'el bloque entero');
+    assert.equal(loadedFor(q, 'ppe', ['labor', 'tools']).count, 0, 'si queda un tipo marcado, el bloque sigue elegido');
     const r = computeQuote(q);
-    assert.equal(blockedRemovalText(q, 'ppe', ['labor', 'tools'], r).replace(/\s/g, ' '), 'EPP tiene 1 gasto cargado ($ 45.000 por mes): borralo en «Materiales» para quitar la categoría.');
-    assert.equal(blockedRemovalText(q, 'ppe', ['labor', 'tools']), 'EPP tiene 1 gasto cargado: borralo en «Materiales» para quitar la categoría.');
+    assert.equal(blockedRemovalText(q, 'ppe', ['labor'], r).replace(/\s/g, ' '), 'Insumos y materiales tiene 1 gasto cargado ($ 45.000 por mes): borralo en «Insumos y materiales» para desmarcarlo.');
+    assert.equal(blockedRemovalText(q, 'ppe', ['labor']), 'Insumos y materiales tiene 1 gasto cargado: borralo en «Insumos y materiales» para desmarcarlo.');
   });
 
-  test('Otros costos cuenta sus líneas por categoría; Personal, sus puestos', () => {
+  test('Insumos y materiales cuenta también los gastos cargados antes; Personal, sus puestos', () => {
     const q = quoteWith(['labor', 'other']);
     q.otherCosts = [otherCost({ id: 'o1', description: 'Permiso', amount: 30_000 }), otherCost({ id: 'o2', description: 'Laboratorio', amount: 1, category: 'external' })];
     q.labor = [person({ role: 'Técnico', positions: 1, basicMonthly: 1_000_000 }), person({ role: 'Ayudante', positions: 1, basicMonthly: 800_000 })];
     assert.equal(loadedFor(q, 'other').count, 2);
-    assert.match(blockedRemovalText(q, 'labor', ['other']), /^Personal tiene 2 puestos cargados: borralos en «Personal» para quitar la categoría\.$/);
+    assert.match(blockedRemovalText(q, 'labor', ['other']), /^Personal tiene 2 puestos cargados: borralos en «Personal» para desmarcarlo\.$/);
   });
 
   test('Vehículos / Equipos / Terceros: se bloquea sólo si no queda ninguno de los tres marcado', () => {
@@ -52,7 +55,7 @@ describe('U1 · desmarcar una categoría con gastos cargados', () => {
     q.equipment = [owned({ name: 'Camioneta' })];
     assert.equal(loadedFor(q, 'vehicle', ['labor', 'machinery']).count, 0);
     assert.equal(loadedFor(q, 'machinery', ['labor']).count, 1);
-    assert.match(blockedRemovalText(q, 'machinery', ['labor']), /^Equipos tiene 1 equipo cargado: borralo en «Equipos» para quitar la categoría\.$/);
+    assert.match(blockedRemovalText(q, 'machinery', ['labor']), /^Equipos y vehículos tiene 1 equipo cargado: borralo en «Equipos» para desmarcarlo\.$/);
   });
 
   test('la pantalla usa la regla antes de guardar (no destructiva)', () => {
@@ -109,9 +112,9 @@ describe('U7 · EECC según lo elegido', () => {
     assert.ok(displayCostRows(eecc({ fuel: 10 }), ['labor', 'vehicle']).some((r) => r.category === 'fuel'));
   });
 
-  test('el renglón de equipos se llama según lo elegido', () => {
-    assert.equal(costRowLabel('equipment', 'Equipos propios', ['vehicle']), 'Vehículos');
-    assert.equal(costRowLabel('equipment', 'Equipos propios', ['machinery', 'labor']), 'Equipos y maquinaria');
+  test('el renglón de equipos es siempre "Equipos y vehículos" (PLAN-2026-027: un solo bloque)', () => {
+    assert.equal(costRowLabel('equipment', 'Equipos propios', ['vehicle']), 'Equipos y vehículos');
+    assert.equal(costRowLabel('equipment', 'Equipos propios', ['machinery', 'labor']), 'Equipos y vehículos');
     assert.equal(costRowLabel('equipment', 'Equipos propios', ['vehicle', 'machinery']), 'Equipos y vehículos');
     assert.equal(costRowLabel('equipment', 'Equipos propios', null), 'Equipos y vehículos');
     assert.equal(costRowLabel('external', 'x', ['vehicle']), 'Servicios de terceros');
@@ -123,9 +126,12 @@ describe('U3 · ¿Cada cuánto se consume? en la unidad de cobro', () => {
   test('por cantidad: "Por diagnóstico" primero y elegido en las líneas nuevas; Herramientas: lo que gastás por mes', () => {
     const s = code('js/ui/views/quote-steps/materials.js');
     assert.match(s, /label: `Por \$\{unitInfo\.singular \|\| 'unidad'\}`/);
-    assert.match(s, /if \(byQuantityUnit && component !== 'tools'\) return 'per_output';/);
     assert.match(s, /const keepActivation = !withComponents \|\| byEventUnit \|\| used === 'per_activation';/);
-    assert.match(s, /tools: 'Lo que gastás por mes en reponerlas \(no el precio de compra entero\)\.'/);
+    // PLAN-2026-027: la base de una línea nueva sale de defaultMaterialBasis (unidad de cobro y tipo).
+    assert.match(s, /line\.basis = defaultMaterialBasis\(quote, lastBlankType\);/);
+    assert.equal(defaultMaterialBasis({ unit: 'custom', unitName: 'diagnóstico' }, 'supplies'), 'per_output');
+    assert.equal(defaultMaterialBasis({ unit: 'custom', unitName: 'diagnóstico' }, 'tools'), 'per_month');
+    assert.match(MATERIAL_TYPES.find((t) => t.id === 'tools').hint, /Lo que gastás en reponerlas \(no el precio de compra entero\)/);
   });
 
   test('"Por diagnóstico" calcula con lo que se hace por día (motor)', () => {
@@ -173,9 +179,10 @@ describe('U8–U12 · textos', () => {
     assert.match(code('js/ui/views/quotes-list.js'), /'Horario normal, cuánto esperás trabajar y si lleva horas extra\.'/);
   });
 
-  test('U12: resumen de Materiales con las categorías elegidas (sin "incluye otros costos de categoría Materiales")', () => {
+  test('U12: resumen de "Insumos y materiales" con un renglón por tipo con monto', () => {
     const s = code('js/ui/views/quote-steps/materials.js');
     assert.doesNotMatch(s, /\(incluye otros costos de categoría Materiales\)\.`/);
-    assert.match(s, /tools: 'herramientas', supplies: 'insumos', materials: 'materiales', ppe: 'EPP'/);
+    assert.match(s, /h\('span', \{\}, materialTypeShort\(id\)\)/);
+    assert.match(s, /label: 'Insumos y materiales',/);
   });
 });

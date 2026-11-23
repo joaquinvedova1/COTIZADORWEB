@@ -165,26 +165,26 @@ export function demoEquipment() {
 }
 
 export function demoMaterials() {
-  const m = (n, description, unit, unitCost, extra = {}) => ({
+  // PLAN-2026-027: el material de Recursos guarda su tipo y no guarda cantidad, base ni markup
+  // (cuánto se usa y cada cuánto son de cada cotización).
+  const m = (n, description, component, unit, unitCost, extra = {}) => ({
     ...meta(uid(n)),
     description,
+    component,
     unit,
     unitCost,
-    basis: 'per_month',
-    quantity: 1,
     wastePct: 0,
     logisticsPct: 0,
-    resaleMarkupPct: 0,
     providedBy: 'contractor',
     base: { ...DEMO_BASES.materials },
     illustrative: true,
     ...extra,
   });
   return [
-    m(5001, 'Eslingas, grilletes y elementos de izaje (reposición)', 'kit', 300000),
-    m(5002, 'Consumibles menores por llamado', 'kit', 50000, { basis: 'per_activation' }),
-    m(5003, 'Absorbentes y kit antiderrame', 'kit', 120000, { wastePct: 5 }),
-    m(5004, 'Electrodos y gases de soldadura', 'kg', 18000, { quantity: 10, basis: 'per_active_day', wastePct: 10 }),
+    m(5001, 'Eslingas, grilletes y elementos de izaje (reposición)', 'tools', 'kit', 300000),
+    m(5002, 'Consumibles menores por llamado', 'supplies', 'kit', 50000),
+    m(5003, 'Absorbentes y kit antiderrame', 'supplies', 'kit', 120000, { wastePct: 5 }),
+    m(5004, 'Electrodos y gases de soldadura', 'supplies', 'kg', 18000, { wastePct: 10 }),
   ];
 }
 

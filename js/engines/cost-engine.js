@@ -54,7 +54,8 @@ import { computeOvertimeWork, overtimeAllMonthlyAt } from './overtime-work-engin
 import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
-import { contractOf, LINE_COMPONENT_IDS, SERVICE_COMPONENTS } from '../domain/contract.js';
+import { contractOf, LINE_COMPONENT_IDS } from '../domain/contract.js';
+import { materialTypeShort } from '../domain/material-types.js';
 import { usesTimeBasis, resolveUnitHours, defaultEquipmentBillableHours } from '../domain/cost-basis.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 import { activationTerms } from '../domain/activation-terms.js';
@@ -1089,9 +1090,9 @@ export function componentCostSplitAt(model, activeDays) {
   return out;
 }
 
-/** Nombre de una categoría de gasto ("Insumos y consumibles"). */
+/** Nombre corto de un tipo de "Insumos y materiales" ("Insumos y consumibles", PLAN-2026-027). */
 function componentLabel(id) {
-  return (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label || id;
+  return materialTypeShort(id);
 }
 
 /**

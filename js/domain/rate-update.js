@@ -26,6 +26,16 @@
 
 import { isPlainObject, deepFreeze } from '../core/object.js';
 import { isValidPeriod, monthsBetween } from './economic-base.js';
+import { MATERIAL_TYPE_IDS, materialTypeShort } from './material-types.js';
+
+/** Qué entra en cada tipo de "Insumos y materiales", en la actualización de tarifas. */
+const RATE_UPDATE_TYPE_HINTS = Object.freeze({
+  tools: 'Herramientas menores y su reposición.',
+  supplies: 'Electrodos, discos, gas, filtros, químicos.',
+  materials: 'Lo que queda en la obra: caños, cables, pintura.',
+  ppe: 'Sólo el EPP especial del trabajo; la ropa y el EPP de cada persona van con Mano de obra.',
+  other: 'Permisos, seguros del trabajo, residuos, ingeniería.',
+});
 
 /**
  * Categorías estándar de la EECC que se actualizan. Son los renglones del Resultado; los
@@ -37,11 +47,9 @@ export const RATE_UPDATE_CATEGORIES = deepFreeze([
   { id: 'equipment', label: 'Equipos propios', hint: 'Reposición, mantenimiento y seguros de tus equipos y vehículos.', source: 'equipment' },
   { id: 'external', label: 'Equipos y servicios de terceros', hint: 'Lo que te aumentaron tus proveedores y subcontratistas.', source: 'external' },
   { id: 'fuel', label: 'Combustible', hint: 'Variación del precio del gasoil o la nafta.', source: 'fuel' },
-  { id: 'tools', label: 'Herramientas', hint: 'Herramientas menores y su reposición.', source: 'materials' },
-  { id: 'supplies', label: 'Insumos y consumibles', hint: 'Electrodos, discos, gas, filtros, químicos.', source: 'materials' },
-  { id: 'materials', label: 'Materiales', hint: 'Lo que queda en la obra: caños, cables, pintura.', source: 'materials' },
-  { id: 'ppe', label: 'EPP', hint: 'Ropa y elementos de protección personal.', source: 'materials' },
-  { id: 'other', label: 'Otros costos', hint: 'Permisos, seguros, residuos, ingeniería.', source: 'materials' },
+  // Los 5 tipos de "Insumos y materiales" salen del mismo catálogo (PLAN-2026-027): mismos ids y
+  // mismo orden de siempre (las fotos guardadas siguen valiendo).
+  ...MATERIAL_TYPE_IDS.map((id) => ({ id, label: materialTypeShort(id), hint: RATE_UPDATE_TYPE_HINTS[id], source: 'materials' })),
   { id: 'logistics', label: 'Logística y viáticos', hint: 'Traslados, desarraigo, hotel y comidas.', source: 'logistics' },
   { id: 'structure', label: 'Gastos de estructura', hint: 'Oficina, administración y otros gastos generales.', source: 'structure' },
 ]);

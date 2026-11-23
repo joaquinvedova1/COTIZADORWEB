@@ -64,7 +64,7 @@ describe('modo derivado de la unidad', () => {
 describe('categorías de gasto sin redundancias', () => {
   test('10 categorías: químicos y residuos ya no se ofrecen', () => {
     assert.deepEqual(SERVICE_COMPONENTS.map((c) => c.id), ['labor', 'vehicle', 'machinery', 'subcontract', 'tools', 'supplies', 'materials', 'ppe', 'travel', 'other']);
-    assert.deepEqual(SERVICE_COMPONENTS.map((c) => c.label), ['Personal', 'Vehículos', 'Equipos y maquinaria', 'Servicios de terceros', 'Herramientas', 'Insumos y consumibles', 'Materiales', 'EPP', 'Viáticos y alojamiento', 'Otros costos']);
+    assert.deepEqual(SERVICE_COMPONENTS.map((c) => c.label), ['Personal', 'Vehículos', 'Equipos y maquinaria', 'Servicios de terceros', 'Herramientas', 'Insumos y consumibles', 'Materiales', 'EPP especial', 'Viáticos y alojamiento', 'Otros gastos']);
     assert.match(SERVICE_COMPONENTS.find((c) => c.id === 'supplies').hint, /químicos/);
   });
 
@@ -113,7 +113,7 @@ describe('EECC: desglose del renglón Materiales por categoría', () => {
       assert.deepEqual(row.children.map((c) => c.component), ['tools', 'supplies', 'materials', 'ppe', 'other']);
       close(row.children.reduce((a, c) => a + c.amount, 0), row.amount, 'montos');
       close(row.children.reduce((a, c) => a + c.displayPct, 0), row.displayPct, '%');
-      assert.equal(row.children.find((c) => c.component === 'ppe').label, 'EPP');
+      assert.equal(row.children.find((c) => c.component === 'ppe').label, 'EPP especial');
       // El laboratorio va a "Equipos y servicios externos" (su categoría de la EECC), no a Materiales.
       const other = row.children.find((c) => c.component === 'other');
       const permits = componentCostAt(r.model, r.activity.activeDaysPerMonth, { category: 'materials' }).other.amount;

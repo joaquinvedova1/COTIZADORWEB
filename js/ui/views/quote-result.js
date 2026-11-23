@@ -96,7 +96,7 @@ import { priceComposition } from '../../engines/price-composition-engine.js';
 import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
 import { costBreakdown, costRowLabel, displayCostRows, OTHERS_KEY } from '../cost-breakdown.js';
-import { componentsOf, SERVICE_COMPONENTS } from '../../domain/contract.js';
+import { blocksOf, componentsOf, INCLUDE_BLOCKS } from '../../domain/contract.js';
 import { onSessionReset } from '../session-memory.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
 import {
@@ -4292,8 +4292,9 @@ function renderClientSheet(v, app) {
   } catch {
     company = '';
   }
-  const included = componentsOf(q.contract)
-    .map((id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label)
+  // "Incluye": los bloques de "¿Qué incluye?" (PLAN-2026-027), sin repetir.
+  const included = blocksOf(q.contract)
+    .map((id) => (INCLUDE_BLOCKS.find((b) => b.id === id) || {}).label)
     .filter(Boolean);
   const row = (label, value) => (value ? h('div', { class: 'qr-client-row' }, h('dt', {}, label), h('dd', {}, value)) : null);
   const offer = typeof q.offerDate === 'string' && q.offerDate ? formatDate(q.offerDate) : formatDate(new Date());

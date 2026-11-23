@@ -2359,7 +2359,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       { step: 'labor', label: stepName('labor'), n: count(q.labor) },
       { step: 'equipment', label: stepName('equipment'), n: count(q.equipment) },
       { step: 'materials', label: stepName('materials'), n: count(q.materials) },
-      { step: 'materials', label: 'Otros costos', n: count(q.otherCosts) },
+      { step: 'materials', label: 'Gastos cargados antes', n: count(q.otherCosts) },
       { step: 'logistics', label: 'Vehículos', n: count(q.logistics && q.logistics.vehicles) },
     ].filter((g) => g.n > 0);
     const isResult = stepId === 'result';

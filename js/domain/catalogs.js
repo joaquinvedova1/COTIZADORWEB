@@ -41,7 +41,8 @@ export const COST_CATEGORIES = deepFreeze([
   // Alquilados y tercerizados (PLAN-2026-005): costo externo, no un activo propio.
   { id: 'external', label: 'Equipos y servicios externos' },
   { id: 'fuel', label: 'Combustible' },
-  { id: 'materials', label: 'Materiales' },
+  // PLAN-2026-027: una sola lista "Insumos y materiales" (mismo id, mismo cálculo).
+  { id: 'materials', label: 'Insumos y materiales' },
   { id: 'logistics', label: 'Logística' },
   { id: 'structure', label: 'Gastos de estructura' },
   { id: 'financial', label: 'Financiero' },
@@ -197,7 +198,7 @@ export const QUOTE_MATERIAL_BASES = deepFreeze([
 ]);
 
 /** Unidades habituales de un material (PLAN-2026-010): sólo para mostrar y cargar; no cambian el cálculo. */
-export const MATERIAL_UNIT_PRESETS = deepFreeze(['unidad', 'L', 'kg', 'g', 't', 'm', 'm²', 'm³', 'paquete', 'bolsa', 'tambor', 'bidón', 'caja', 'rollo', 'par', 'juego', 'pallet', 'big bag', 'barril', 'm³ de gas', 'kWh']);
+export const MATERIAL_UNIT_PRESETS = deepFreeze(['unidad', 'global', 'L', 'kg', 'g', 't', 'm', 'm²', 'm³', 'paquete', 'bolsa', 'tambor', 'bidón', 'caja', 'rollo', 'par', 'juego', 'pallet', 'big bag', 'barril', 'm³ de gas', 'kWh']);
 
 export const INDIRECT_METHODS = deepFreeze([
   { id: 'percent_direct', label: '% sobre costo directo', uses: 'pct' },
@@ -303,7 +304,7 @@ export const PAY_GROUPS = deepFreeze([
   { id: 'salaries', label: 'Salarios y cargas' },
   { id: 'fuel', label: 'Combustible' },
   { id: 'suppliers', label: 'Proveedores (mantenimiento, repuestos, seguros, logística)' },
-  { id: 'materials', label: 'Materiales' },
+  { id: 'materials', label: 'Insumos y materiales' },
   { id: 'structure', label: 'Estructura y alquileres' },
 ]);
 
@@ -328,7 +329,7 @@ export const QUOTE_STEPS = deepFreeze([
   // Primero los recursos, después cómo se cobra (PLAN-2026-025): la tarifa sale de lo que cuestan.
   { id: 'labor', label: 'Personal' },
   { id: 'equipment', label: 'Equipos' },
-  { id: 'materials', label: 'Materiales' },
+  { id: 'materials', label: 'Insumos y materiales' },
   { id: 'logistics', label: 'Movilización y viajes' },
   { id: 'modality', label: 'Cómo se cobra' },
   { id: 'indirect', label: 'Gastos de estructura' },

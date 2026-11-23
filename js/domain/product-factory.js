@@ -91,7 +91,8 @@ export function normalizeProductShape(product = {}) {
 
 /** Ingrediente o material desde Recursos → Materiales (copia con snapshot). */
 export function productMaterialLine(mat = {}, { id = createId(), now = new Date().toISOString(), currency = CURRENCY } = {}) {
-  const base = materialLineFromLibrary(mat, { id, now, currency });
+  // Un producto no usa el tipo ni la base de una cotización (PLAN-2026-027, D5): no se heredan.
+  const { basis, component, ...base } = materialLineFromLibrary(mat, { id, now, currency });
   const unit = knownUnit(mat.unit);
   return {
     ...base,
