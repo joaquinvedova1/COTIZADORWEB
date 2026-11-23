@@ -1779,7 +1779,7 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
     return goButton(`Usar ${formatMoney(n.listRateWithMinimum)} como tarifa ofrecida`, () => onUseOfferedRate(n.listRateWithMinimum));
   };
   /**
-   * Horas del mes que la cotización no paga (0.22.0, elección del dueño "avisar y dejar elegir"):
+   * Horas del mes que la cotización no paga (0.23.0, elección del dueño "avisar y dejar elegir"):
    * un toque pone, en cada recurso del aviso, las horas que esta cotización le paga como las horas
    * que trabaja por mes. Su valor hora pasa a cubrir el mes entero. Sin cuentas acá: las horas
    * vienen del motor (`rows[].used`).
@@ -2386,7 +2386,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       { step: 'labor', label: stepName('labor'), n: count(q.labor) },
       { step: 'equipment', label: stepName('equipment'), n: count(q.equipment) },
       { step: 'materials', label: stepName('materials'), n: count(q.materials) },
-      { step: 'materials', label: 'Otros costos', n: count(q.otherCosts) },
+      { step: 'materials', label: 'Gastos cargados antes', n: count(q.otherCosts) },
       { step: 'logistics', label: 'Vehículos', n: count(q.logistics && q.logistics.vehicles) },
     ].filter((g) => g.n > 0);
     const isResult = stepId === 'result';

@@ -103,8 +103,8 @@ function laborTrace(result, index, source) {
     title: `Personal — ${line.role || 'Puesto'}`,
     formula: line.timeBasis
       // Por tiempo usado (2026-11-18): no hay fijo del mes; el puesto cuesta sus horas en el trabajo.
-      ? 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa y elementos de protección + Capacitación + Traslado · Valor de la hora = costo por mes por persona ÷ horas que le cobrás a clientes por mes (vacío = las normales) · Costo = personas × horas por día × días del trabajo × valor de la hora + vianda × días'
-      : 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa y elementos de protección + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × cantidad de personas · Variable por día de trabajo = (horas extra × valor hora extra × factor de cargas + vianda) × cantidad de personas',
+      ? 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa de trabajo y EPP básico + Capacitación + Traslado · Valor de la hora = costo por mes por persona ÷ horas que le cobrás a clientes por mes (vacío = las normales) · Costo = personas × horas por día × días del trabajo × valor de la hora + vianda × días'
+      : 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa de trabajo y EPP básico + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × cantidad de personas · Variable por día de trabajo = (horas extra × valor hora extra × factor de cargas + vianda) × cantidad de personas',
     inputs: [
       { label: 'Sueldo bruto', value: p.basic, format: 'money' },
       { label: 'Otros pagos fijos', value: p.additionals, format: 'money' },
@@ -734,7 +734,7 @@ export function render(container, ctx) {
           formGrid(
             3,
             kit.num(`${p}.insuranceMonthly`, { label: 'Seguros', rule: 'money', unit: '$/mes', illustrative }),
-            kit.num(`${p}.ppeMonthly`, { label: 'Ropa y elementos de protección', rule: 'money', unit: '$/mes', illustrative }),
+            kit.num(`${p}.ppeMonthly`, { label: 'Ropa de trabajo y EPP básico (por persona)', rule: 'money', unit: '$/mes', illustrative, hint: `El EPP especial del trabajo (trajes, respiradores, arneses) va en "${stepName('materials')}".` }),
             kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative }),
             // Pasajes de la persona (micro o avión de los relevos): no es el vehículo, que va en Equipos.
             kit.num(`${p}.transferMonthly`, { label: 'Pasajes o traslado de la persona', rule: 'money', unit: '$/mes', illustrative, hint: `Por persona y mes: micro, avión o reintegro. Si viaja en un vehículo de "${stepName('equipment')}", ya está ahí: dejalo en 0.` }),
@@ -889,7 +889,7 @@ export function render(container, ctx) {
       },
       hint: (r) => {
         const row = laborRow(r);
-        if (!anyStaff) return `Viene de otros costos con categoría Mano de obra (se cargan en "${stepName('materials')}").`;
+        if (!anyStaff) return `Viene de gastos cargados antes con «Suma en: Mano de obra» (se ven en "${stepName('materials')}").`;
         const standby = r.model.standby.monthly > 0 ? ` Incluye el personal en espera (standby): ${formatMoney(r.model.standby.monthly)} por mes.` : '';
         const headcount = r.model.labor.headcount;
         const positions = r.model.labor.positions;

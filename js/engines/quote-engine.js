@@ -604,7 +604,7 @@ export function computeQuote(quoteInput = {}, { settings = {}, listRateOverride 
   // Costos fijos del mes que absorbe el precio (tanda A 2026-11, A-15 a): informativo, nunca se aplica un % solo.
   const absorbed = fixedCostsAbsorbedNotice(quote, model, D);
   if (absorbed) completeness.notices.push(absorbed);
-  // Horas del mes de los recursos propios que esta cotización no paga (0.22.0): sólo avisa.
+  // Horas del mes de los recursos propios que esta cotización no paga (0.23.0): sólo avisa.
   const idle = idleCapacityNotice(quote, model, D);
   if (idle) completeness.notices.unshift(idle);
   // Mínimo en unidades por encima de la estimación con la sugerida (revisión de costos tanda B, B-3).

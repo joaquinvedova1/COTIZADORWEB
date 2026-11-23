@@ -27,7 +27,7 @@
 
 import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
-import { contractOf, contractUsesMaterials, travelNotNeeded } from '../domain/contract.js';
+import { contractOf, contractUsesMaterials, travelNotNeeded, componentsOf } from '../domain/contract.js';
 import { computeExtras } from './extras-engine.js';
 import { AVAILABILITY_WINDOW, EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
@@ -55,6 +55,9 @@ import { normalizePriceAdjustment, priceAdjustmentOf, contingencyPriceOverlap } 
 import { vatFinanceOf } from '../domain/vat-finance.js';
 
 const STATUS_WEIGHT = { ok: 1, warning: 0.5, missing: 0 };
+
+/** ¿Campo vacío? (null, undefined o texto en blanco: la cantidad de un material recién traído de Recursos). */
+const emptyValue = (v) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
 
 /** Pendientes que cambian el costo o el precio: se muestran como críticos (PLAN-2026-010 / 012). */
 const CRITICAL_RULES = Object.freeze(['equipment_cost', 'external_route', 'external_hours', 'currency', 'utilization', 'rate', 'margin', 'monthly_fee_overlap', 'external_unit_trips']);
@@ -682,24 +685,31 @@ export function evaluateCompleteness(quoteInput = {}) {
 
   // 8. Materiales y responsable
   if (quote.materialsNotApplicable) {
-    items.push(rule('materials', 'Materiales', 'materials', 1, 'ok', 'Marcado como "el servicio no usa materiales".'));
+    items.push(rule('materials', 'Insumos y materiales', 'materials', 1, 'ok', 'Marcado como "El servicio no usa insumos ni materiales".'));
   } else if (materials.length === 0 && contractUsesMaterials(quote.contract) === false) {
     // Tanda novatos 2026-11: si en "¿Qué incluye?" no se marcó ningún material, no hay nada que confirmar.
-    items.push(rule('materials', 'Materiales', 'materials', 1, 'ok', 'El servicio no incluye materiales (no se marcaron en "¿Qué incluye?").'));
+    // Una cotización guardada con sólo "Otro gasto" en sus componentes (PLAN-2026-027): mismo estado
+    // que antes, pero la casilla "Insumos y materiales" ahora se ve marcada.
+    const onlyOther = componentsOf(quote.contract).includes('other');
+    items.push(rule('materials', 'Insumos y materiales', 'materials', 1, 'ok', onlyOther
+      ? 'No hay insumos ni materiales cargados (en "¿Qué incluye?" sólo estaban los otros gastos).'
+      : 'El servicio no incluye insumos ni materiales (no se marcaron en "¿Qué incluye?").'));
   } else if (materials.length === 0) {
-    items.push(rule('materials', 'Materiales', 'materials', 1, 'warning', 'No hay materiales cargados: confirmá si el servicio no usa materiales.'));
+    items.push(rule('materials', 'Insumos y materiales', 'materials', 1, 'warning', 'No hay insumos ni materiales cargados: confirmá si el servicio no los usa.'));
   } else {
     const ok = materials.every((m) => Boolean(m.providedBy));
     // Un material que pagamos con precio y sin cantidad (o al revés) suma $ 0: se avisa (Test Lab, PLAN-2026-013).
     const paidByUs = (m) => MATERIAL_PROVIDERS.some((p) => p.id === m.providedBy && p.costForUs !== false);
-    const incomplete = materials.map((m, index) => ({ m, index })).find(({ m }) => paidByUs(m) && (nonNegative(m.unitCost) > 0) !== (nonNegative(m.quantity) > 0));
+    const isIncomplete = (m) => paidByUs(m) && (nonNegative(m.unitCost) > 0) !== (nonNegative(m.quantity) > 0);
+    const incomplete = materials.map((m, index) => ({ m, index })).find(({ m }) => isIncomplete(m));
+    const incompleteCount = materials.filter(isIncomplete).length;
     // Un material con cantidad y sin precio se nombra así (tanda novatos 2026-11): "Material sin precio".
     const label = !ok ? 'Responsable de materiales' : incomplete ? (nonNegative(incomplete.m.unitCost) > 0 ? 'Material sin cantidad' : 'Material sin precio') : 'Responsable de materiales';
     const item = rule('materials', label, 'materials', 2, !ok ? 'missing' : incomplete ? 'warning' : 'ok',
       !ok
         ? 'Hay materiales sin definir quién los provee (cliente, nosotros o tercero).'
         : incomplete
-          ? `"${(typeof incomplete.m.description === 'string' && incomplete.m.description.trim()) || 'Material'}" tiene ${nonNegative(incomplete.m.unitCost) > 0 ? 'precio pero cantidad 0' : 'cantidad pero precio 0'}: no suma costo. Completalo o quitá la línea.`
+          ? `"${(typeof incomplete.m.description === 'string' && incomplete.m.description.trim()) || 'Material'}"${incompleteCount > 1 ? ` (y ${incompleteCount - 1} más)` : ''} tiene ${nonNegative(incomplete.m.unitCost) > 0 ? (emptyValue(incomplete.m.quantity) ? 'precio y falta la cantidad' : 'precio pero cantidad 0') : 'cantidad pero precio 0'}: no suma costo. Completalo o quitá la línea.`
           : 'Todos los materiales tienen responsable.');
     if (ok && incomplete) {
       item.focus = `materials.${incomplete.index}.${nonNegative(incomplete.m.unitCost) > 0 ? 'quantity' : 'unitCost'}`;
@@ -757,7 +767,7 @@ export function evaluateCompleteness(quoteInput = {}) {
   } else if (travelNotNeeded(quote)) {
     // Revisión UX tanda novatos: sin "Viáticos y alojamiento" en "¿Qué incluye?" y sin nada que
     // viaje, la ruta vacía ya suma $ 0: la distancia no es un dato que falte.
-    items.push(rule('logistics', 'Viajes', 'logistics', 1, 'ok', 'El servicio no incluye viajes (no se marcó "Viáticos y alojamiento" en "¿Qué incluye?").'));
+    items.push(rule('logistics', 'Viajes', 'logistics', 1, 'ok', 'El servicio no incluye viajes (no se marcó "Viajes" en "¿Qué incluye?").'));
   } else {
     const moves = vehicles.some((v) => nonNegative(v.count) > 0)
       || equipment.some((e) => isPlainObject(e.mobilization) && ['self', 'transported', 'support'].includes(e.mobilization.mode))
@@ -1078,7 +1088,7 @@ export function evaluateCompleteness(quoteInput = {}) {
     if (transferLine && !logistics.notApplicable && vehicles.length > 0) hints.push({ focus: `labor.${labor.indexOf(transferLine)}.transferMonthly`, text: `"${roleOf(transferLine)}" tiene pasajes o traslado por mes y además hay vehículos por km en "Viajes": si es el que lleva al personal, el traslado del puesto se cuenta dos veces.` });
     const ppeLine = staffed.find((l) => nonNegative(l.ppeMonthly) > 0);
     const ppeMaterial = materials.find((m) => /\b(epp|proteccion personal|ropa de trabajo)\b/.test(normTxt(m.description)));
-    if (ppeLine && ppeMaterial) hints.push({ focus: `labor.${labor.indexOf(ppeLine)}.ppeMonthly`, text: `"${roleOf(ppeLine)}" tiene EPP por mes y en materiales está "${ppeMaterial.description}": si es el mismo EPP, cargalo en un solo lugar (el básico en el puesto, el especial en materiales).` });
+    if (ppeLine && ppeMaterial) hints.push({ focus: `labor.${labor.indexOf(ppeLine)}.ppeMonthly`, text: `"${roleOf(ppeLine)}" tiene EPP por mes y en materiales está "${ppeMaterial.description}": si es el mismo EPP, cargalo en un solo lugar (la ropa y el EPP básico en el puesto, el EPP especial en insumos y materiales).` });
     if (hints.length) {
       const item = rule('double_cost_hints', 'Mismo costo en dos lugares', 'labor', 1, 'warning', `Revisá: ${hints.map((x) => x.text).join(' ')}`);
       item.focus = hints[0].focus;
@@ -1408,10 +1418,31 @@ export function evaluateCompleteness(quoteInput = {}) {
       id: 'materials_ignored',
       step: 'materials',
       severity: 'info',
-      label: 'Materiales sin sumar',
-      message: `Marcaste "el servicio no usa materiales" y hay ${materials.length === 1 ? '1 material cargado' : `${materials.length} materiales cargados`}: no se suman al costo. Si los usás, desmarcá esa opción.`,
+      label: 'Insumos y materiales sin sumar',
+      message: `Marcaste "El servicio no usa insumos ni materiales" y hay ${materials.length === 1 ? '1 línea cargada' : `${materials.length} líneas cargadas`}: no se suman al costo. Si los usás, desmarcá esa opción.`,
       focus: 'materialsNotApplicable',
     });
+  }
+  // Un gasto cargado antes con "Va a: Gastos de estructura" y además estructura cargada (PLAN-2026-027,
+  // P-02): puede estar contado dos veces. Sólo informativo (no entra en el puntaje: ninguna
+  // cotización guardada cambia de estado).
+  {
+    const ind = isPlainObject(quote.indirect) ? quote.indirect : {};
+    const loaded = (it) => (['percent_direct', 'percent_labor'].includes(it.method || 'percent_direct') ? nonNegative(it.pct) > 0 : nonNegative(it.amount) > 0);
+    const structureLoaded = ind.mode === 'detailed' && Array.isArray(ind.items) ? ind.items.some((it) => isPlainObject(it) && loaded(it)) : loaded(ind);
+    const overlap = objectList(quote.otherCosts).map((o, index) => ({ o, index })).filter(({ o }) => o.category === 'structure' && nonNegative(o.amount) > 0);
+    if (structureLoaded && overlap.length) {
+      const name = (typeof overlap[0].o.description === 'string' && overlap[0].o.description.trim()) || 'Gasto';
+      notices.push({
+        id: 'other_cost_structure_overlap',
+        step: 'materials',
+        severity: 'info',
+        label: 'Gasto que puede estar contado dos veces',
+        message: `"${name}" suma en Gastos de estructura y además cargaste "Gastos de estructura": si ya está en tu porcentaje o en tus rubros, se cuenta dos veces. En ese caso, quitalo de "Gastos cargados antes".`,
+        focus: `otherCosts.${overlap[0].index}.amount`,
+        targets: overlap.map(({ o, index }) => ({ list: 'otherCosts', index, name: (typeof o.description === 'string' && o.description.trim()) || 'Gasto' })),
+      });
+    }
   }
   equipment.forEach((e, index) => {
     if (!isExt(e) && nonNegative(e.replacementValue) > 0 && !(nonNegative(e.capitalRatePctAnnual) > 0)) {
@@ -1607,7 +1638,7 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
 }
 
 /**
- * Horas del mes de los recursos propios que esta cotización NO paga (0.22.0, capacidad ociosa).
+ * Horas del mes de los recursos propios que esta cotización NO paga (0.23.0, capacidad ociosa).
  * Por tiempo usado cada recurso cuesta sus horas en el trabajo × su valor hora; el resto de su mes
  * lo tienen que pagar otros trabajos. Con poco trabajo estimado el precio queda muy por debajo del
  * costo real de quien sólo tiene este trabajo, y antes no se avisaba. No cambia ningún cálculo.

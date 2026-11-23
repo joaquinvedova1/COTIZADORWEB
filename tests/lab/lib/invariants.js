@@ -12,6 +12,8 @@ import { computeQuote } from '../../../js/engines/quote-engine.js';
 import { computeProduct } from '../../../js/engines/product-engine.js';
 import { priceComposition } from '../../../js/engines/price-composition-engine.js';
 import { findNonFinite } from './compare.js';
+import { otherCostToMaterialLine } from '../../../js/domain/quote-factory.js';
+import { rateUpdateAmounts } from '../../../js/engines/rate-update-engine.js';
 
 const TOL = (x) => Math.max(0.01, Math.abs(Number(x) || 0) * 1e-9);
 const clone = (x) => structuredClone(x);
@@ -422,6 +424,48 @@ export const QUOTE_INVARIANTS = [
         && r2.kpis.activeDays * 24 > Number(l.peoplePerPosition || 1) * Number(l.normalHoursPerMonth) + owHours + 1e-6 && !Array.isArray(l.overtime) && !(Number(l.overtimeHoursPerActiveDay) > 0));
       if (!needs) return notApplicable;
       return warned && Math.abs(after - before) <= TOL(before) ? ok('avisa, sin costo inventado') : fail(`aviso: ${warned}; personal ${before} → ${after}`);
+    },
+  },
+  {
+    // PLAN-2026-027: "Pasar a la lista" no cambia ningún número. Un gasto cargado antes que suma en
+    // "Insumos y materiales" y la misma plata como línea de la lista (tipo, cantidad 1, global)
+    // dan el mismo total, el mismo hijo de la estructura de costos, los mismos pesos de
+    // "Actualizar tarifa" y la misma financiación.
+    id: 'INV-32', title: 'Un gasto cargado antes con "Va a: Materiales" y la misma plata como línea de la lista suman lo mismo (total, hijo, pesos de tarifa y financiación)',
+    check(q) {
+      if (q.materialsNotApplicable === true) return notApplicable;
+      const fails = [];
+      for (const behavior of ['fixed_monthly', 'per_activation', 'per_active_day']) {
+        const q2 = clone(q);
+        q2.otherCosts = [...list(q2.otherCosts), { id: `inv-32-${behavior}`, description: 'Permiso (INV-32)', category: 'materials', component: 'other', behavior, amount: 123456 }];
+        const q3 = clone(q2);
+        const kept = [];
+        q3.otherCosts.forEach((o, k) => {
+          const line = otherCostToMaterialLine(o, q3, { id: `inv-32-line-${k}` });
+          if (line) q3.materials.push(line);
+          else kept.push(o);
+        });
+        q3.otherCosts = kept;
+        const a = run(q2);
+        const b = run(q3);
+        const child = (r, id) => {
+          const row = r.eecc.rows.find((x) => x.category === 'materials');
+          const c = row && Array.isArray(row.children) ? row.children.find((x) => x.component === id) : null;
+          return c ? c.amount : 0;
+        };
+        const ruA = rateUpdateAmounts(a.eecc);
+        const ruB = rateUpdateAmounts(b.eecc);
+        const same = (x, y) => Math.abs((x || 0) - (y || 0)) <= TOL(x);
+        const diffs = [
+          ['total', a.kpis.totalCost, b.kpis.totalCost],
+          ['hijo other', child(a, 'other'), child(b, 'other')],
+          ['financiero', a.kpis.financialCost, b.kpis.financialCost],
+          ['tarifa sugerida', a.kpis.targetListRate, b.kpis.targetListRate],
+          ...[...new Set([...Object.keys(ruA), ...Object.keys(ruB)])].map((k) => [`peso ${k}`, ruA[k], ruB[k]]),
+        ].filter(([, x, y]) => !(x === y || (num(x) !== null && num(y) !== null && same(x, y))));
+        if (diffs.length) fails.push(`${behavior}: ${diffs.map(([k, x, y]) => `${k} ${x} ≠ ${y}`).join('; ')}`);
+      }
+      return fails.length ? fail(fails.join(' | ')) : ok('mismos números');
     },
   },
 ];

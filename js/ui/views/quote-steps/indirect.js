@@ -103,7 +103,7 @@ function structureTrace(result) {
       inputs: s.items.map((it) => ({ label: `${it.label} (${labelOf(INDIRECT_METHODS, it.method).toLowerCase()})`, value: (INDIRECT_METHODS.find((m) => m.id === it.method) || {}).uses === 'pct' ? it.pct : it.amount, format: (INDIRECT_METHODS.find((m) => m.id === it.method) || {}).uses === 'pct' ? 'percent' : 'money' })),
       steps: s.items.map((it) => ({ label: `${it.label}: en el mes`, value: it.fixedMonthly * f + it.variablePerActiveDay * D, format: 'money' })),
       result: { label: 'Estructura absorbida en el mes', value: absorptionAtEstimate(result), format: 'money' },
-      notes: ['Los costos que cargaste como "Otros costos" con categoría Estructura también suman al rubro Gastos de estructura, pero no forman parte de la base de costos directos.'],
+      notes: ['Los gastos cargados antes con «Suma en: Gastos de estructura» (en "Insumos y materiales") también suman al rubro Gastos de estructura, pero no forman parte de la base de costos directos.'],
     });
   }
   const method = s.method;
@@ -135,7 +135,7 @@ function structureTrace(result) {
     ],
     result: { label: 'Estructura absorbida en el mes', value: absorptionAtEstimate(result), format: 'money' },
     notes: [
-      'Los costos que cargaste como "Otros costos" con categoría Estructura también suman al rubro Gastos de estructura, pero no forman parte de la base de costos directos.',
+      'Los gastos cargados antes con «Suma en: Gastos de estructura» (en "Insumos y materiales") también suman al rubro Gastos de estructura, pero no forman parte de la base de costos directos.',
     ],
   });
 }
@@ -347,7 +347,7 @@ export function render(container, ctx) {
         kit.stat('Rubro Gastos de estructura', (r) => {
           const row = rowOf(r, 'structure');
           return row ? `${formatMoney(row.amount)} · ${formatPercent(row.displayPct)}` : EMPTY;
-        }, { hint: 'Monto e incidencia sobre el costo total (incluye otros costos de categoría Estructura).' }),
+        }, { hint: 'Monto e incidencia sobre el costo total (incluye los gastos cargados antes con «Suma en: Gastos de estructura»).' }),
         kit.stat('Base del cálculo', (r) => {
           const base = baseOf(r);
           const m = r.model.structure.method;

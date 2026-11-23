@@ -13,7 +13,7 @@
  * (equipos). Un externo (alquilado / tercerizado) se paga por uso: se lista
  * sin %. Si lo comprometido supera el 100 % se avisa; nunca se bloquea.
  *
- * Por tiempo usado (0.22.0): la cotización paga horas, no un %. Su parte del mes del recurso
+ * Por tiempo usado (0.23.0): la cotización paga horas, no un %. Su parte del mes del recurso
  * son las horas que le ocupa con la actividad estimada ÷ las horas del mes del recurso
  * (`timeShareOf`). Sin actividad estimada no se puede saber: queda sin %.
  */
@@ -50,7 +50,7 @@ function estimatedDaysOf(quote) {
 }
 
 /**
- * Parte del mes de un recurso propio que ocupa una cotización por tiempo usado (0.22.0).
+ * Parte del mes de un recurso propio que ocupa una cotización por tiempo usado (0.23.0).
  * @returns {{ hoursPerMonth: number, monthHours: number, sharePct: number }|null} null = sin actividad estimada
  */
 export function timeShareOf(quote, line, kind) {

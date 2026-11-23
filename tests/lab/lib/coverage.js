@@ -13,6 +13,7 @@ import {
   MEASURE_UNITS, PRODUCT_MATERIAL_PER, PRODUCT_PRICE_MODES, SALE_UNIT_SUGGESTIONS, CURRENCIES, RISK_ITEMS,
 } from '../../../js/domain/catalogs.js';
 import { BILLING_UNITS } from '../../../js/domain/billing-units.js';
+import { MATERIAL_TYPE_IDS } from '../../../js/domain/material-types.js';
 import { LABOR_ASSIGNMENTS, EQUIPMENT_ASSIGNMENTS } from '../../../js/domain/assignment.js';
 
 const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
@@ -60,6 +61,8 @@ export function quoteFeatures(q) {
     list(q.materials).forEach((m) => {
       add('materialBasis', m.basis || 'per_month');
       add('materialProvider', m.providedBy);
+      // Tipo de "Insumos y materiales" (PLAN-2026-027): sin dato se lee como Materiales.
+      add('materialType', MATERIAL_TYPE_IDS.includes(m.component) ? m.component : 'materials');
       if (m.base && m.base.currency && m.base.currency !== (q.currency || 'ARS')) add('currency', m.base.currency);
     });
   }
@@ -143,7 +146,8 @@ export function coverageRequirements() {
     { dim: 'tiresMode', label: 'Neumáticos', kind: 'service', values: ids(TIRE_MODES) },
     { dim: 'materialBasis', label: 'Base de materiales', kind: 'service', values: ids(MATERIAL_BASES) },
     { dim: 'materialProvider', label: 'Quién provee los materiales', kind: 'service', values: ids(MATERIAL_PROVIDERS) },
-    { dim: 'otherBehavior', label: 'Otros costos', kind: 'service', values: ids(COST_BEHAVIORS) },
+    { dim: 'materialType', label: 'Tipos de insumos y materiales', kind: 'service', values: [...MATERIAL_TYPE_IDS] },
+    { dim: 'otherBehavior', label: 'Gastos cargados antes (otros costos)', kind: 'service', values: ids(COST_BEHAVIORS) },
     { dim: 'indirectMethod', label: 'Métodos de estructura', kind: 'service', values: ids(INDIRECT_METHODS) },
     { dim: 'indirect', label: 'Estructura desglosada', kind: 'service', values: ['detailed'] },
     { dim: 'billingTaxes', label: 'Impuestos sobre la facturación', kind: 'service', values: [...ids(BILLING_TAX_MODES), 'not_applicable', 'undefined'] },

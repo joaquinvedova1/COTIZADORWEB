@@ -32,6 +32,7 @@
 
 import { deepFreeze, isPlainObject } from '../core/object.js';
 import { BILLING_UNITS, BILLING_UNIT_IDS, billingUnitOf } from './billing-units.js';
+import { MATERIAL_TYPE_IDS } from './material-types.js';
 
 export const CONTRACT_MODES = deepFreeze([
   { id: 'monthly', label: 'Fijo mensual', hint: 'Monto fijo por mes, se trabaje o no.' },
@@ -59,7 +60,7 @@ export const CONTRACT_RESOURCES = deepFreeze([
  * no cambia, los componentes sólo ordenan qué se pide y qué se controla.
  *   equipment: true  → el servicio usa equipos o vehículos (se exige su costo).
  *   materials: true  → el servicio usa materiales (insumos, químicos, EPP…).
- * "Otros costos" y los componentes propios se cargan como otros costos directos.
+ * "Otros gastos" y los componentes propios se cargan en "Insumos y materiales" (PLAN-2026-027).
  */
 export const SERVICE_COMPONENTS = deepFreeze([
   { id: 'labor', label: 'Personal', hint: 'Operarios, técnicos, choferes, supervisión.', step: 'labor' },
@@ -69,9 +70,9 @@ export const SERVICE_COMPONENTS = deepFreeze([
   { id: 'tools', label: 'Herramientas', hint: 'Herramientas menores y su reposición.', step: 'materials', materials: true },
   { id: 'supplies', label: 'Insumos y consumibles', hint: 'Electrodos, discos, gas, filtros, químicos.', step: 'materials', materials: true },
   { id: 'materials', label: 'Materiales', hint: 'Lo que queda en la obra: caños, cables, pintura.', step: 'materials', materials: true },
-  { id: 'ppe', label: 'EPP', hint: 'El básico de cada persona va en su puesto; acá, el especial (trajes, respiradores, arneses).', step: 'materials', materials: true },
+  { id: 'ppe', label: 'EPP especial', hint: 'La ropa de trabajo y el EPP básico de cada persona van en su puesto; acá, el especial (trajes, respiradores, arneses).', step: 'materials', materials: true },
   { id: 'travel', label: 'Viáticos y alojamiento', hint: 'Desarraigo, hotel, comidas, peajes.', step: 'logistics' },
-  { id: 'other', label: 'Otros costos', hint: 'Permisos, seguros, disposición de residuos, ingeniería.', step: 'materials' },
+  { id: 'other', label: 'Otros gastos', hint: 'Permisos, seguros, disposición de residuos, ingeniería.', step: 'materials' },
 ]);
 
 /**
@@ -81,10 +82,11 @@ export const SERVICE_COMPONENTS = deepFreeze([
 export const LEGACY_COMPONENT_ALIASES = deepFreeze({ chemicals: 'supplies', waste: 'other' });
 
 /**
- * Categorías de gasto de una línea de Materiales u Otros costos (0.10.0): a qué componente de
- * "¿Qué incluye?" pertenece cada línea. Sin dato: un material va a `materials`; otro costo, a `other`.
+ * Tipos de una línea de "Insumos y materiales" (0.10.0; un solo catálogo desde PLAN-2026-027, en
+ * material-types.js): a qué componente de "¿Qué incluye?" pertenece cada línea. Sin dato: un
+ * material va a `materials`; un gasto cargado antes (otherCosts), a `other`.
  */
-export const LINE_COMPONENT_IDS = deepFreeze(['tools', 'supplies', 'materials', 'ppe', 'other']);
+export const LINE_COMPONENT_IDS = MATERIAL_TYPE_IDS;
 
 /** Componente de una línea de Materiales (`kind` 'material') u Otros costos (`kind` 'other'). */
 export function lineComponentOf(line, kind = 'material') {
@@ -95,6 +97,49 @@ export function lineComponentOf(line, kind = 'material') {
 
 export const SERVICE_COMPONENT_IDS = deepFreeze(SERVICE_COMPONENTS.map((c) => c.id));
 const EQUIPMENT_COMPONENTS = SERVICE_COMPONENTS.filter((c) => c.equipment).map((c) => c.id);
+
+/**
+ * "¿Qué incluye el servicio?" en 4 bloques (PLAN-2026-027, decisión D4): sólo presentación. En
+ * disco se siguen guardando los 10 ids de SERVICE_COMPONENTS (las cotizaciones guardadas no
+ * cambian); cada bloque agrupa los suyos y, al marcarlo, escribe `write`. Desmarcarlo quita
+ * todos sus ids. `step` es el paso donde se carga lo del bloque.
+ */
+export const INCLUDE_BLOCKS = deepFreeze([
+  { id: 'labor', label: 'Personal', hint: 'Operarios, técnicos, choferes, supervisión.', ids: ['labor'], write: 'labor', step: 'labor' },
+  { id: 'equipment', label: 'Equipos y vehículos', hint: 'Camioneta, camión, hidrogrúa, generador; propios, alquilados o de un tercero.', ids: ['vehicle', 'machinery', 'subcontract'], write: 'machinery', step: 'equipment' },
+  { id: 'materials', label: 'Insumos y materiales', hint: 'Insumos, materiales que quedan en la obra, herramientas menores, EPP especial y otros gastos del trabajo.', ids: [...MATERIAL_TYPE_IDS], write: 'materials', step: 'materials' },
+  { id: 'travel', label: 'Viajes', hint: 'Alojamiento, desarraigo y peajes (las comidas van en Personal).', ids: ['travel'], write: 'travel', step: 'logistics' },
+]);
+
+export const INCLUDE_BLOCK_IDS = deepFreeze(INCLUDE_BLOCKS.map((b) => b.id));
+
+/** Bloque de "¿Qué incluye?" al que pertenece un componente (o null). */
+export function blockOfComponent(componentId) {
+  const id = LEGACY_COMPONENT_ALIASES[componentId] || componentId;
+  return INCLUDE_BLOCKS.find((b) => b.ids.includes(id)) || null;
+}
+
+/** Bloques marcados de un contrato (los que tienen al menos uno de sus componentes), en orden. */
+export function blocksOf(contract) {
+  const list = componentsOf(contract);
+  return INCLUDE_BLOCKS.filter((b) => b.ids.some((id) => list.includes(id))).map((b) => b.id);
+}
+
+/**
+ * Componentes después de marcar (`on`) o desmarcar un bloque. Marcar no toca lo que ya había del
+ * bloque (si no había nada, agrega `write`); desmarcar quita todos sus componentes.
+ * @returns {string[]} componentes saneados, en el orden del catálogo
+ */
+export function withBlock(components, blockId, on) {
+  const block = INCLUDE_BLOCKS.find((b) => b.id === blockId);
+  const list = cleanComponents(Array.isArray(components) ? components : []) || [];
+  if (!block) return list;
+  if (on) {
+    if (block.ids.some((id) => list.includes(id))) return list;
+    return cleanComponents([...list, block.write]);
+  }
+  return list.filter((id) => !block.ids.includes(id));
+}
 
 /**
  * Plantillas rápidas: PUNTOS DE PARTIDA editables, nunca categorías (PLAN-2026-019, ampliadas
@@ -123,7 +168,7 @@ export const SERVICE_TEMPLATES = deepFreeze([
   { id: 'equipment_operator', group: 'equipment', label: 'Equipo con operador', hint: 'Equipo o maquinaria con su operador.', components: ['labor', 'machinery'], mode: 'on_demand', unit: 'hour', keywords: 'hidrogrua grua retro maquina' },
   { id: 'dry_rental', group: 'equipment', label: 'Equipo sin operador (alquiler)', hint: 'Sólo el equipo: lo opera el cliente.', components: ['machinery'], mode: 'on_demand', unit: 'day', keywords: 'alquiler seco' },
   { id: 'vehicle_driver', group: 'equipment', label: 'Vehículo con chofer', hint: 'Camión, colectivo o utilitario con su chofer.', components: ['labor', 'vehicle'], mode: 'on_demand', unit: 'trip', keywords: 'transporte camion colectivo flete' },
-  { id: 'integral', group: 'integral', label: 'Servicio integral (personal, equipos y consumibles)', hint: 'Personal, vehículo, equipo, insumos y EPP especial. Sumá otros costos (residuos, permisos) si hacen falta.', components: ['labor', 'vehicle', 'machinery', 'supplies', 'ppe'], keywords: 'integral completo limpieza industrial quimicos residuos mantenimiento edilicio' },
+  { id: 'integral', group: 'integral', label: 'Servicio integral (personal, equipos y consumibles)', hint: 'Personal, vehículo, equipo, insumos y EPP especial. Sumá otros gastos (residuos, permisos) en Insumos y materiales si hacen falta.', components: ['labor', 'vehicle', 'machinery', 'supplies', 'ppe'], keywords: 'integral completo limpieza industrial quimicos residuos mantenimiento edilicio' },
   { id: 'per_unit', group: 'result', label: 'Servicio por unidad ejecutada', hint: 'Mano de obra y materiales; se cobra por unidad terminada (después elegís: válvula, junta, metro…).', components: ['labor', 'tools', 'supplies', 'materials'], mode: 'on_demand', unit: 'unit', keywords: 'unidad ejecutada valvula junta metro pieza produccion edilicio' },
   { id: 'lump_sum', group: 'result', label: 'Precio global por un trabajo definido', hint: 'Todo el alcance de un trabajo u obra, en un solo precio.', components: ['labor', 'vehicle', 'tools', 'supplies', 'other'], mode: 'closed', unit: 'job', keywords: 'precio cerrado global obra llave en mano' },
   { id: 'third_party', group: 'third', label: 'Servicio de un tercero', hint: 'Subcontrato, alquiler o laboratorio de un proveedor.', components: ['subcontract'], keywords: 'subcontrato proveedor laboratorio' },

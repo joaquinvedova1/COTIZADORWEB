@@ -281,6 +281,9 @@ export function auditTerminology() {
   for (const hit of hardcodedActivationWords()) {
     findings.push(finding('UX-TERM-HARDCODED', 'P1', 'P1 UX', 'Texto con la activación escrita a mano', `${hit.file}: ${hit.text} — usar activationTerms (llamado / salida / intervención según la cotización) o agregarlo a ACTIVATION_WORDS_ALLOWED con su motivo.`, hit));
   }
+  for (const hit of retiredMaterialLabels()) {
+    findings.push(finding('UX-TERM-MATERIALS', 'P1', 'P1 UX', 'Rótulo retirado de "Insumos y materiales"', `${hit.file}: ${hit.text} — desde 0.22.0 la sección es "Insumos y materiales", los otros costos guardados son "Gastos cargados antes" y no hay "Va a" (o agregarlo a MATERIAL_LABELS_ALLOWED con su motivo).`, hit));
+  }
   for (const hit of jornadaWords()) {
     findings.push(finding('UX-TERM-JORNADA', 'P1', 'P1 UX', 'Texto que habla de "jornada" sin un dato de jornada diaria', `${hit.file}: ${hit.text} — el control de horas del personal es de cobertura mensual: "horas de cobertura" / "horas cargadas para este puesto".`, hit));
   }
@@ -342,6 +345,36 @@ export function hardcodedActivationWords() {
       if (Array.isArray(allowed) && allowed.some((a) => (a === 'on_call' ? false : a === lit))) continue;
       // service.js: el consejo del tipo on-call (y sólo ese) puede decir "llamado".
       if (rel === 'ui/views/quote-steps/service.js' && /contá cuántos días por mes esperás trabajar/.test(lit)) continue;
+      hits.push({ file: rel, text: lit.slice(0, 140) });
+    }
+  }
+  return hits;
+}
+
+/**
+ * Una sola lista "Insumos y materiales" (PLAN-2026-027, 0.22.0): ningún texto de la interfaz usa
+ * como rótulo, paso, renglón o pestaña "Materiales", "Otros costos" o "Va a", ni los cita entre
+ * comillas. Lo que siga diciéndolo tiene su motivo acá (archivo → textos exactos).
+ */
+const RETIRED_MATERIAL_LABEL = /^(Materiales|Otros costos|Va a:?)$/; // con mayúscula: "materiales" en minúscula es una ruta
+const RETIRED_MATERIAL_QUOTE = /["«](otros costos|va a:?)["»]/i;
+export const MATERIAL_LABELS_ALLOWED = Object.freeze({
+  // Portada pública: la cadena de entradas de un precio, no un paso de la cotización.
+  'ui/views/public/landing.js': ["'Materiales'"],
+  // Otro hilo (modalidad y alcance) trabaja este archivo: PLAN-2026-027, riesgo 7.
+  'ui/views/quote-steps/modality.js': ["'Materiales'"],
+});
+
+/** Literales de la interfaz (js/ui y catálogos) con un rótulo retirado de "Insumos y materiales". */
+export function retiredMaterialLabels() {
+  const hits = [];
+  for (const { rel, literals } of jsLiterals()) {
+    if (!rel.startsWith('ui/') && rel !== 'domain/catalogs.js') continue;
+    const allowed = MATERIAL_LABELS_ALLOWED[rel] || [];
+    for (const lit of literals) {
+      const inner = lit.slice(1, -1).trim();
+      if (!RETIRED_MATERIAL_LABEL.test(inner) && !RETIRED_MATERIAL_QUOTE.test(inner)) continue;
+      if (allowed.includes(lit)) continue;
       hits.push({ file: rel, text: lit.slice(0, 140) });
     }
   }

@@ -366,7 +366,8 @@ describe('CASO F — base económica: material con base antigua, valores sin bas
   test('un material con base de hace más de 6 meses se advierte', () => {
     const q = baseQuote();
     q.materialsNotApplicable = false;
-    q.materials.push(materialLineFromLibrary({ id: 'm', description: 'Absorbente', unitCost: 1000, providedBy: 'contractor', base: { period: '2025-12', currency: 'ARS', source: null, note: '' } }, { id: 'ml', now: OCT }));
+    // 0.22.0 (PLAN-2026-027): la línea de Recursos nace sin cantidad; se carga en la cotización.
+    q.materials.push({ ...materialLineFromLibrary({ id: 'm', description: 'Absorbente', unitCost: 1000, providedBy: 'contractor', base: { period: '2025-12', currency: 'ARS', source: null, note: '' } }, { id: 'ml', now: OCT }), quantity: 1 });
     const base = summarizeEconomicBase(q);
     assert.equal(base.offerPeriod, '2026-10');
     assert.equal(base.stale.length, 1);
@@ -598,6 +599,8 @@ describe('Revisión adversarial (§36): correcciones', () => {
     const usd = { period: '2026-10', currency: 'USD', source: null, note: '' };
     q.materials.push(materialLineFromLibrary({ id: 'm1', description: 'Químico', unitCost: 500, quantity: 1, providedBy: 'client', base: usd }, { id: 'l1', now: OCT }));
     q.materials.push(materialLineFromLibrary({ id: 'm2', description: 'Repuesto', unitCost: 0, quantity: 1, providedBy: 'contractor', base: usd }, { id: 'l2', now: OCT }));
+    // 0.22.0 (PLAN-2026-027): la cantidad del maestro ya no se copia; se carga en la cotización.
+    q.materials.forEach((m) => { m.quantity = 1; });
     const r = computeQuote(q, { settings });
     assert.equal(r.issues.filter((i) => /tipo de cambio/.test(i.message)).length, 0);
     const cur = r.completeness.items.find((i) => i.id === 'currency');
@@ -624,7 +627,8 @@ describe('Revisión adversarial (§36): avisos de Recursos y fecha de la oferta'
   test('sin fecha de la oferta no se usa la de creación: se avisa', () => {
     const q = baseQuote();
     q.materialsNotApplicable = false;
-    q.materials.push(materialLineFromLibrary({ id: 'm', description: 'Filtros', unitCost: 1000, providedBy: 'contractor', base: { period: '2025-01', currency: 'ARS', source: null, note: '' } }, { id: 'ml', now: OCT }));
+    // 0.22.0 (PLAN-2026-027): la línea de Recursos nace sin cantidad; se carga en la cotización.
+    q.materials.push({ ...materialLineFromLibrary({ id: 'm', description: 'Filtros', unitCost: 1000, providedBy: 'contractor', base: { period: '2025-01', currency: 'ARS', source: null, note: '' } }, { id: 'ml', now: OCT }), quantity: 1 });
     q.offerDate = null;
     const base = summarizeEconomicBase(q);
     assert.equal(base.offerPeriod, null);

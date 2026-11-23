@@ -108,7 +108,9 @@ const KEEP_ON_UPDATE = Object.freeze({
   laborProfiles: ['id', 'positions', 'peoplePerPosition', 'overtimeHoursPerActiveDay', 'overtime', 'overtimeBilled', 'overtime50HoursPerMonth', 'overtime100HoursPerMonth', 'people', 'minutesPerBatch', 'assignment', 'fixedCostSharePct', 'assignedHoursPerMonth', 'assignedHoursPerUnit', 'coverageHoursPerDay', 'payrollHeadcount', 'rotation'],
   equipment: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'minutesPerBatch', 'energyPerHour', 'fixedSharePct', 'shareMode', 'supplierPayDays', 'assignment', 'fixedCostSharePct', 'assignedHoursPerMonth', 'assignedHoursPerUnit', 'assignedHoursPerDay'],
   externalServices: ['id', 'quantity', 'hoursPerActiveDay', 'operatorLaborId', 'supplierPayDays'],
-  materials: ['id', 'quantity', 'basis', 'providedBy', 'per', 'useUnit', 'billedSeparately', 'usagePct', 'outputUnit', 'outputPerActiveDay'],
+  // component (PLAN-2026-027): el tipo elegido en la línea se conserva (antes se perdía al actualizar).
+  // resaleMarkupPct: el maestro ya no lo ofrece; una cotización que factura aparte conserva el suyo.
+  materials: ['id', 'quantity', 'basis', 'providedBy', 'per', 'useUnit', 'billedSeparately', 'usagePct', 'outputUnit', 'outputPerActiveDay', 'component', 'resaleMarkupPct'],
 });
 
 /**
@@ -127,6 +129,9 @@ export function applyResourceUpdate(listKey, line, resources = {}, { now = null,
     if (Object.hasOwn(line, k)) next[k] = deepClone(line[k]);
   });
   next.id = id;
+  // El tipo de la línea se conserva tal cual (PLAN-2026-027): una línea sin tipo se sigue leyendo
+  // como Materiales; la de un producto nunca lo usa.
+  if (status.type === 'materials' && !Object.hasOwn(line, 'component')) delete next.component;
   if (listKey === 'equipment' && isPlainObject(line.mobilization)) {
     // Cómo llega al servicio es una decisión de la cotización. Del legajo de
     // "Mis equipos" se toman el consumo y el desgaste en ruta; un servicio

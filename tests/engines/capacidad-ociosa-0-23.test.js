@@ -1,5 +1,5 @@
 /**
- * 0.22.0 (2026-11-23): horas del mes de los recursos propios que la cotización no paga.
+ * 0.23.0 (2026-11-23): horas del mes de los recursos propios que la cotización no paga.
  *  - Por tiempo usado, con poco trabajo estimado, el precio paga una parte chica del mes del
  *    recurso y antes no se avisaba (simulación E-01 de la beta). Ahora hay un aviso con el monto.
  *  - "Usado en" (Recursos) suma las horas de las cotizaciones por tiempo usado.

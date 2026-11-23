@@ -843,3 +843,8 @@
 .qe-rhythm-card .qe-question { margin-bottom: 14px; }
 .qe-rhythm-card .qe-question-title { font-size: var(--fs-lg); font-weight: 600; letter-spacing: 0; }
 .qe-rhythm-card .qe-keyline { margin-bottom: 12px; }
+
+/* 0.22.0: subtotales por tipo de Insumos y materiales */
+.qe-type-subtotals { list-style: none; margin: var(--sp-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.qe-type-subtotals li { display: flex; justify-content: space-between; gap: var(--sp-3); padding: 0.25rem 0; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.qe-type-subtotals li .mono { white-space: nowrap; }

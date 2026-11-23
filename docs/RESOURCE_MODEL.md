@@ -17,6 +17,13 @@ Plan: [PLAN-2026-005](../.agent/PLANS.md) (asignación y "Usado en": PLAN-2026-0
 | **Modelos propios** | `resources.equipmentModels` (privado de la organización) | Marca y modelo que usa la empresa. Sólo descriptivo, sin precios. |
 | **Mis equipos (unidad / legajo)** | `resources.equipment` | La unidad real: interno, dominio, modelo, obtención, valor, costos, base y movilidad. |
 
+### Insumos y materiales: el maestro no guarda uso (PLAN-2026-027, 0.22.0)
+
+- Un insumo o material de Recursos tiene **qué es, su tipo, su unidad, su costo unitario y su base** (más merma, flete y quién lo provee, opcionales). No tiene cantidad, frecuencia ni markup: el maestro no sabe en qué unidad se cobra cada cotización (un kit "1 por mes" agregado a una cotización por válvula se leía como 40 kits).
+- Al agregarlo a una cotización, la línea nace con la **cantidad vacía** (se pide con su nombre) y la base de la unidad en que se cobra (`defaultMaterialBasis`): por mes, por día u hora → "Por mes"; por cantidad (válvula, m³…) → "Por válvula" (herramientas y otros gastos → "Por mes"); precio cerrado o por evento → por trabajo / llamado.
+- **El tipo viaja con la línea** (`component`): se elige una vez en Recursos (Material que queda en la obra, Insumo o consumible, Herramienta menor, EPP especial, Otro gasto; `js/domain/material-types.js`). No entra en la huella económica: cambiarlo en Recursos no desactualiza una cotización, y "Actualizar en esta cotización" conserva el tipo, la cantidad y la base de la línea.
+- Los datos anteriores con cantidad, base o markup en el maestro los conservan sin uso; la migración v10 → v11 copia el tipo al maestro sólo si todas las cotizaciones y plantillas que lo usan coinciden (si no, queda "Sin tipo" y la tabla lo marca).
+
 ## 2. Base económica
 
 ```js

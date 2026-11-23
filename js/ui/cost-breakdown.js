@@ -9,7 +9,7 @@
  */
 
 import { isFiniteNumber, roundPercentagesToTotal } from '../core/money.js';
-import { SERVICE_COMPONENTS } from '../domain/contract.js';
+import { MATERIAL_TYPE_IDS } from '../domain/material-types.js';
 
 export const OTHERS_KEY = 'others';
 export const OTHERS_LABEL = 'Otros';
@@ -67,29 +67,25 @@ const RUBRO_LABELS = Object.freeze({
 });
 
 /**
- * Nombre visible de un renglón de la EECC. El de equipos propios sigue lo elegido en "¿Qué
- * incluye el servicio?" (revisión 0.10.0, U7): sólo vehículos → "Vehículos"; sólo equipos →
- * "Equipos y maquinaria"; los dos (o sin componentes) → "Equipos y vehículos".
+ * Nombre visible de un renglón de la EECC. Los equipos propios son siempre "Equipos y vehículos"
+ * (PLAN-2026-027: "¿Qué incluye?" tiene un solo bloque para los dos). `components` queda en la
+ * firma por compatibilidad.
  * @param {string} category  id del renglón (labor, equipment… o materials:tools)
  * @param {string} [fallback]  rótulo del motor
- * @param {string[]|null} [components]  componentes elegidos (null = cotización sin componentes)
+ * @param {string[]|null} [components]  componentes elegidos (sin uso desde 0.22.0)
  */
 export function costRowLabel(category, fallback = '', components = null) {
-  if (category === 'equipment' && Array.isArray(components)) {
-    const vehicle = components.includes('vehicle');
-    const machinery = components.includes('machinery');
-    if (vehicle && !machinery) return 'Vehículos';
-    if (machinery && !vehicle) return 'Equipos y maquinaria';
-  }
   return RUBRO_LABELS[category] || fallback || 'Otros';
 }
 /** Renglones que se muestran siempre (todas las cotizaciones pasan por esos pasos). */
 const ALWAYS_ROWS = Object.freeze(['structure', 'financial', 'contingency']);
 
 /**
- * Renglones de la estructura de costos POR CATEGORÍA ELEGIDA (0.10.0): el renglón Materiales se
- * reemplaza por su desglose del motor (`children`: herramientas, insumos, materiales, EPP, otros
- * costos) y no se muestran renglones en $ 0 de categorías no elegidas en "¿Qué incluye?".
+ * Renglones de la estructura de costos POR CATEGORÍA ELEGIDA (0.10.0): el renglón "Insumos y
+ * materiales" se reemplaza por su desglose del motor (`children`: herramientas, insumos,
+ * materiales, EPP especial, otros gastos), SÓLO los tipos con monto (PLAN-2026-027). Con el bloque
+ * "Insumos y materiales" elegido en "¿Qué incluye?" y nada con monto, queda un renglón
+ * "Insumos y materiales" en $ 0. No se muestran renglones en $ 0 de categorías no elegidas.
  * Presentación pura: los montos y los % vienen del motor (la suma de los hijos es el renglón).
  *
  * @param {{ rows?: object[] }|null} eecc  result.eecc
@@ -104,19 +100,14 @@ export function displayCostRows(eecc, components = null) {
   rows.forEach((row) => {
     // Inflación con precio fijo (K-01): sólo con monto.
     if (row.category === 'inflation' && !positive(row.amount)) return;
-    if (row.category === 'materials' && (Array.isArray(row.children) && row.children.length || chosen)) {
-      const children = Array.isArray(row.children) ? row.children : [];
-      const ids = ['tools', 'supplies', 'materials', 'ppe', 'other'];
-      ids.forEach((id) => {
-        const child = children.find((c) => c.component === id);
-        if (child) {
-          if (positive(child.amount) || !chosen || chosen.has(id)) out.push({ ...child, category: `materials:${id}`, parent: 'materials' });
-        } else if (chosen && chosen.has(id)) {
-          out.push({ category: `materials:${id}`, parent: 'materials', component: id, label: (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label || id, amount: 0, fixedMonthly: 0, variablePerActiveDay: 0, displayPct: 0 });
-        }
-      });
-      // Una parte de Materiales sin desglose (no debería pasar): se muestra como renglón propio.
-      if (!children.length && positive(row.amount)) out.push(row);
+    if (row.category === 'materials') {
+      const children = (Array.isArray(row.children) ? row.children : []).filter((c) => positive(c.amount));
+      children.forEach((child) => out.push({ ...child, category: `materials:${child.component}`, parent: 'materials' }));
+      if (children.length) return;
+      // Una parte sin desglose (no debería pasar), o el bloque elegido sin nada con monto: un renglón.
+      // Una cotización sin componentes lo muestra siempre, como antes.
+      const blockChosen = chosen && MATERIAL_TYPE_IDS.some((id) => chosen.has(id));
+      if (!chosen || blockChosen || positive(row.amount)) out.push(row);
       return;
     }
     if (!chosen || ALWAYS_ROWS.includes(row.category) || positive(row.amount)) {
