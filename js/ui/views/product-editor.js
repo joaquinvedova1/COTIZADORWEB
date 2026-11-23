@@ -824,7 +824,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
             kit.num(`${base}.normalHoursPerMonth`, { label: 'Horas normales por mes', rule: 'hours', unit: 'h', illustrative: ill('normalHoursPerMonth') }),
             kit.num(`${base}.sacPct`, { label: 'Aguinaldo (SAC)', rule: 'percent', unit: '%', illustrative: ill('sacPct') }),
             kit.num(`${base}.vacationPct`, { label: 'Vacaciones', rule: 'percent', unit: '%', illustrative: ill('vacationPct') }),
-            kit.num(`${base}.employerContributionsPct`, { label: 'Contribuciones patronales', rule: 'percent', unit: '%', illustrative: ill('employerContributionsPct') }),
+            kit.num(`${base}.employerContributionsPct`, { label: 'Contribuciones patronales', rule: 'percent', unit: '%', hint: 'Sólo sobre lo remunerativo (con aguinaldo y vacaciones): nunca sobre las sumas no remunerativas.', illustrative: ill('employerContributionsPct') }),
             kit.num(`${base}.artPct`, { label: 'ART', rule: 'percent', unit: '%', illustrative: ill('artPct') }),
             kit.num(`${base}.ppeMonthly`, { label: 'Ropa de trabajo por mes', unit: '$' }),
             kit.num(`${base}.insuranceMonthly`, { label: 'Seguro de vida u otros por mes', unit: '$' }),
@@ -1369,25 +1369,34 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         }),
         h('p', { class: 'footnote' }, 'Margen ≠ markup: el margen se mide sobre el precio y el markup sobre el costo. Los precios son sin IVA salvo donde se indica.'),
       ),
+      // 0.21.0 (auditoría beta R-01 / R-02): la tanda entera, con el empaque y lo que se cobra por ella
+      // ("¿cuánto valen 40 tortas?"), sin multiplicar a mano.
       card(
-        { title: 'Una tanda' },
+        { title: `Una tanda: ${num(r.sellablePerBatch)} ${units()}` },
         table({
           className: 'pe-table',
-          caption: 'Costos de una tanda',
+          caption: 'Costos y precio de una tanda',
           columns: [
             { key: 'label', label: 'Concepto' },
-            { key: 'value', label: 'Valor', align: 'right', render: (row) => h('span', { class: 'mono' }, row.value) },
+            { key: 'value', label: 'La tanda', align: 'right', render: (row) => h('span', { class: ['mono', row.strong ? 'pe-strong' : null] }, row.value) },
           ],
           rows: [
             { label: 'Unidades por tanda', value: num(r.unitsPerBatch) },
-            { label: 'Se pierde', value: pctText(r.lossPct) },
-            { label: `${units().charAt(0).toUpperCase()}${units().slice(1)} para vender`, value: num(r.sellablePerBatch) },
+            r.lossPct > 0 ? { label: 'Se pierde', value: pctText(r.lossPct) } : null,
+            r.lossPct > 0 ? { label: `${units().charAt(0).toUpperCase()}${units().slice(1)} para vender`, value: num(r.sellablePerBatch) } : null,
             { label: 'Ingredientes (receta)', value: unitMoney(r.perBatch.materials) },
+            r.perBatch.perUnitItems > 0 ? { label: 'Empaque y lo que va por unidad', value: unitMoney(r.perBatch.perUnitItems) } : null,
             { label: 'Personal', value: unitMoney(r.perBatch.labor) },
             { label: 'Uso de máquinas', value: unitMoney(r.perBatch.equipmentUse) },
-            { label: 'Costo variable de la tanda', value: unitMoney(r.perBatch.variable) },
-          ],
+            { label: 'Costo variable de la tanda', value: unitMoney(r.perBatch.variableTotal) },
+            { label: 'Costo completo (con gastos fijos)', value: unitMoney(r.perBatch.fullCost), strong: true },
+            pr.batch.price !== null ? { label: 'Precio de la tanda (sin IVA)', value: unitMoney(pr.batch.price), strong: true } : null,
+            pr.batch.priceWithVat !== null ? { label: 'Precio de la tanda con IVA', value: unitMoney(pr.batch.priceWithVat) } : null,
+            pr.batch.salesTaxes > 0 ? { label: `Impuestos sobre la venta (${pctText(pr.taxPct)})`, value: unitMoney(-pr.batch.salesTaxes) } : null,
+            pr.batch.gain !== null ? { label: 'Ganás con la tanda', value: unitMoney(pr.batch.gain) } : null,
+          ].filter(Boolean),
         }),
+        r.fixedMonthly > 0 && N > 0 ? h('p', { class: 'footnote' }, `Los gastos fijos de la tanda suponen que vendés ${num(N, 0)} ${units()} por mes. Si la tanda es un pedido extra, cada ${u} te cuesta menos que eso.`) : null,
       ),
       N > 0 && pr.suggestedPrice !== null
         ? card(

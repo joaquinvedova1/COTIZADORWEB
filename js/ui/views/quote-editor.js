@@ -54,7 +54,7 @@ import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js
 import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded, billingUnitPhrase } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
-import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitAmount, timeBasisWithoutFixed, deductedPct, marginLimitText } from '../result-text.js';
+import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitAmount, perBilledUnitSuffix, timeBasisWithoutFixed, deductedPct, marginLimitText } from '../result-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms, withoutSeparateCharges } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -1172,6 +1172,14 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
 
   /** Costo total en la unidad de cobro (lo del mes ÷ unidades a facturar), o null si no aplica. */
   const perUnitCost = (r) => perBilledUnitAmount(r, getQuote(), r.kpis.totalCost);
+  /** ¿La tarifa mínima es el mismo número que el costo en la unidad (sin impuestos sobre la facturación: a $ 1 por redondeo)? */
+  const sameAsUnitCost = (r) => {
+    // El mismo costo que muestra el resumen: en la unidad, del trabajo o del mes.
+    const unit = perUnitCost(r);
+    const cost = unit !== null ? unit : r.kpis.totalCost / (closedJobsPerMonth(r) || 1);
+    const floor = floorDisplay(r).value;
+    return isFiniteNumber(cost) && isFiniteNumber(floor) && Math.abs(Math.ceil(floor) - cost) <= 1;
+  };
   const main = h(
     'div',
     { class: 'qe-sum-list qe-sum-main' },
@@ -1201,7 +1209,8 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
         if (jobs !== null) return Math.abs(jobs - 1) < 1e-9 ? `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días de trabajo.` : `Lo del mes (${formatMoney(r.kpis.totalCost)}) ÷ ${formatNumber(jobs, { decimals: 2 })} trabajos.`;
         // M7: por hora, día o cantidad, también en la unidad que cotizás ("≈ $ X por hora").
         const approx = perUnitCost(r) !== null ? `${formatMoney(r.kpis.totalCost)} en el mes` : '';
-        return (approx ? `${approx}. ` : '') + (isQuantityUnit(r)
+        const floorToo = sameAsUnitCost(r) ? 'Es también tu tarifa mínima: cobrando menos, perdés. ' : '';
+        return floorToo + (approx ? `${approx}. ` : '') + (isQuantityUnit(r)
         ? `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`
         : `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`);
       },
@@ -1223,6 +1232,9 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
       },
       tone: (r) => (r.kpis.billingTaxesDefined || !isFiniteNumber(floorDisplay(r).value) ? null : 'orange'),
       trace: floorRateTrace,
+      // 0.21.0 (auditoría beta W-02): sin impuestos sobre la facturación la tarifa mínima ES el costo
+      // en la unidad (difería en $ 1 por el redondeo): se muestra un solo número.
+      hidden: (r) => sameAsUnitCost(r),
     }),
     item({
       key: 'breakEven',
