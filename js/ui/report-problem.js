@@ -126,7 +126,9 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
         relabel(expectedField, k.expected, k.expectedPlaceholder);
         refreshPreview();
       });
-      return h('label', { class: 'report-kind' }, input, h('span', {}, k.label));
+      return h('label', { class: 'report-kind', title: k.label }, input,
+        h('span', { class: 'report-kind-long' }, k.label),
+        h('span', { class: 'report-kind-short', 'aria-hidden': 'true' }, k.short));
     })));
 
   const auto = h('p', { class: 'report-auto' },

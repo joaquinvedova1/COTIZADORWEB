@@ -917,6 +917,7 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 .report-kind input { margin: 0; accent-color: var(--navy-900); }
 .report-kind:has(input:checked) { border-color: var(--navy-900); background: var(--navy-50); font-weight: 600; }
 .report-kind:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+.report-kind-short { display: none; }
 
 /* Admin › Reportes */
 .admin-reports { margin-bottom: 1.25rem; }
@@ -929,3 +930,10 @@ h3.page-intro-title { font-size: var(--fs-xl); }
 .admin-report-edit { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem; align-items: end; padding-top: 0.6rem; border-top: 1px dashed var(--line); }
 .admin-report-edit .field:has(textarea) { grid-column: 1 / -1; }
 .admin-report-edit .row { grid-column: 1 / -1; }
+@media (max-width: 560px) {
+  .report-kind-list { gap: 0.3rem; }
+  .report-kind { font-size: 0.85rem; padding: 0.3rem 0.6rem; min-height: 40px; gap: 0.3rem; }
+  .report-kind-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .report-kind-short { display: inline; }
+  .report-intro { font-size: 0.9rem; }
+}
