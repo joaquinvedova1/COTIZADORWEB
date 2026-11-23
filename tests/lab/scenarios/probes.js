@@ -12,7 +12,9 @@
  *   respond(q, r) → { how: 'derive'|'warn'|'critical'|'silent', evidence }
  */
 
-import { service, person, owned, external, material, vehicle } from '../lib/build.js';
+import { service, person, owned, external, material, vehicle, otherCost } from '../lib/build.js';
+import { materialLineFromLibrary } from '../../../js/domain/quote-factory.js';
+import { defaultMaterialBasis } from '../../../js/domain/material-types.js';
 import { cot0010Quote, cot0011Quote } from '../../fixtures/cot-0010.js';
 import { validateQuote } from '../../../js/core/validation.js';
 
@@ -238,6 +240,31 @@ export const PROBES = [
     respond: (q, r) => {
       const f = r.completeness.items.find((x) => x.id === 'fuel');
       return f && f.status === 'ok' && /^No aplica/.test(f.message) ? { how: 'derive', evidence: f.message } : { how: 'silent', evidence: f ? `${f.status}: ${f.message}` : 'sin regla de combustible' };
+    },
+  },
+  {
+    // PLAN-2026-027 (0.22.0): un gasto cargado antes que suma en Gastos de estructura, con % de estructura cargado.
+    id: 'PRB-22', dimension: 'A', title: 'Gasto cargado antes que suma en Gastos de estructura y además un % de estructura: aviso de que puede contarse dos veces',
+    expect: 'warn', onSilent: { severity: 'P2', category: 'P2 PRESENTATION' },
+    explain: 'El motor no cambia: suma las dos cosas. RATEOS avisa en "Gastos cargados antes" para que el usuario quite el gasto si ya está en su porcentaje.',
+    build: () => service({ id: 'prb-22', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 20 }, labor: [person()], otherCosts: [otherCost({ description: 'Alquiler de oficina', category: 'structure', amount: 300000 })], indirect: { method: 'percent_direct', pct: 12 } }),
+    respond: (q, r) => responseOf(q, r, { notices: ['other_cost_structure_overlap'] }),
+  },
+  {
+    // PLAN-2026-027 / P-03: el maestro de Recursos no trae cantidad ni base; la línea nace con la base de la unidad de cobro.
+    id: 'PRB-23', dimension: 'E', title: 'Material de Recursos agregado a una cotización por válvula: nace "por válvula" con la cantidad vacía y se pide con su nombre',
+    expect: 'warn', onSilent: { severity: 'P1', category: 'P1 COMPLETENESS' },
+    explain: 'Antes el material heredaba la cantidad y la base del maestro (un kit "por mes" se leía como 40 kits). Ahora la cantidad queda vacía y el pendiente lleva a la línea.',
+    build: () => {
+      const q = service({ id: 'prb-23', serviceType: 'per_unit', unit: 'piece', activity: { billableQuantityPerMonth: 40, unitsPerActiveDay: 2, daysPerActivation: 0.5, hoursPerActiveDay: 9 }, labor: [person()], materials: [] });
+      const line = materialLineFromLibrary({ id: 'mat-kit', description: 'Kit de juntas', unit: 'kit', unitCost: 15000, providedBy: 'contractor', component: 'supplies' }, { id: 'm-prb-23', now: '2026-10-16T00:00:00.000Z' });
+      q.materials = [{ ...line, basis: defaultMaterialBasis(q, line.component) }];
+      return q;
+    },
+    respond: (q, r) => {
+      const m = q.materials[0];
+      if (m.basis !== 'per_output' || m.quantity !== null) return { how: 'silent', evidence: `la línea nació ${m.basis} con cantidad ${m.quantity}` };
+      return responseOf(q, r, { messages: [/Kit de juntas/] });
     },
   },
 ];

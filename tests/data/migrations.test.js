@@ -11,6 +11,8 @@ import { CURRENT_SCHEMA_VERSION, RESOURCE_TYPES, validateState } from '../../js/
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { isUuid } from '../../js/core/ids.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
+import { rateUpdateAmounts } from '../../js/engines/rate-update-engine.js';
+import { cot0010Quote, cot0011Quote } from '../fixtures/cot-0010.js';
 
 const NOW = '2026-10-03T12:00:00.000Z';
 
@@ -730,5 +732,89 @@ describe('migrateState v9 → v10 (PLAN-2026-014)', () => {
       state.products[0].finance.payDays = 'x';
       assert.equal(validateState(state).ok, false);
     }
+  });
+});
+
+describe('migrateState v10 → v11 (PLAN-2026-027: tipo de los insumos y materiales de Recursos)', () => {
+  const NOW11 = '2026-11-23T00:00:00.000Z';
+  // Un v10 como lo guardaba 0.21.0: materiales de Recursos sin tipo y con cantidad y base.
+  const v10 = () => {
+    const s = { ...createDemoState(10), schemaVersion: 10 };
+    s.resources.materials = s.resources.materials.map((m) => {
+      const { component, ...rest } = m;
+      return { ...rest, basis: 'per_month', quantity: 3, resaleMarkupPct: 10 };
+    });
+    const [a, b, c] = s.resources.materials;
+    const line = (mat, component) => ({ id: `l-${mat.id}-${component}`, sourceId: mat.id, description: mat.description, unit: 'unidad', basis: 'per_month', quantity: 1, unitCost: 1000, wastePct: 0, logisticsPct: 0, resaleMarkupPct: 0, providedBy: 'contractor', ...(component ? { component } : {}), snapshot: null });
+    s.quotes = [
+      { ...s.quotes[0], materials: [line(a, 'tools'), line(b, 'supplies'), line(c, null)] },
+      { ...s.quotes[0], id: 'q-otra', materials: [line(a, 'tools'), { ...line(b, 'ppe'), sourceId: null, snapshot: { resourceId: b.id } }] },
+      ...s.quotes.slice(1),
+    ];
+    return s;
+  };
+
+  test('registrada como 10 → 11', () => {
+    assert.equal(MIGRATIONS[10], migrateV10ToV11);
+  });
+
+  test('tipo con uso único, "Sin tipo" con conflicto o sin uso; cotizaciones y servicios idénticos', () => {
+    const before = v10();
+    const frozen = JSON.stringify(before);
+    const out = migrateV10ToV11(before);
+    assert.equal(JSON.stringify(before), frozen, 'no muta la entrada');
+    assert.equal(out.schemaVersion, 11);
+    const [a, b, c] = out.resources.materials;
+    assert.equal(a.component, 'tools', 'uso único (dos cotizaciones, el mismo tipo)');
+    assert.equal(Object.hasOwn(b, 'component'), false, 'conflicto: supplies y ppe');
+    assert.equal(Object.hasOwn(c, 'component'), false, 'una línea sin tipo explícito no cuenta');
+    out.resources.materials.slice(3).forEach((m) => assert.equal(Object.hasOwn(m, 'component'), false, 'sin uso'));
+    // Conserva lo que el maestro ya no usa.
+    assert.equal(a.quantity, 3);
+    assert.equal(a.basis, 'per_month');
+    assert.equal(a.resaleMarkupPct, 10);
+    assert.equal(JSON.stringify(out.quotes), JSON.stringify(before.quotes), 'cotizaciones byte a byte');
+    assert.equal(JSON.stringify(out.services), JSON.stringify(before.services), 'servicios byte a byte');
+    assert.equal(validateState(out).ok, true);
+  });
+
+  test('un tipo ya elegido en Recursos no se pisa; idempotente', () => {
+    const s = v10();
+    s.resources.materials[1].component = 'materials';
+    const once = migrateV10ToV11(s);
+    assert.equal(once.resources.materials[1].component, 'materials');
+    const twice = migrateV10ToV11(once);
+    assert.deepEqual(twice, once);
+    const { state, applied } = migrateState(once);
+    assert.deepEqual(applied, []);
+    assert.deepEqual(state.resources, once.resources);
+  });
+
+  test('las plantillas de servicio también cuentan como uso', () => {
+    const s = v10();
+    const mat = s.resources.materials[3];
+    s.services = [{ id: 'srv-x', name: 'Plantilla', defaults: { materials: [{ id: 'lx', sourceId: mat.id, component: 'other', quantity: 1, unitCost: 1 }] } }];
+    assert.equal(migrateV10ToV11(s).resources.materials[3].component, 'other');
+  });
+
+  test('datos raros: no rompe', () => {
+    for (const bad of [null, undefined, 'x', 42, {}, { resources: { materials: [null, 'x', { id: 1 }] }, quotes: [null, { materials: 'x' }] }]) {
+      assert.equal(migrateV10ToV11(bad).schemaVersion, 11);
+    }
+  });
+
+  test('un backup v10 da el mismo computeQuote (total, EECC, hijos y tarifa) en la demo y en COT-0010', () => {
+    const s = v10();
+    s.quotes.push(cot0010Quote(), cot0011Quote());
+    const { state, applied } = migrateState(s, { now: NOW11 });
+    assert.deepEqual(applied, ['10→11']);
+    assert.equal(validateState(state).ok, true);
+    s.quotes.forEach((q, i) => {
+      const a = computeQuote(q);
+      const b = computeQuote(state.quotes[i]);
+      for (const k of ['totalCost', 'floorListRate', 'targetListRate', 'revenue', 'profit', 'financialCost', 'completenessPct']) assert.equal(b.kpis[k], a.kpis[k], `${q.code || q.name}: ${k}`);
+      assert.deepEqual(b.eecc.rows.map((r) => [r.category, r.amount, (r.children || []).map((c) => [c.component, c.amount])]), a.eecc.rows.map((r) => [r.category, r.amount, (r.children || []).map((c) => [c.component, c.amount])]));
+      assert.deepEqual(rateUpdateAmounts(b.eecc), rateUpdateAmounts(a.eecc));
+    });
   });
 });

@@ -27,7 +27,7 @@
 
 import { objectList } from '../core/object.js';
 import { nonNegative, toNumber } from '../core/money.js';
-import { contractOf, contractUsesMaterials, travelNotNeeded } from '../domain/contract.js';
+import { contractOf, contractUsesMaterials, travelNotNeeded, componentsOf } from '../domain/contract.js';
 import { computeExtras } from './extras-engine.js';
 import { AVAILABILITY_WINDOW, EQUIPMENT_SERVICE_TYPES, CONTINUOUS_SERVICE_TYPES, SERVICE_TYPES, PRICING_MODES, MATERIAL_PROVIDERS } from '../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../domain/billing-units.js';
@@ -688,7 +688,12 @@ export function evaluateCompleteness(quoteInput = {}) {
     items.push(rule('materials', 'Insumos y materiales', 'materials', 1, 'ok', 'Marcado como "El servicio no usa insumos ni materiales".'));
   } else if (materials.length === 0 && contractUsesMaterials(quote.contract) === false) {
     // Tanda novatos 2026-11: si en "¿Qué incluye?" no se marcó ningún material, no hay nada que confirmar.
-    items.push(rule('materials', 'Insumos y materiales', 'materials', 1, 'ok', 'El servicio no incluye insumos ni materiales (no se marcaron en "¿Qué incluye?").'));
+    // Una cotización guardada con sólo "Otro gasto" en sus componentes (PLAN-2026-027): mismo estado
+    // que antes, pero la casilla "Insumos y materiales" ahora se ve marcada.
+    const onlyOther = componentsOf(quote.contract).includes('other');
+    items.push(rule('materials', 'Insumos y materiales', 'materials', 1, 'ok', onlyOther
+      ? 'No hay insumos ni materiales cargados (en "¿Qué incluye?" sólo estaban los otros gastos).'
+      : 'El servicio no incluye insumos ni materiales (no se marcaron en "¿Qué incluye?").'));
   } else if (materials.length === 0) {
     items.push(rule('materials', 'Insumos y materiales', 'materials', 1, 'warning', 'No hay insumos ni materiales cargados: confirmá si el servicio no los usa.'));
   } else {
