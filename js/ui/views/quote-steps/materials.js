@@ -134,7 +134,7 @@ export function materialFormulaText(line, model, { activeDays = 0, activationsPe
   const jobs = jobsPerMonth !== null && jobsPerMonth > 0 ? jobsPerMonth : null;
   if (closed) {
     if (model.basis === 'per_activation') return `${head.slice(0, head.length - `/${per}`.length)} en el trabajo`;
-    if (jobs === null) return `${head} · cargá cuántos trabajos y de cuántos días en "${stepName('modality')}" para ver lo del trabajo`;
+    if (jobs === null) return `${head} · cargá cuántos trabajos y de cuántos días en "${stepName('service')}" para ver lo del trabajo`;
     const daysPerJob = activeDays / jobs;
     const daysText = `${formatNumber(daysPerJob, { decimals: 2 })} ${Math.abs(daysPerJob - 1) < 1e-9 ? 'día' : 'días'} de trabajo`;
     if (model.basis === 'per_active_day') return `${head} · ${daysText} = ${formatMoney(model.grossCost * daysPerJob)} en el trabajo`;
@@ -454,7 +454,7 @@ export function render(container, ctx) {
               outputPlural: outputPluralShownOf(quote.materials[i], quote),
               jobsPerMonth: closedJobsPerMonth(r),
               closed: isClosedPrice(r),
-              ...(auto ? { outputMissingText: `lo del mes sale cuando cargues cuántos ${outputPluralShownOf(quote.materials[i], quote)} hacés, en "${stepName('modality')}"` } : {}),
+              ...(auto ? { outputMissingText: `lo del mes sale cuando cargues cuántos ${outputPluralShownOf(quote.materials[i], quote)} hacés, en "${stepName('service')}"` } : {}),
             });
           },
           tone: (r) => (at(r) && !at(r).providedBy ? 'red' : null),

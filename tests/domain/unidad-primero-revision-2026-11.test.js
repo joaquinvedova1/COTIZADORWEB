@@ -58,7 +58,7 @@ describe('C1 · aviso de unidad sólo si el modo guardado no es el de la unidad'
     const q = withComponents(['labor'], { unit: 'day', mode: 'closed' });
     const issue = unitIssue(computeQuote(q));
     assert.ok(issue);
-    assert.match(issue.message, /elegí de nuevo la unidad en "Contrato"/);
+    assert.match(issue.message, /elegí de nuevo la unidad en "El servicio"/);
   });
 });
 
@@ -219,7 +219,7 @@ describe('U6 · de una unidad por cantidad a hora o día quedan los días de tra
     const notices = applyQuoteUnit(q, 'hour');
     assert.equal(q.unit, 'hour');
     close(q.activity.activeDaysPerMonth, 20);
-    assert.ok(notices.includes('Quedaron 20 días de trabajo por mes; revisalo en «Cómo se cobra».'), notices.join(' | '));
+    assert.ok(notices.includes('Quedaron 20 días de trabajo por mes; revisalo acá abajo.'), notices.join(' | '));
     const r = computeQuote(q);
     close(r.activity.activeDaysPerMonth, 20);
     assert.ok(r.kpis.totalCost > 0);
@@ -235,6 +235,6 @@ describe('U6 · de una unidad por cantidad a hora o día quedan los días de tra
   test('sin cantidad cargada: el aviso dice qué cargar', () => {
     const q = withComponents(['labor'], { unit: 'trip', activity: { billableQuantityPerMonth: null, unitsPerActiveDay: null, activeDaysPerMonth: null } });
     const notices = applyQuoteUnit(q, 'hour');
-    assert.ok(notices.includes('Cargá cuántos días de trabajo por mes y cuántas horas por día en «Cómo se cobra».'), notices.join(' | '));
+    assert.ok(notices.includes('Cargá cuántos días de trabajo por mes y cuántas horas por día, acá abajo.'), notices.join(' | '));
   });
 });

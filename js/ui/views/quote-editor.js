@@ -54,7 +54,7 @@ import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js
 import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded, billingUnitPhrase } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
-import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitSuffix, timeBasisWithoutFixed, deductedPct, marginLimitText } from '../result-text.js';
+import { breakEvenZeroText, unreliableText, closedJobsPerMonth, perBilledUnitAmount, timeBasisWithoutFixed, deductedPct, marginLimitText } from '../result-text.js';
 import { stepOfPath, fieldFromHash, fieldHref } from '../field-links.js';
 import { defaultVolumeTiers, illustrativeInfo, createMobilization, createExternalTerms, withoutSeparateCharges } from '../../domain/quote-factory.js';
 import { emptyBillingTaxes } from '../../domain/billing-taxes.js';
@@ -270,7 +270,7 @@ export { stepOfPath, fieldFromHash, fieldHref };
  */
 export function stepOfItem(item) {
   if (!item) return 'service';
-  if (item.id === 'utilization') return 'modality';
+  if (item.id === 'utilization') return 'service';
   return QUOTE_STEPS.some((s) => s.id === item.step) ? item.step : 'service';
 }
 
@@ -1170,6 +1170,8 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
     return el;
   };
 
+  /** Costo total en la unidad de cobro (lo del mes ÷ unidades a facturar), o null si no aplica. */
+  const perUnitCost = (r) => perBilledUnitAmount(r, getQuote(), r.kpis.totalCost);
   const main = h(
     'div',
     { class: 'qe-sum-list qe-sum-main' },
@@ -1188,15 +1190,17 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
     item({
       key: 'totalCost',
       // Precio cerrado (Joaco 2026-11-18): lo del trabajo (lo del mes ÷ trabajos por mes), como las tarjetas.
-      label: (r) => (closedJobsPerMonth(r) !== null ? 'Costo del trabajo' : 'Costo del mes'),
-      short: (r) => (closedJobsPerMonth(r) !== null ? 'Costo del trabajo' : 'Costo del mes'),
-      value: (r) => formatMoney(r.kpis.totalCost / (closedJobsPerMonth(r) || 1)),
-      compact: (r) => formatMoneyCompact(r.kpis.totalCost / (closedJobsPerMonth(r) || 1)),
+      // 0.20.0: por hora, día o unidad, el costo se lee primero en la unidad de cobro; el mes va en la ayuda.
+      label: (r) => (closedJobsPerMonth(r) !== null ? 'Costo del trabajo' : perUnitCost(r) !== null ? 'Costo' : 'Costo del mes'),
+      short: (r) => (closedJobsPerMonth(r) !== null ? 'Costo del trabajo' : perUnitCost(r) !== null ? 'Costo' : 'Costo del mes'),
+      value: (r) => formatMoney(perUnitCost(r) !== null ? perUnitCost(r) : r.kpis.totalCost / (closedJobsPerMonth(r) || 1)),
+      unit: (r) => (perUnitCost(r) !== null ? `/ ${unitShort(r)}` : ''),
+      compact: (r) => formatMoneyCompact(perUnitCost(r) !== null ? perUnitCost(r) : r.kpis.totalCost / (closedJobsPerMonth(r) || 1)),
       hint: (r) => {
         const jobs = closedJobsPerMonth(r);
         if (jobs !== null) return Math.abs(jobs - 1) < 1e-9 ? `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días de trabajo.` : `Lo del mes (${formatMoney(r.kpis.totalCost)}) ÷ ${formatNumber(jobs, { decimals: 2 })} trabajos.`;
         // M7: por hora, día o cantidad, también en la unidad que cotizás ("≈ $ X por hora").
-        const approx = perBilledUnitSuffix(r, getQuote(), r.kpis.totalCost).replace(/^ · /, '');
+        const approx = perUnitCost(r) !== null ? `${formatMoney(r.kpis.totalCost)} en el mes` : '';
         return (approx ? `${approx}. ` : '') + (isQuantityUnit(r)
         ? `Con ${quantityText(r.kpis.billableQuantity, r)} por mes: ${workDaysText(r.kpis.activeDays, { decimals: 2 })} de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`
         : `Con ${formatNumber(r.kpis.activeDays, { decimals: 2 })} días trabajados de ${formatNumber(r.activity.availableDaysPerMonth, { decimals: 2 })} disponibles.`);

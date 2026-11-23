@@ -32,13 +32,16 @@ export function fieldHref(quoteId, path) {
   return field ? `${base}?campo=${encodeURIComponent(field)}` : base;
 }
 
+const GUARD_FIELDS = new Set(['availability', 'availabilityHoursPerDay', 'availabilityWindow', 'guardType']);
+
 /** Paso del flujo en el que vive un campo (ruta de validateQuote). */
 export function stepOfPath(path) {
   const p = String(path || '');
   const head = p.split('.')[0];
   if (p === 'pricing.knownRate') return 'modality';
+  // 0.20.0: el ritmo de trabajo se carga en el paso 1, con la unidad; la guardia, en "Cómo se cobra".
+  if (head === 'activity') return GUARD_FIELDS.has(p.split('.')[1]) ? 'modality' : 'service';
   switch (head) {
-    case 'activity':
     case 'pricingMode':
     case 'unit':
     // Adicionales y horas fuera de horario se cargan en "Cómo se cobra" (V-09).

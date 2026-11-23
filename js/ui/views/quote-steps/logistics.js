@@ -35,7 +35,7 @@ import { baseText } from '../../economic-base-ui.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { transportOf, providerActivityList, routeText, tripsText } from './transport.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
-import { closedJobsPerMonth, quoteUnitPlace, perBilledUnitSuffix } from '../../result-text.js';
+import { closedJobsPerMonth, unitAmountText, costPlaceLabel } from '../../result-text.js';
 
 /**
  * Texto que va EN LUGAR del campo "Consumo en ruta" de un equipo que llega por
@@ -296,7 +296,7 @@ export function mobilizationEditor(ctx, i, { withHead = false } = {}) {
             if (!eq || !(eq.variablePerActiveDay > 0)) return '';
             const liters = eq.fuelLitersPerActiveDay > 0 ? `${formatValue(eq.fuelLitersPerActiveDay, 'liters')} de combustible y ` : '';
             // 0.19.0: por tiempo usado el valor hora cubre las horas asignadas; acá va sólo el viaje.
-            if (eq.timeBasis) return 'Acá va sólo el traslado: combustible y desgaste por km. Si el equipo queda ocupado mientras viaja, sumá esas horas a las asignadas.';
+            if (eq.timeBasis) return 'Acá va sólo el traslado: combustible y desgaste por km.';
             return `Además, trabajando en la locación suma ${liters}${formatMoney(eq.variablePerActiveDay)} por día (${formatNumber(eq.hoursPerActiveDay, { decimals: 2 })} h de uso × combustible, mantenimiento y neumáticos por hora). Si sólo lleva gente o carga y queda parado, poné 0 en las horas de uso (trabajando en la locación).`;
           }, { tag: 'p', className: 'qe-warn', allowEmpty: true }), (r) => {
             const eq = r.model.equipment && r.model.equipment[i];
@@ -613,7 +613,7 @@ export function render(container, ctx) {
             kit.out((r) => {
               const t = transportOf(r);
               if (!t || !t.byCapacity) return '';
-              return `Se calcula solo: ${formatNumber(t.unitsPerTripActivation, { decimals: 2 })} ${T.per} ÷ ${formatNumber(t.capacityPerTrip, { decimals: 2 })} por viaje, redondeado hacia arriba (capacidad en "${stepName('modality')}").`;
+              return `Se calcula solo: ${formatNumber(t.unitsPerTripActivation, { decimals: 2 })} ${T.per} ÷ ${formatNumber(t.capacityPerTrip, { decimals: 2 })} por viaje, redondeado hacia arriba (capacidad en "${stepName('service')}").`;
             }, { tag: 'div', className: 'field-hint', allowEmpty: true }))
           : tripUnit
           ? h('div', { class: 'field' },
@@ -625,7 +625,7 @@ export function render(container, ctx) {
             kit.out((r) => {
               const t = transportOf(r);
               if (!t) return '';
-              return `Se calcula solo: ${formatNumber(t.tripsPerActiveDay || 0, { decimals: 2 })} viajes por día × ${formatNumber(t.daysPerActivation, { decimals: 2 })} ${t.daysPerActivation === 1 ? 'día' : 'días'} ${T.per} (en "${stepName('modality')}"). Con la unidad "viaje" los km del mes salen de los viajes que facturás.`;
+              return `Se calcula solo: ${formatNumber(t.tripsPerActiveDay || 0, { decimals: 2 })} viajes por día × ${formatNumber(t.daysPerActivation, { decimals: 2 })} ${t.daysPerActivation === 1 ? 'día' : 'días'} ${T.per} (en "${stepName('service')}"). Con la unidad "viaje" los km del mes salen de los viajes que facturás.`;
             }, { tag: 'div', className: 'field-hint', allowEmpty: true }))
           : kit.num('logistics.tripsPerActivation', {
             label: L.tripsPerActivation,
@@ -766,10 +766,10 @@ export function render(container, ctx) {
     ? null
     : kit.keyline({
       // Precio cerrado con un trabajo por mes: la cifra es la del trabajo (revisión UX tanda novatos).
-      label: (r) => `Movilización y viajes en el costo del ${quoteUnitPlace(r)}`,
+      label: (r) => costPlaceLabel(r, quote, 'Movilización y viajes'),
       value: (r) => {
         const jobs = closedJobsPerMonth(r);
-        return jobs !== null ? formatMoney(r.kpis.logisticsMonthly / jobs) : `${formatMoney(r.kpis.logisticsMonthly)}${perBilledUnitSuffix(r, quote, r.kpis.logisticsMonthly)}`;
+        return jobs !== null ? formatMoney(r.kpis.logisticsMonthly / jobs) : unitAmountText(r, quote, r.kpis.logisticsMonthly);
       },
       hint: (r) => {
         const share = isFiniteNumber(r.kpis.logisticsIncidencePct) ? `${formatPercent(r.kpis.logisticsIncidencePct)} del costo total · ` : '';

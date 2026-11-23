@@ -121,13 +121,12 @@ export function applyQuoteUnit(q, nextUnit) {
     if (jobs === null || jobs === undefined || jobs === '') q.activity.billableQuantityPerMonth = 1;
   }
   if (toTime && (fromInfo.kind === 'quantity' || fromInfo.kind === 'event')) {
-    const where = `«${stepName('modality')}»`;
     if (days !== null) {
       if (!isPlainObject(q.activity)) q.activity = {};
       q.activity.activeDaysPerMonth = days;
-      notices.push(`Quedaron ${formatDays(days)} de trabajo por mes; revisalo en ${where}.`);
+      notices.push(`Quedaron ${formatDays(days)} de trabajo por mes; revisalo acá abajo.`);
     } else {
-      notices.push(`Cargá cuántos días de trabajo por mes${toInfo.kind === 'hour' ? ' y cuántas horas por día' : ''} en ${where}.`);
+      notices.push(`Cargá cuántos días de trabajo por mes${toInfo.kind === 'hour' ? ' y cuántas horas por día' : ''}, acá abajo.`);
     }
   }
   return notices;

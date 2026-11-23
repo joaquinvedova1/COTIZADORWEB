@@ -9,7 +9,7 @@
  */
 
 import { h, mount } from '../../dom.js';
-import { card, dateField, formGrid, icon, confirmDialog, infoTip } from '../../components.js';
+import { card, dateField, formGrid, confirmDialog, infoTip } from '../../components.js';
 import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { SERVICE_COMPONENTS, componentsOf, contractOf, contractUsesMaterials, contractWithComponents, lineComponentOf, modeForUnit, serviceTypeForContract } from '../../../domain/contract.js';
@@ -21,30 +21,10 @@ import { stepName } from './shared.js';
 import { applyModeDerivation, applyQuoteUnit, unitChoiceBlock } from './unit-choice.js';
 import { economicBaseSummary } from '../../economic-base-ui.js';
 import { exchangeRatesEditor, quoteCurrencyOf } from './resource-line.js';
+import { render as renderCharge } from './modality.js';
 
 /** Nombre de un paso entre comillas ("Viajes"): siempre el de QUOTE_STEPS. */
 const step = (id) => `"${stepName(id)}"`;
-
-/** Qué sigue según cómo se cobra (0.10.0: se habla de la unidad, no de tipos de contrato). */
-const MODE_TIPS = Object.freeze({
-  monthly: { more: `Cargá lo que cubre la tarifa del mes (por ejemplo 26 días × 12 h). Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Para otra variante, duplicá la cotización (Más acciones → Duplicar).` },
-  on_demand: { more: 'Con eso RATEOS calcula tu precio por unidad: cuanto menos trabajes, más alto tiene que ser para pagar a tu gente y tus equipos.' },
-  closed: { more: `Personal, equipos, materiales, HSE, seguros. Lo incierto se reserva en ${step('risk')}. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (${step('modality')}): quedan dentro del precio. Un trabajo fuera del alcance es otra cotización: duplicala (Más acciones → Duplicar).` },
-});
-
-/**
- * Qué se carga después, en la unidad elegida (revisión 0.10.0, U9): "En «Cómo se cobra» cargás
- * cuántos diagnósticos hacés por mes."
- */
-export function unitNextStepText(quote = {}) {
-  const info = billingUnitOf(quote);
-  const where = `En «${stepName('modality')}»`;
-  if (info.kind === 'month') return `${where} cargás qué cubre la tarifa del mes.`;
-  if (info.id === 'job') return `${where} cargás cuántos días lleva el trabajo.`;
-  if (info.kind === 'hour') return `${where} cargás cuánto trabajás: cuántas horas por día y cuántos días por mes.`;
-  if (info.kind === 'day') return `${where} cargás cuántos días trabajás por mes.`;
-  return `${where} cargás cuántos ${info.plural || 'unidades'} hacés por mes.`;
-}
 
 /**
  * Valores sin fecha base o con base vieja, uno por uno (PLAN-2026-010), y la
@@ -289,12 +269,13 @@ export function render(container, ctx) {
   }
   const sayAll = (messages) => messages.forEach((m) => ctx.toast(m.text, m.tone));
 
-  const tip = MODE_TIPS[contract.mode];
   const unitCard = card(
     {},
     unitChoiceBlock(ctx),
-    h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, unitNextStepText(quote), tip ? ' ' : null, tip ? infoTip(tip.more) : null)),
   );
+  // 0.20.0: el ritmo se pregunta acá, apenas se elige la unidad (antes, después de los recursos).
+  const rhythm = h('div', { class: 'qe-rhythm' });
+  renderCharge(rhythm, { ...ctx, part: 'rhythm' });
 
   const composer = componentsComposer({ quote, components, custom, readOnly: kit.readOnly, ctx, apply: (list, extra = custom, focusId = null) => {
     keepPlace(focusId, () => {
@@ -404,6 +385,6 @@ export function render(container, ctx) {
     exchangeRatesEditor(ctx),
   );
 
-  mount(container, identity, unitCard, includes, economicBase, more);
+  mount(container, identity, unitCard, rhythm, includes, economicBase, more);
   return { update() {} };
 }

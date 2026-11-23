@@ -1097,7 +1097,7 @@ export function evaluateCompleteness(quoteInput = {}) {
         ? 'Todos los valores tienen fecha base.'
         : `${baseInfo.undefinedCount === 1 ? 'Un valor no tiene' : `${baseInfo.undefinedCount} valores no tienen`} fecha propia: se toman del mes de la oferta.`));
     if (baseInfo.defined > 0 && !baseInfo.offerPeriod) {
-      items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, 'warning', 'Sin fecha de la oferta: no se puede saber si las bases son viejas. Cargala en "Contrato".'));
+      items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, 'warning', 'Sin fecha de la oferta: no se puede saber si las bases son viejas. Cargala en "El servicio".'));
     } else if (baseInfo.defined > 0) {
       const old = baseInfo.stale.length > 0;
       items.push(rule('base_age', 'Antigüedad de las bases', 'service', 1, old || baseInfo.mixed ? 'warning' : 'ok',

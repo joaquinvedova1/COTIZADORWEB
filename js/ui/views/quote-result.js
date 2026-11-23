@@ -138,7 +138,7 @@ import {
   rateBelowHourCostText,
   closedJobsPerMonth,
   unitAmountText,
-  perBilledUnitSuffix,
+  perBilledUnitAmount,
   perQuoteUnit,
   salaryMonthsAt,
   deductedPct,
@@ -486,14 +486,6 @@ function hasStaff(v) {
  * Precio cerrado (testeo con especialistas, A-12, H-24): con un trabajo por mes, los
  * números del mes son los del trabajo y se rotulan así ("Costo del trabajo").
  */
-/** "≈ $ X por hora. " al lado de una cifra del mes, por servicio prestado (M7); vacío si no aplica. */
-function approxPerUnit(v, monthly) {
-  const s = perBilledUnitSuffix(v.r, v.q, monthly);
-  // En celular "≈ $ 126.989 por diagnóstico" no entra en una línea: se puede cortar antes de "por"
-  // (nunca dentro del monto ni de "por diagnóstico").
-  return s ? `${s.replace(/^ · /, '').replace('\u00a0por\u00a0', ' por\u00a0')}. ` : '';
-}
-
 /** "del mes" o, en precio cerrado de un trabajo, "del trabajo" (M6). */
 function monthOrJob(v) {
   return closedOf(v).single ? 'del trabajo' : 'del mes';
@@ -1415,7 +1407,7 @@ function heroKnownActivity(v) {
 
   let sentence;
   if (!(D > 0)) {
-    sentence = h('p', { class: 'qr-lead' }, byQty(v) ? `Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} esperás facturar por mes (y cuánto hacés por día de trabajo). ` : 'Falta saber cuántos días del mes esperás que el equipo esté trabajando y facturando. ', stepLink(q, 'modality', `Cargalo en ${stepLabel('modality')}`), '.');
+    sentence = h('p', { class: 'qr-lead' }, byQty(v) ? `Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} esperás facturar por mes (y cuánto hacés por día de trabajo). ` : 'Falta saber cuántos días del mes esperás que el equipo esté trabajando y facturando. ', stepLink(q, 'service', `Cargalo en ${stepLabel('service')}`), '.');
   } else if (!(k.totalCost > 0)) {
     sentence = h('p', { class: 'qr-lead' }, 'Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.');
   } else {
@@ -1490,6 +1482,9 @@ function kpiGrid(v) {
   const jobsPerMonth = closedJobsPerMonth(v.r);
   items.push(jobsPerMonth !== null
     ? kpiItem({ label: 'Costo del trabajo', value: money(k.totalCost / jobsPerMonth), hint: timeBasisWithoutFixed(r) ? 'Horas de tu gente y tus equipos en el trabajo, más lo de cada día.' : Math.abs(jobsPerMonth - 1) < 1e-9 ? `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}` : `Lo del mes (${money(k.totalCost)}: fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}) ÷ ${formatNumber(jobsPerMonth, { decimals: 2 })} trabajos`, trace: costTrace(v) })
+    // 0.20.0: por hora, día o unidad, el costo se lee primero en la unidad de cobro; el mes, en la ayuda.
+    : perBilledUnitAmount(r, v.q, k.totalCost) !== null
+    ? kpiItem({ label: `Costo por ${(r.unitInfo && r.unitInfo.singular) || 'unidad'}`, value: money(perBilledUnitAmount(r, v.q, k.totalCost)), hint: `Todo incluido. En el mes: ${money(k.totalCost)}.`, trace: costTrace(v) })
     : kpiItem({ label: 'Costo del mes', value: money(k.totalCost), hint: timeBasisWithoutFixed(r) ? 'Horas de tu gente y tus equipos en los días del mes, más lo de cada día.' : `Fijos ${money(k.fixedCosts)} · variables ${money(k.variableCosts)}`, trace: costTrace(v) }));
 
   // "Calcular la tarifa" ya muestra piso y objetivo en el bloque principal;
@@ -1647,18 +1642,25 @@ function statItem({ label, value, unit = null, hint = null, trace = null, tone =
     trace ? h('dd', { class: 'qr-stat-trace' }, traceBtn(trace)) : null);
 }
 
+/** Singular de la unidad de cobro ("válvula"). */
+function unitNoun(v) {
+  return (v.r.unitInfo && v.r.unitInfo.singular) || 'unidad';
+}
+
 /** ¿Cuánto me cuesta? */
 function costStat(v) {
   const { k } = v;
   const D = k.activeDays;
   const single = closedOf(v).single;
+  // 0.20.0: por hora, día o unidad, el costo se lee en la unidad de cobro; el mes, debajo.
+  const perUnit = single ? null : perBilledUnitAmount(v.r, v.q, k.totalCost);
   return statItem({
     // UX 2026-11: "Te cuesta" + "$ X en el trabajo" (sin repetir "trabajo" ni "/ trabajo" suelto).
-    label: single ? 'Te cuesta' : 'Te cuesta (costo del mes)',
-    value: money(k.totalCost),
-    unit: hasValue(k.totalCost) ? (single ? 'en el trabajo' : '/ mes') : null,
+    label: single || perUnit !== null ? 'Te cuesta' : 'Te cuesta (costo del mes)',
+    value: money(perUnit !== null ? perUnit : k.totalCost),
+    unit: hasValue(k.totalCost) ? (single ? 'en el trabajo' : perUnit !== null ? `/ ${unitNoun(v)}` : '/ mes') : null,
     hint: statHint(hasValue(D) && D > 0
-      ? `${approxPerUnit(v, k.totalCost)}Con ${estimateActivity(v)}.`
+      ? `${perUnit !== null ? `${money(k.totalCost)} en el mes. ` : ''}Con ${estimateActivity(v)}.`
       : byQty(v) ? `Falta estimar ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} por mes.` : 'Falta estimar los días de trabajo.'),
     trace: costTrace(v),
     className: 'qr-stat qr-stat-cost',
@@ -1803,17 +1805,19 @@ function profitStat(v) {
   const ok = covered || (hasRate(k) && hasValue(k.marginPct) && hasValue(profit));
   const unreliable = ok ? unreliableText(v.r.completeness, 'esta ganancia') : null;
   const losing = ok && profit < -1e-6;
+  // 0.20.0: la ganancia, primero en la unidad de cobro.
+  const perUnit = ok && !single ? perBilledUnitAmount(v.r, v.q, Math.abs(profit)) : null;
   let hint;
   if (!ok) hint = statHint(hasRate(k) ? 'Sin facturación no hay ganancia.' : 'Sin tarifa no hay ganancia.');
   else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
   else if (losing) hint = statHint('Con esta tarifa perdés plata: lo que cobrás no alcanza para cubrir el costo.');
-  else hint = statHint(`${approxPerUnit(v, profit)}Después de costos e impuestos.`);
+  else hint = statHint(`${perUnit !== null ? `${money(profit)} en el mes. ` : ''}Después de costos e impuestos.`);
   const tone = unreliable ? 'red' : ok && !k.billingTaxesDefined && profit >= 0 ? 'orange' : ok ? (losing ? 'red' : 'green') : null;
   return statItem({
     label: losing ? 'Perdés' : 'Ganás',
     // ECO-01: con un resultado no confiable la ganancia no se muestra como cifra.
-    value: ok && !unreliable ? money(Math.abs(profit)) : EMPTY,
-    unit: ok && !unreliable ? per : null,
+    value: ok && !unreliable ? money(perUnit !== null ? perUnit : Math.abs(profit)) : EMPTY,
+    unit: ok && !unreliable ? (perUnit !== null ? `/ ${unitNoun(v)}` : per) : null,
     hint,
     tone,
     className: 'qr-stat qr-stat-profit',
@@ -1828,7 +1832,7 @@ function noRateContent(v) {
     return ['Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), ` para saber ${need}.`];
   }
   if (!(k.activeDays > 0)) {
-    return [byQty(v) ? `Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} por mes esperás facturar (y cuánto hacés por día de trabajo). ` : 'Falta saber cuántos días por mes esperás trabajar y facturar. ', stepLink(q, 'modality', `Cargalo en ${stepLabel('modality')}`), '.'];
+    return [byQty(v) ? `Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} por mes esperás facturar (y cuánto hacés por día de trabajo). ` : 'Falta saber cuántos días por mes esperás trabajar y facturar. ', stepLink(q, 'service', `Cargalo en ${stepLabel('service')}`), '.'];
   }
   if (!(k.totalCost > 0)) {
     return ['Todavía no hay costos cargados, así que no hay tarifa que calcular. ', stepLink(q, 'labor', 'Empezá por el personal'), '.'];
@@ -2264,7 +2268,7 @@ function renderAppropriation(v) {
     const how = [
       perMonth !== null && Math.abs(perMonth - 1) > 1e-9 ? `Los valores del mes ÷ ${formatNumber(perMonth, { decimals: 2 })} trabajos por mes = un trabajo.` : null,
       milestones !== null ? `Cada trabajo factura ${formatNumber(milestones, { decimals: 2 })} ${Math.abs(milestones - 1) < 1e-9 ? 'hito' : 'hitos'}.` : null,
-      !one ? `Total = un trabajo × ${formatNumber(jobs, { decimals: 2 })} trabajos (se cambia en "Contrato", Más datos de la cotización).` : null,
+      !one ? `Total = un trabajo × ${formatNumber(jobs, { decimals: 2 })} trabajos (se cambia en "El servicio", Más datos de la cotización).` : null,
     ].filter(Boolean).join(' ');
     contract = perMonth === null
       ? null
@@ -2322,8 +2326,12 @@ function renderCostStructure(v) {
   // Mismos montos y % del motor; sólo cambia el nombre visible de algunos rubros.
   // 0.10.0: una fila por categoría elegida (Materiales desglosado por el motor; sin $ 0 de lo no elegido).
   const rows = eeccRows(v).map((row) => ({ ...row, label: rubroLabel(row.category, row.label, q) }));
+  // 0.20.0: primero cuánto pesa cada categoría en la unidad de cobro (monto del mes ÷ unidades a facturar).
+  const perUnit = (amount) => perBilledUnitAmount(r, q, amount);
+  const unitCol = perUnit(e.total) !== null;
   const columns = [
     { key: 'label', label: 'Categoría' },
+    unitCol ? { key: 'perUnit', label: `Por ${(r.unitInfo && r.unitInfo.singular) || 'unidad'}`, align: 'right', render: (row) => (perUnit(row.amount) !== null ? money(perUnit(row.amount)) : money(0)) } : null,
     { key: 'amount', label: closedOf(v).single ? abbrHeader('Monto trabajo', 'Monto en el trabajo') : abbrHeader('Monto mes', 'Monto mensual'), align: 'right', render: (row) => money(row.amount) },
     // Fijo y variable por separado (PLAN-2026-010): "monto ÷ días" incluía los fijos
     // y parecía un costo variable por día.
@@ -2336,7 +2344,7 @@ function renderCostStructure(v) {
     columns,
     rows,
     rowClass: (row) => (row.amount > 0 ? null : 'row-muted'),
-    footer: { label: 'TOTAL', amount: money(e.total), fixedMonthly: money(k.fixedCosts), variablePerActiveDay: money(v.r.model ? v.r.model.variablePerActiveDay : null), displayPct: pct(e.displayTotalPct) },
+    footer: { label: 'TOTAL', perUnit: unitCol ? money(perUnit(e.total)) : null, amount: money(e.total), fixedMonthly: money(k.fixedCosts), variablePerActiveDay: money(v.r.model ? v.r.model.variablePerActiveDay : null), displayPct: pct(e.displayTotalPct) },
     caption: 'Estructura de costos por categoría',
     className: 'qr-eecc-table',
   });

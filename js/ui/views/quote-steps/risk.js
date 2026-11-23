@@ -16,7 +16,7 @@ import { createTrace } from '../../../core/trace.js';
 import { nonNegative } from '../../../core/money.js';
 import { contractOf } from '../../../domain/contract.js';
 import { illustrativeTag } from '../../layout.js';
-import { unitAmountText, perQuoteUnit, closedJobsPerMonth, quoteUnitPlace } from '../../result-text.js';
+import { unitAmountText, perQuoteUnit, closedJobsPerMonth, costPlaceLabel } from '../../result-text.js';
 
 const RISK_HINTS = Object.freeze({
   activity_variation: 'Que se trabaje menos días que lo estimado.',
@@ -124,7 +124,7 @@ export function render(container, ctx) {
     formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: generalHint })),
     zeroWarning,
     kit.keyline({
-      label: (r) => `Imprevistos en el costo del ${quoteUnitPlace(r)}`,
+      label: (r) => costPlaceLabel(r, quote, 'Imprevistos'),
       value: (r) => {
         const row = r.eecc.rows.find((x) => x.category === 'contingency');
         return row ? unitAmountText(r, quote, row.amount) : EMPTY;

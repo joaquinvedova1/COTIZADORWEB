@@ -83,7 +83,7 @@ export function unitHoursFactor(basis, activity = {}) {
  */
 export function resolveUnitHours(quote, activity = {}) {
   const basis = resourceHoursBasis(quote);
-  if (basis !== 'unit' && basis !== 'job') return quote;
+  if (basis !== 'unit' && basis !== 'job') return capMonthlyRunningHours(quote, activity);
   const factor = unitHoursFactor(basis, activity);
   if (!(factor > 0)) return quote;
   const own = (line) => (isPlainObject(line) && Number.isFinite(Number(line.assignedHoursPerUnit)) && Number(line.assignedHoursPerUnit) > 0 ? Number(line.assignedHoursPerUnit) * factor : 0);
@@ -99,4 +99,32 @@ export function resolveUnitHours(quote, activity = {}) {
   const labor = map(quote.labor, 'coverageHoursPerDay');
   const equipment = map(quote.equipment, 'assignedHoursPerDay', (e) => isPlainObject(e) && (e.acquisition === 'rented' || e.acquisition === 'outsourced'));
   return changed ? { ...quote, labor, equipment } : quote;
+}
+
+/**
+ * Cobro por mes (0.20.0, CALCULATION_RULES §36.3): un equipo propio con "horas asignado por mes"
+ * no puede andar más horas que las asignadas. Sus horas de uso por día de servicio quedan, como
+ * mucho, en horas asignadas del mes ÷ días de servicio (antes contaba el día entero de servicio
+ * aunque estuviera asignado 20 h en el mes). Las horas de uso cargadas más bajas se respetan.
+ * No toca la cotización guardada: devuelve una copia sólo si algo cambia.
+ */
+export function capMonthlyRunningHours(quote, activity = {}) {
+  if (!isPlainObject(quote) || usesTimeBasis(quote) || !Array.isArray(quote.equipment)) return quote;
+  const days = Number(activity.activeDaysPerMonth);
+  const dayHours = Number(activity.hoursPerActiveDay);
+  if (!(days > 0)) return quote;
+  let changed = false;
+  const equipment = quote.equipment.map((line) => {
+    if (!isPlainObject(line) || line.acquisition === 'rented' || line.acquisition === 'outsourced') return line;
+    const assigned = Number(line.assignedHoursPerMonth);
+    if (!(Number.isFinite(assigned) && assigned > 0)) return line;
+    const cap = assigned / days;
+    const raw = line.hoursPerActiveDay;
+    const blank = raw === null || raw === undefined || raw === '';
+    const running = blank ? (dayHours > 0 ? dayHours : Infinity) : Number(raw);
+    if (!(running > cap + 1e-9)) return line;
+    changed = true;
+    return { ...line, hoursPerActiveDay: cap };
+  });
+  return changed ? { ...quote, equipment } : quote;
 }
