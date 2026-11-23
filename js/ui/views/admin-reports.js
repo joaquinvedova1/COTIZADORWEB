@@ -165,6 +165,6 @@ export async function renderReports(root, service) {
   draw();
   mount(root,
     card({ title: 'Reportes de usuarios', subtitle: 'Lo que mandan con «Reportar un problema». No se publican en ningún lado; quién reportó no se muestra.', level: 3 },
-      canEdit ? null : banner('Para clasificar y marcar como resueltos falta aplicar la migración de seguimiento de reportes (20261124120000) en Supabase. Mientras tanto se pueden leer.', 'warning'),
+      canEdit ? null : banner('Para clasificar y marcar como resueltos falta aplicar la migración de seguimiento de reportes (20261123221818) en Supabase. Mientras tanto se pueden leer.', 'warning'),
       kpis, filters, list));
 }

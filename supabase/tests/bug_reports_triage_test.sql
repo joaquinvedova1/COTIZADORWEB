@@ -1,4 +1,4 @@
--- Controles de la migración 20261124120000 (reportes: tipo, severidad, seguimiento).
+-- Controles de la migración 20261123221818 (reportes: tipo, severidad, seguimiento).
 -- Corre dentro de una transacción y se deshace. NO correr sobre producción sin
 -- autorización del dueño: crea un reporte sintético (rollback al final).
 begin;

@@ -209,7 +209,7 @@ const MESSAGES = Object.freeze({
 export function adminErrorMessage(code) {
   if (code === FEEDBACK_ERRORS.forbidden) return 'No tenés permisos para ver los reportes.';
   if (code === FEEDBACK_ERRORS.network) return 'No pudimos conectarnos. Revisá tu conexión y reintentá.';
-  if (code === FEEDBACK_ERRORS.notReady) return 'Falta aplicar en Supabase la migración de seguimiento de reportes (20261124120000). Mientras tanto los reportes se guardan igual.';
+  if (code === FEEDBACK_ERRORS.notReady) return 'Falta aplicar en Supabase la migración de seguimiento de reportes (20261123221818). Mientras tanto los reportes se guardan igual.';
   return 'No pudimos cargar o guardar los reportes. Reintentá en unos minutos.';
 }
 

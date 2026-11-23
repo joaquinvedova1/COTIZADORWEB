@@ -21,7 +21,7 @@ El issue **nunca** lleva nombre, email, empresa ni id de quien reporta (el repos
 
 ## 3. Cómo se revisan
 
-0. **Panel (principal, desde la beta pública):** #/admin → **Reportes** (sólo la cuenta master). Filtros Pendientes / Sin revisar / A corregir / Resueltos; ordenados por severidad. Para cada reporte: estado, severidad (crítica = precio o datos mal; alta = no puede seguir; media; baja), tipo, **versión en que se corrigió** y nota. Nunca muestra quién reportó. Requiere la migración `20261124120000_rateos_bug_reports_triage`.
+0. **Panel (principal, desde la beta pública):** #/admin → **Reportes** (sólo la cuenta master). Filtros Pendientes / Sin revisar / A corregir / Resueltos; ordenados por severidad. Para cada reporte: estado, severidad (crítica = precio o datos mal; alta = no puede seguir; media; baja), tipo, **versión en que se corrigió** y nota. Nunca muestra quién reportó. Requiere la migración `20261123221818_rateos_bug_reports_triage`.
 1. **GitHub (histórico, ya no se usa para reportes nuevos):** [issues con label `reporte-app`](https://github.com/joaquinvedova1/COTIZADORWEB/issues?q=is%3Aissue+label%3Areporte-app). Cada issue tiene la referencia `R-XXXXXX` en el título. Se responde, se etiqueta (`bug`, `ux`, `duda`…) y se cierra cuando el arreglo está en `main`, con un enlace al PR.
 2. **Supabase (respaldo y fuente de verdad):** todos los reportes, aunque GitHub falle o el token no esté configurado. Desde el plugin/MCP de Supabase (`execute_sql`) o el SQL Editor:
 
