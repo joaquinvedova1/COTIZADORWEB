@@ -808,7 +808,9 @@ export async function renderNewQuote(root, app) {
       { class: 'view-narrow stack-lg' },
       pageIntro({
         title: '¿Qué servicio vas a cotizar?',
-        text: 'Elegí un servicio parecido al tuyo: arrancás con su tipo de servicio y su actividad típica (y sus recursos, si la plantilla los tiene). Después podés cambiar todo.',
+        text: services.length
+          ? 'Elegí un servicio parecido al tuyo: arrancás con su tipo de servicio y su actividad típica (y sus recursos, si la plantilla los tiene). Después podés cambiar todo.'
+          : 'Empezá en blanco: RATEOS te va preguntando paso a paso. Si querés ver antes cómo queda una cotización completa, mirá el ejemplo.',
       }),
       h('div', { class: 'quote-choice-grid' }, blank, ...first),
       rest.length

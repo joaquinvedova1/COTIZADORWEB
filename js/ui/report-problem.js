@@ -11,6 +11,7 @@
 import { h, mount } from './dom.js';
 import { button, disclosure, icon, openDialog, selectField, textField, toast } from './components.js';
 import { onSessionReset } from './session-memory.js';
+import { SUPPORT_EMAIL } from '../config.js';
 import {
   DEFAULT_KIND,
   MAX_EXPECTED_LENGTH,
@@ -45,6 +46,12 @@ let kindGroupSeq = 0;
  *   openUrl?: (url: string) => void,
  * }} options  submit null = no se puede enviar desde acá (se ofrece GitHub)
  */
+/** mailto con el reporte ya escrito (recortado para no pasar el largo de una URL). */
+export function supportMailto(email, payload) {
+  const params = new URLSearchParams({ subject: 'Reporte RATEOS', body: reportText(payload).slice(0, 1800) });
+  return `mailto:${email}?${params.toString().replace(/\+/g, '%20')}`;
+}
+
 export function openReportProblem({ location, version = {}, mode = 'cuenta', loginTip = false, submit = null, kind = null, openUrl = (url) => window.open(url, '_blank', 'noopener') }) {
   const canSend = typeof submit === 'function';
   if (kind) draft.kind = reportKind(kind).value;
@@ -254,13 +261,17 @@ export function openReportProblem({ location, version = {}, mode = 'cuenta', log
     showThanks(res.reference);
   }
 
+  // Plan B privado: nunca un sitio público (el texto puede traer datos de la empresa).
   function showFallback() {
     if (form.querySelector('.report-fallback')) return;
-    form.appendChild(h('p', { class: 'report-fallback' },
-      'También podés enviarlo por GitHub (necesitás una cuenta gratuita) o copiar lo que escribiste: ',
-      button('Enviar por GitHub', { variant: 'link', size: 'sm', onClick: () => { openUrl(githubIssueUrl(payload())); close(); }, attrs: { 'aria-label': 'Enviar por GitHub (se abre en otra pestaña)' } }),
-      ' · ',
-      button('Copiar texto', { variant: 'link', size: 'sm', onClick: () => copyText() })));
+    const copy = button('Copiar texto', { variant: 'link', size: 'sm', onClick: () => copyText() });
+    form.appendChild(SUPPORT_EMAIL
+      ? h('p', { class: 'report-fallback' },
+        'También podés mandarlo por email: ',
+        h('a', { href: supportMailto(SUPPORT_EMAIL, payload()) }, SUPPORT_EMAIL),
+        ' · ', copy)
+      : h('p', { class: 'report-fallback' },
+        'Lo que escribiste sigue acá: probá de nuevo en unos minutos, o ', copy, ' para no perderlo.'));
   }
 
   async function copyText() {

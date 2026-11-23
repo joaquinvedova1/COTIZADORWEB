@@ -11,7 +11,7 @@ import { h, mount } from '../../dom.js';
 import { SUPPORT_EMAIL } from '../../../config.js';
 import { flowHeader, headerLink, isSignedIn, reportLink, siteFooter } from './public-chrome.js';
 
-export const LEGAL_UPDATED = '24/11/2026';
+export const LEGAL_UPDATED = '23/11/2026';
 
 function section(title, ...paras) {
   return h('section', { class: 'pub-legal-section' }, h('h2', { class: 'pub-h3' }, title), ...paras.map((p) => (typeof p === 'string' ? h('p', {}, p) : p)));
