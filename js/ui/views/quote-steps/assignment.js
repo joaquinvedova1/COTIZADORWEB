@@ -13,6 +13,7 @@ import { formGrid } from '../../components.js';
 import { LABOR_ASSIGNMENTS, EQUIPMENT_ASSIGNMENTS } from '../../../domain/assignment.js';
 import { formatMoney, formatNumber, formatPercent } from '../../../core/format.js';
 import { roundRate } from '../../../core/money.js';
+import { h } from '../../dom.js';
 
 export const ASSIGNMENT_HELP = 'Compartida / compartido: el recurso también trabaja para otros servicios o contratos y esta cotización carga sólo un % de sus costos fijos. Esto no depende de cuántos días trabaje: un equipo on-call puede trabajar 15 días y aun así quedar reservado 100 % para este contrato. El uso real mueve sólo los costos variables.';
 
@@ -141,26 +142,86 @@ export function asksUnitHours(basis, line, perDayKey) {
   return has(line && line.assignedHoursPerUnit) || !has(line && line[perDayKey]);
 }
 
-export function monthHoursField(kit, ctx, { path, baseHours, kind }) {
+/**
+ * Cobro por mes (0.21.0, auditoría beta W-07): al asignar un recurso propio, sus horas por mes
+ * arrancan en las del servicio (días × horas por día del paso 1) si son menos que su mes. Antes
+ * quedaban vacías = todo el mes, y un técnico de 4 días × 8 h costaba el mes entero sin avisar.
+ * Queda como dato explícito de la línea (horas + % de su mes): el motor no cambia y los fijos
+ * siguen fijos si después baja la actividad. Muta la línea nueva antes de sumarla.
+ */
+export function prefillMonthHours(line, { serviceHours, baseHours }) {
+  const service = Number(serviceHours) > 0 ? Number(serviceHours) : 0;
   const base = Number(baseHours) > 0 ? Number(baseHours) : 0;
+  if (!line || !(service > 0) || !(base > service)) return line;
+  line.assignedHoursPerMonth = roundRate(service);
+  line.assignment = 'shared';
+  line.fixedCostSharePct = roundRate((service / base) * 100);
+  return line;
+}
+
+export function monthHoursField(kit, ctx, { path, baseHours, kind, serviceHours = 0, serviceText = '' }) {
+  const base = Number(baseHours) > 0 ? Number(baseHours) : 0;
+  const service = Number(serviceHours) > 0 ? Number(serviceHours) : 0;
   const baseText = base > 0 ? formatNumber(base, { decimals: 2 }) : '';
-  return kit.num(`${path}.assignedHoursPerMonth`, {
+  const serviceHoursText = formatNumber(service, { decimals: 2 });
+  const apply = (value) => {
+    const hours = filled(value) ? Number(value) : 0;
+    if (hours > 0 && base > 0 && hours < base) {
+      ctx.update(`${path}.assignment`, 'shared');
+      ctx.update(`${path}.fixedCostSharePct`, roundRate((hours / base) * 100));
+    } else {
+      ctx.update(`${path}.assignment`, kind === 'labor' ? 'dedicated' : 'reserved');
+      ctx.update(`${path}.fixedCostSharePct`, null);
+      // 0 no es "nada de su mes": es sin dato (todo el mes), como vacío.
+      if (!(hours > 0) && filled(value)) ctx.update(`${path}.assignedHoursPerMonth`, null);
+    }
+  };
+  const field = kit.num(`${path}.assignedHoursPerMonth`, {
     label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignado a esta cotización',
     rule: 'hours',
     unit: 'h/mes',
     placeholder: baseText ? `${baseText} (todo el mes)` : 'Todo el mes',
     hint: `${kind === 'labor' ? 'Las horas efectivas de trabajo de este puesto para esta cotización, por mes' : 'Las horas por mes que el equipo queda asignado a esta cotización, esté andando o quieto'}. Vacío = todo el mes. Con menos horas, el servicio paga esa parte de su costo mensual${baseText ? ` (horas ÷ ${baseText} h del mes)` : ''}.`,
-    onValue: (value) => {
-      const hours = filled(value) ? Number(value) : 0;
-      if (hours > 0 && base > 0 && hours < base) {
-        ctx.update(`${path}.assignment`, 'shared');
-        ctx.update(`${path}.fixedCostSharePct`, roundRate((hours / base) * 100));
-      } else {
-        ctx.update(`${path}.assignment`, kind === 'labor' ? 'dedicated' : 'reserved');
-        ctx.update(`${path}.fixedCostSharePct`, null);
-        // 0 no es "nada de su mes": es sin dato (todo el mes), como vacío.
-        if (!(hours > 0) && filled(value)) ctx.update(`${path}.assignedHoursPerMonth`, null);
-      }
-    },
+    onValue: apply,
   });
+  if (kit.readOnly) return field;
+  const current = () => {
+    const v = kit.get(`${path}.assignedHoursPerMonth`);
+    return filled(v) && Number(v) > 0 ? Number(v) : null;
+  };
+  const useService = () => kit.action(`Usar ${serviceHoursText} h`, () => {
+    ctx.update(`${path}.assignedHoursPerMonth`, roundRate(service));
+    apply(service);
+    if (typeof ctx.rerender === 'function') ctx.rerender();
+  });
+  const serviceLabel = serviceText || `${serviceHoursText} h`;
+  const notes = [];
+  if (service > 0 && base > service) {
+    // W-07: vacío con un servicio más corto que el mes → se avisa y se ofrece usar las horas del servicio.
+    const blankWarn = h('div', { class: 'qe-note is-warning' },
+      h('span', {}, `Vacío cuenta todo su mes (${baseText} h). El servicio son ${serviceLabel} por mes: si no trabaja sólo para este cliente, usá esas horas.`),
+      ' ',
+      useService());
+    kit.toggle(blankWarn, () => current() === null && kit.get(`${path}.assignment`) !== 'shared');
+    notes.push(blankWarn);
+  }
+  if (service > 0) {
+    // Revisión 0.21.0: si después cambian los días u horas del servicio, las horas cargadas no se mueven solas.
+    const driftWarn = h('div', { class: 'qe-note is-warning' },
+      h('span', {}, `El servicio son ${serviceLabel} = ${serviceHoursText} h por mes y acá hay otras horas cargadas.`),
+      ' ',
+      useService());
+    kit.toggle(driftWarn, () => current() !== null && current() < base && Math.abs(current() - service) > 0.01);
+    notes.push(driftWarn);
+  }
+  if (base > 0) {
+    // Revisión 0.21.0: con menos horas que su mes, el resto lo pagan otros trabajos (se dice).
+    const rest = kit.out(() => {
+      const hours = current();
+      if (hours === null || !(hours < base)) return '';
+      return `El resto de su mes (${formatNumber(base - hours, { decimals: 2 })} h) lo tienen que pagar otros trabajos. Si ${kind === 'labor' ? 'trabaja' : 'queda'} sólo para este cliente, dejá el campo vacío (todo el mes).`;
+    }, { tag: 'p', className: 'qe-note', allowEmpty: true });
+    notes.push(rest);
+  }
+  return h('div', { class: 'qe-month-hours' }, field, ...notes);
 }

@@ -12,6 +12,23 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-23
+
+**Auditoría para cerrar la beta, tanda 1: números y PDF para el cliente.** Informe en project files `auditoria-beta/VEREDICTO.md`. Sin cambio de esquema ni de fórmulas del motor de cotizaciones: ninguna cotización guardada cambia sus números.
+
+### Agregado
+
+- **PDF para el cliente** (Resultado): una hoja con la empresa, el cliente, el servicio, qué incluye y UN precio en su unidad (sin IVA); cobrando por mes dice qué cubre (días × horas) y, si se actualizó, de qué período son los valores. Con pendientes críticos o valores de ejemplo pide confirmación antes de imprimir. El PDF de siempre pasa a llamarse "Análisis interno (PDF)" y su ayuda dice que tiene tus costos y tu ganancia (W-16).
+- **Tarifa vigente arriba del Resultado**: si la tarifa se actualizó por EECC, el Resultado la muestra primero ("Tarifa vigente: $ X por hora, actualizada a …") y el PDF para el cliente usa ésa. Antes el listado y el Inicio mostraban la actualizada y el Resultado y el PDF la original, sin aviso (W-15).
+- **Productos · Una tanda**: la tabla suma el empaque (antes el "costo variable de la tanda" lo dejaba afuera, −8,7 % en una torta) y agrega el costo completo de la tanda, su precio sin y con IVA, los impuestos sobre la venta y lo que ganás (R-01, R-02: "¿cuánto valen 40 tortas?").
+
+### Cambiado
+
+- **Cobro por mes · horas de cada recurso**: el personal y los equipos propios que se asignan arrancan con las horas del servicio (días × horas por día del paso 1) cuando son menos que su mes. Si el campo queda vacío (todo el mes), o si después cambian los días u horas del servicio, se avisa con el botón "Usar N h"; con menos horas que su mes, la tarjeta dice que el resto lo tienen que pagar otros trabajos. Antes un técnico de 4 días × 8 h costaba el mes entero sin avisar (W-07). Queda guardado como dato de la línea: el motor no cambia y lo fijo sigue fijo en los escenarios.
+- **Resumen en vivo**: sin impuestos sobre la facturación, la tarifa mínima es el mismo número que el costo: se muestra uno solo (antes diferían en $ 1 por redondeo) (W-02). Además se corrige un aviso de consola del resumen ("No se pudo calcular un indicador").
+- **Tarifas**: el aumento acumulado se muestra con los mismos decimales que el diálogo de actualizar tarifa.
+- **Personal · cargas patronales**: la ayuda dice que se aplican sólo sobre lo remunerativo (con aguinaldo y vacaciones), nunca sobre las sumas no remunerativas. Se verificó que el motor ya lo hace así (personal, productos, aumentos del convenio y Actualizar tarifa); no cambia ningún número.
+
 ## [0.20.1] - 2026-11-23
 
 Textos y pantalla, sin cambio de cálculos (observaciones del dueño sobre la 0.20.0).

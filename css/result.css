@@ -641,3 +641,34 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-stat.qr-stat-wide { grid-template-columns: auto auto minmax(0, 1fr) auto; }
   .qr-stat.qr-stat-wide .qr-stat-trace { justify-self: end; }
 }
+
+/* ------------------------------------------------------------------
+ * 0.21.0 (auditoría beta): tarifa vigente y presupuesto para el cliente
+ * ------------------------------------------------------------------ */
+.qr-current-rate {
+  border: 1px solid var(--blue-400); border-left-width: 4px; border-radius: var(--radius-sm);
+  background: var(--blue-50); padding: var(--sp-3) var(--sp-4);
+}
+.qr-current-rate-main { margin: 0; color: var(--ink); }
+.qr-current-rate-main strong { font-size: var(--fs-lg); }
+.qr-current-rate-note { margin: 0.25rem 0 0; }
+.qe-month-hours { display: flex; flex-direction: column; gap: var(--sp-2); }
+.qe-month-hours .qe-note .btn { margin-top: 0.35rem; }
+
+#client-print-root { display: none; }
+@media print {
+  body.print-client > *:not(#client-print-root) { display: none !important; }
+  body.print-client #client-print-root { display: block; }
+  .qr-client-sheet { color: #000; font-size: 11pt; }
+  .qr-client-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #000; padding-bottom: 0.4rem; }
+  .qr-client-company { font-size: 14pt; font-weight: 700; }
+  .qr-client-title { font-size: 18pt; margin: 1.2rem 0 0.8rem; }
+  .qr-client-list { margin: 0 0 1.2rem; }
+  .qr-client-row { display: grid; grid-template-columns: 8rem 1fr; gap: 0.5rem; padding: 0.3rem 0; border-bottom: 1px solid #ccc; }
+  .qr-client-row dt { font-weight: 600; }
+  .qr-client-row dd { margin: 0; }
+  .qr-client-price { border: 2px solid #000; padding: 0.8rem 1rem; display: inline-block; min-width: 50%; }
+  .qr-client-price-label { font-size: 10pt; text-transform: uppercase; letter-spacing: 0.05em; }
+  .qr-client-price-value { font-size: 22pt; font-weight: 700; }
+  .qr-client-price-note { font-size: 9pt; }
+}

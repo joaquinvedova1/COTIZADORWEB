@@ -71,6 +71,7 @@ import {
   toast as componentToast,
   barList,
   infoTip,
+  confirmDialog,
 } from '../components.js';
 import { formatMoney, formatMoneyCeil, formatPercent, formatDays, formatNumber, formatDate, formatValue, formatPeriodLong, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
@@ -80,7 +81,7 @@ import { logger } from '../../core/logger.js';
 import { FEATURES, SENSITIVITY_RANGES, DEFAULT_SCENARIOS, DEFAULT_MARGIN_LADDER } from '../../config.js';
 import { QUOTE_STEPS, QUOTE_STATUSES, PRICING_MODES, labelOf } from '../../domain/catalogs.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
-import { computeQuote, monthlyFeeCap, billableQuantityAt } from '../../engines/quote-engine.js';
+import { computeQuote, monthlyFeeCap, billableQuantityAt, rateUpdateOf } from '../../engines/quote-engine.js';
 import { requiredRatesAt, evaluateAt } from '../../engines/economics-engine.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { fieldHref, stepOfPath } from '../field-links.js';
@@ -95,7 +96,7 @@ import { priceComposition } from '../../engines/price-composition-engine.js';
 import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
 import { costBreakdown, costRowLabel, displayCostRows, OTHERS_KEY } from '../cost-breakdown.js';
-import { componentsOf } from '../../domain/contract.js';
+import { componentsOf, SERVICE_COMPONENTS } from '../../domain/contract.js';
 import { onSessionReset } from '../session-memory.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
 import {
@@ -4145,11 +4146,36 @@ function renderActions(v) {
       }
     },
   });
-  const print = button('Imprimir / guardar PDF', {
+  // 0.21.0 (auditoría beta W-16): dos salidas con nombre claro. El presupuesto para el cliente
+  // tiene sólo el precio en su unidad y qué incluye; el análisis interno (costos, ganancia,
+  // margen) nunca se manda al cliente.
+  const clientPrint = button('PDF para el cliente', {
+    variant: 'primary',
+    icon: 'print',
+    title: 'Sólo el precio en su unidad y qué incluye, sin tus costos ni tu ganancia. Para el archivo, elegí "Guardar como PDF".',
+    attrs: { 'data-action': 'print-client' },
+    onClick: async () => {
+      // Revisión 0.21.0: con pendientes críticos o valores de ejemplo, se confirma antes de mandar el precio.
+      const critical = v.r.completeness && v.r.completeness.critical > 0;
+      const example = Boolean(v.ill && v.ill.any);
+      if (critical || example) {
+        const ok = await confirmDialog({
+          title: '¿Imprimir el presupuesto igual?',
+          message: `${critical ? 'A esta cotización le faltan datos importantes' : 'Esta cotización usa valores de ejemplo (ILUSTRATIVOS)'}: el precio puede no cubrir tus costos reales. Revisá los pendientes del Resultado antes de mandarlo.`,
+          confirmLabel: 'Imprimir igual',
+          cancelLabel: 'Revisar primero',
+        });
+        if (!ok) return;
+      }
+      printClientSheet(v.clientSheet);
+    },
+  });
+  const print = button('Análisis interno (PDF)', {
     variant: 'secondary',
     icon: 'print',
     // 0.17.0 (menos texto): la explicación va en el title, no en un párrafo.
-    title: 'Se abren todas las secciones. Para el archivo, elegí "Guardar como PDF".',
+    title: 'Con tus costos, tu ganancia y el margen: es para vos, no para el cliente. Para el archivo, elegí "Guardar como PDF".',
+    attrs: { 'data-action': 'print-internal' },
     onClick: () => {
       if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
     },
@@ -4160,7 +4186,7 @@ function renderActions(v) {
   return h('section', { class: 'qr-actions-bar no-print', id: v.ids.actions, 'aria-label': 'Acciones' },
     h('div', { class: 'qr-actions-notes' },
       example ? h('p', { class: 'qr-actions-note qr-actions-note-main' }, 'Este es un ejemplo con valores ILUSTRATIVOS. Para cotizar tu servicio, creá tu propia cotización con tus costos.') : null),
-    h('div', { class: 'qr-actions' }, print, sent, own));
+    h('div', { class: 'qr-actions' }, clientPrint, print, sent, own));
 }
 
 // ------------------------------------------------------------- composición
@@ -4176,6 +4202,117 @@ function safeSection(title, build) {
   } catch (error) {
     return sectionError(title, error);
   }
+}
+
+/**
+ * Imprime sólo el presupuesto para el cliente: una copia de la hoja va directo en <body> y el
+ * resto de la página no se imprime mientras dura (clase print-client).
+ */
+function printClientSheet(sheet) {
+  if (typeof window === 'undefined' || typeof window.print !== 'function' || typeof document === 'undefined' || !sheet) return;
+  const body = document.body;
+  const root = document.createElement('div');
+  root.id = 'client-print-root';
+  root.appendChild(sheet.cloneNode(true));
+  body.appendChild(root);
+  body.classList.add('print-client');
+  let finished = false;
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    body.classList.remove('print-client');
+    root.remove();
+    window.removeEventListener('afterprint', done);
+  };
+  window.addEventListener('afterprint', done);
+  // Sin afterprint (algunos navegadores de celular): se limpia cuando la página deja de estar en modo impresión.
+  try {
+    const mq = typeof window.matchMedia === 'function' ? window.matchMedia('print') : null;
+    if (mq && typeof mq.addEventListener === 'function') {
+      const onChange = (e) => {
+        if (!e.matches) {
+          mq.removeEventListener('change', onChange);
+          done();
+        }
+      };
+      mq.addEventListener('change', onChange);
+    }
+  } catch {
+    // sin matchMedia: queda afterprint
+  }
+  window.print();
+}
+
+/**
+ * Tarifa que vale hoy (0.21.0, auditoría beta W-15): la comercial o, si se actualizó por EECC,
+ * la del último período. Una sola fuente para el Resultado, el presupuesto y el listado.
+ */
+function currentRateOf(v) {
+  let ru = null;
+  try {
+    ru = rateUpdateOf(v.q, v.r);
+  } catch (error) {
+    logger.warn('No se pudo calcular la tarifa vigente', { message: error && error.message });
+  }
+  const updated = Boolean(ru && ru.updated && isFiniteNumber(ru.rate));
+  return { updated, ru, rate: updated ? ru.rate : (isFiniteNumber(v.k.commercialListRate) ? v.k.commercialListRate : null) };
+}
+
+/** Aviso arriba del Resultado cuando la tarifa se actualizó: ése es el precio que vale. */
+function renderCurrentRateNotice(v) {
+  const cur = currentRateOf(v);
+  if (!cur.updated) return null;
+  const { ru } = cur;
+  const sign = ru.totalPct >= 0 ? '+' : '';
+  return h('section', { class: 'qr-current-rate', 'aria-label': 'Tarifa vigente' },
+    h('p', { class: 'qr-current-rate-main' },
+      h('span', {}, 'Tarifa vigente: '),
+      h('strong', { class: 'mono' }, `${formatMoney(ru.rate)} por ${v.unitLabel}`),
+      h('span', {}, ` · actualizada a ${formatPeriodLong(ru.period)} (${sign}${formatPercent(ru.totalPct)} sobre ${formatMoney(ru.baseRate)}${ru.basePeriod ? ` de ${formatPeriodLong(ru.basePeriod)}` : ''}).`)),
+    h('p', { class: 'qr-current-rate-note muted small' }, 'Es la que va en el PDF para el cliente. Los números de abajo son los de la tarifa original, con los costos cargados en la cotización.'));
+}
+
+/** Qué cubre el precio cobrando por mes: días × horas por día del servicio (o null). */
+function coverText(v) {
+  if (!v.r || !v.r.unitInfo || v.r.unitInfo.kind !== 'month') return null;
+  const a = v.r.activity || {};
+  const days = Number(a.activeDaysPerMonth);
+  const hours = Number(a.hoursPerActiveDay);
+  if (!(days > 0)) return null;
+  return `${formatNumber(days, { decimals: 2 })} días por mes${hours > 0 ? ` de ${formatNumber(hours, { decimals: 2 })} h` : ''}`;
+}
+
+/** Presupuesto para el cliente (0.21.0, W-16): sólo se ve al imprimir con "PDF para el cliente". */
+function renderClientSheet(v, app) {
+  const { q } = v;
+  const cur = currentRateOf(v);
+  let company = '';
+  try {
+    company = app && app.ctx && typeof app.ctx.organizationName === 'function' ? String(app.ctx.organizationName() || '') : '';
+  } catch {
+    company = '';
+  }
+  const included = componentsOf(q.contract)
+    .map((id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label)
+    .filter(Boolean);
+  const row = (label, value) => (value ? h('div', { class: 'qr-client-row' }, h('dt', {}, label), h('dd', {}, value)) : null);
+  const offer = typeof q.offerDate === 'string' && q.offerDate ? formatDate(q.offerDate) : formatDate(new Date());
+  return h('section', { class: 'qr-client-sheet' },
+    h('div', { class: 'qr-client-head' },
+      h('div', { class: 'qr-client-company' }, company && company !== '—' ? company : 'Presupuesto'),
+      h('div', { class: 'qr-client-date' }, `Fecha: ${offer}`)),
+    h('h1', { class: 'qr-client-title' }, 'Presupuesto'),
+    h('dl', { class: 'qr-client-list' },
+      row('Cliente', typeof q.client === 'string' && q.client.trim() ? q.client.trim() : null),
+      row('Servicio', typeof q.name === 'string' && q.name.trim() ? q.name.trim() : 'Servicio'),
+      row('Referencia', typeof q.code === 'string' && q.code.trim() ? q.code.trim() : null),
+      row('Incluye', included.length ? included.join(', ') : null),
+      row('Cubre', coverText(v)),
+      row('Valores de', cur.updated && cur.ru.period ? formatPeriodLong(cur.ru.period) : null)),
+    h('div', { class: 'qr-client-price' },
+      h('div', { class: 'qr-client-price-label' }, `Precio por ${v.unitLabel}`),
+      h('div', { class: 'qr-client-price-value mono' }, cur.rate === null ? EMPTY : formatMoney(cur.rate)),
+      h('div', { class: 'qr-client-price-note' }, 'Precio sin IVA.')));
 }
 
 function printHeader(v, heading = 'Análisis económico de la cotización') {
@@ -4343,7 +4480,10 @@ export function renderQuoteResult(container, app, { quote, result, settings, onQ
   const actions = safeSection('Acciones', () => renderActions(v));
   printAllSections(v, () => deepItems);
 
-  mount(container, h('div', { class: 'qr' }, printHeader(v), summary, deep, actions));
+  const current = safeSection('Tarifa vigente', () => renderCurrentRateNotice(v));
+  const clientSheet = safeSection('Presupuesto', () => renderClientSheet(v, app));
+  v.clientSheet = clientSheet;
+  mount(container, h('div', { class: 'qr' }, printHeader(v), current, summary, deep, actions));
   return cleanupOf(v);
 }
 

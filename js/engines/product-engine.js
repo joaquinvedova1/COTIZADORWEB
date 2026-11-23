@@ -395,7 +395,18 @@ function computeProductParts(p) {
     labor,
     equipment,
     fixedCosts,
-    perBatch: { materials: materialsPerBatch, labor: laborPerBatch, equipmentUse: equipmentUsePerBatch, variable: variablePerBatch },
+    perBatch: {
+      materials: materialsPerBatch,
+      labor: laborPerBatch,
+      equipmentUse: equipmentUsePerBatch,
+      // Lo variable de la receta, el personal y las máquinas (sin lo que va por unidad vendida).
+      variable: variablePerBatch,
+      // 0.21.0 (auditoría beta R-02): empaque y demás "por unidad" de las unidades que salen de la tanda.
+      perUnitItems: materialsPerUnitDirect * sellablePerBatch,
+      variableTotal: variablePerBatch + materialsPerUnitDirect * sellablePerBatch,
+      // Costo completo de la tanda (R-01, "¿cuánto me cuestan 40 tortas?"): costo por unidad × unidades para vender.
+      fullCost: unitCost !== null ? unitCost * sellablePerBatch : null,
+    },
     perUnit,
     materialsPerUnitDirect,
     equipmentFixedMonthly,
@@ -492,6 +503,14 @@ export function computeProduct(product = {}) {
       breakEvenUnits,
       financeEffect,
       gainPerUnit: suggestedPrice === null || r.unitCost === null ? null : suggestedPrice * (1 - pct(t)) - r.unitCost,
+      // 0.21.0 (R-01): la tanda entera al precio sugerido (lo que se cobra por, por ejemplo, 40 tortas).
+      batch: {
+        units: r.sellablePerBatch,
+        price: suggestedPrice === null || !(r.sellablePerBatch > 0) ? null : suggestedPrice * r.sellablePerBatch,
+        priceWithVat: priceWithVat === null || !(r.sellablePerBatch > 0) ? null : priceWithVat * r.sellablePerBatch,
+        salesTaxes: suggestedPrice === null || !(r.sellablePerBatch > 0) ? null : suggestedPrice * pct(t) * r.sellablePerBatch,
+        gain: suggestedPrice === null || r.unitCost === null || !(r.sellablePerBatch > 0) ? null : (suggestedPrice * (1 - pct(t)) - r.unitCost) * r.sellablePerBatch,
+      },
     },
     monthly: { units: N, revenue, salesTaxes, variable: variableMonthly, fixed: r.fixedMonthly, financial: fin.financialMonthly, profit },
     current,

@@ -55,7 +55,7 @@ import { routeTrips, transportSummary } from './transport-engine.js';
 import { conversionFactor, currencyOfBase, quoteCurrency } from './currency-engine.js';
 import { billingUnitOf } from '../domain/billing-units.js';
 import { contractOf, LINE_COMPONENT_IDS, SERVICE_COMPONENTS } from '../domain/contract.js';
-import { usesTimeBasis, resolveUnitHours } from '../domain/cost-basis.js';
+import { usesTimeBasis, resolveUnitHours, defaultEquipmentBillableHours } from '../domain/cost-basis.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS } from '../domain/catalogs.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { formatMoney, formatNumber } from '../core/format.js';
@@ -124,10 +124,7 @@ export function availabilityHoursOf(a = {}) {
  * trabaja todo el mes a ese ritmo paga una vez su posesión, no varias (un generador de 24 h
  * dividido por las 176 h de la gente se cobraba 4 veces).
  */
-export function defaultEquipmentBillableHours(hoursPerActiveDay, crewNormalHours) {
-  const h = Math.min(nonNegative(hoursPerActiveDay), 24);
-  return Math.max(nonNegative(crewNormalHours), h * (h > 12 ? 30 : 22));
-}
+export { defaultEquipmentBillableHours };
 
 /** Normaliza los parámetros de actividad de una cotización. */
 export function normalizeActivity(quote = {}) {
