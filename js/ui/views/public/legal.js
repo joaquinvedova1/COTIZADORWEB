@@ -42,7 +42,7 @@ export function render(root, app) {
       'El panel de administración de RATEOS sólo muestra datos de la cuenta (nombre, email, empresa, fechas), nunca tus cotizaciones ni tus costos. Sólo vamos a mirar o restaurar el contenido de tu empresa si nos lo pedís para resolver un problema.',
       'La demo («Probar con un ejemplo») no necesita cuenta y no guarda nada.'),
     section('Copias de seguridad',
-      'Guardamos versiones anteriores del trabajo de cada empresa durante 30 días, para poder recuperarlo si algo se pisa por error. Además podés descargar tu propia copia cuando quieras desde Configuración → Datos y backup.'),
+      'Guardamos versiones anteriores del trabajo de cada empresa (hasta 30 días), para poder recuperarlo si algo se pisa por error. Además podés descargar tu propia copia cuando quieras desde Configuración → Datos y backup.'),
     section('Reportes de problemas',
       'Cuando usás «Reportar un problema» se guarda lo que escribís, la pantalla y el paso donde estabas, la versión de RATEOS y tu navegador. No se adjuntan tus cotizaciones, importes ni clientes, y el reporte no se publica en ningún lado. Te pedimos que no escribas nombres de clientes ni precios reales.'),
     section('Borrar tu cuenta',
