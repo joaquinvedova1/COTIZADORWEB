@@ -18,6 +18,7 @@
 
 import { isPlainObject } from '../core/object.js';
 import { billingUnitOf } from './billing-units.js';
+import { ILLUSTRATIVE_AGREEMENT_PARAMS } from './catalogs.js';
 
 export const COST_BASIS_TIME = 'time';
 
@@ -149,4 +150,34 @@ export function capMonthlyRunningHours(quote, activity = {}) {
     return { ...line, hoursPerActiveDay: cap };
   });
   return changed ? { ...quote, equipment } : quote;
+}
+
+/**
+ * Horas facturables por mes de un equipo propio sin dato propio: las del día de trabajo × los días
+ * de un mes (22, o 30 si trabaja más de 12 h por día), y como mínimo las normales de la cuadrilla.
+ */
+export function defaultEquipmentBillableHours(hoursPerActiveDay, crewNormalHours) {
+  const n = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : 0);
+  const h = Math.min(n(hoursPerActiveDay), 24);
+  return Math.max(n(crewNormalHours), h * (h > 12 ? 30 : 22));
+}
+
+/** Horas del mes de un recurso propio cobrando por mes: la base del % de su mes que paga el servicio. */
+export function monthBaseHoursOf(quote, line, kind, activity = {}) {
+  if (kind === 'labor') {
+    const normal = Number(line && line.normalHoursPerMonth);
+    return billableHoursOf(line, normal > 0 ? normal : ILLUSTRATIVE_AGREEMENT_PARAMS.normalHoursPerMonth);
+  }
+  const own = billableHoursOf(line, 0);
+  if (own > 0) return own;
+  const crew = (Array.isArray(quote && quote.labor) ? quote.labor : [])
+    .reduce((max, l) => Math.max(max, Number.isFinite(Number(l && l.normalHoursPerMonth)) ? Number(l.normalHoursPerMonth) : 0), 0);
+  return defaultEquipmentBillableHours(activity.hoursPerActiveDay, crew > 0 ? crew : ILLUSTRATIVE_AGREEMENT_PARAMS.normalHoursPerMonth);
+}
+
+/** Horas por mes del servicio (paso 1, cobrando por mes): días de servicio × horas por día. 0 sin dato. */
+export function serviceMonthHours(activity = {}) {
+  const days = Number(activity.activeDaysPerMonth);
+  const hours = Number(activity.hoursPerActiveDay);
+  return days > 0 && hours > 0 ? days * Math.min(hours, 24) : 0;
 }

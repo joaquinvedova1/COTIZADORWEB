@@ -39,10 +39,10 @@ import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSy
 import { baseText } from '../../economic-base-ui.js';
 import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
 import { fieldHref } from '../../field-links.js';
-import { assignmentBlock, monthHoursField, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
+import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
 import { closedJobsPerMonth, quoteUnitPlace, unitAmountText, costPlaceLabel, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText, equipmentFullHourRate } from '../../result-text.js';
-import { usesTimeBasis, unitHoursConversion, showsPerUnit, unitHoursFactor } from '../../../domain/cost-basis.js';
+import { usesTimeBasis, unitHoursConversion, showsPerUnit, unitHoursFactor, serviceMonthHours } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { workDaysText } from '../../unit-text.js';
 import { isVehicleFamily, looksLikeVehicleName } from '../../../domain/equipment-catalog.js';
@@ -489,6 +489,9 @@ export function render(container, ctx) {
     return defaultEquipmentBillableHours(activityHours, crew > 0 ? crew : ILLUSTRATIVE_AGREEMENT_PARAMS.normalHoursPerMonth);
   };
   const monthUnit = billingUnitOf(quote).kind === 'month';
+  // Cobro por mes (0.21.0, W-07): horas del servicio (días × horas por día) para arrancar cada equipo propio.
+  const serviceHoursMonth = monthUnit && !timeBasis ? serviceMonthHours(quote.activity || {}) : 0;
+  const serviceHoursText = serviceHoursMonth > 0 ? `${formatNumber(nonNegative(quote.activity.activeDaysPerMonth), { decimals: 2 })} días × ${formatNumber(nonNegative(quote.activity.hoursPerActiveDay), { decimals: 2 })} h` : '';
   const currency = quoteCurrencyOf(quote);
   const hoursDefault = () => (Number.isFinite(Number(activityHours)) && activityHours !== null ? Number(activityHours) : null);
 
@@ -513,6 +516,7 @@ export function render(container, ctx) {
       // Un vehículo llega por sus medios (su consumo en ruta queda a la vista); se puede cambiar.
       if (!line.mobilization || !line.mobilization.mode) line.mobilization = createMobilization({ ...(line.mobilization || {}), mode: 'self' });
     }
+    if (eq && serviceHoursMonth > 0 && line.acquisition !== 'rented' && line.acquisition !== 'outsourced') prefillMonthHours(line, { serviceHours: serviceHoursMonth, baseHours: monthBaseHours(line) });
     const index = lines.length;
     ctx.mutate((q) => q.equipment.push(line), { focus: timeBasis && eq ? `equipment.${index}.${assignedKey(line)}` : `equipment.${index}.quantity` });
     // Una línea (revisión UX): el aviso largo tapaba "Continuar". Lo demás está en la ficha.
@@ -864,7 +868,7 @@ export function render(container, ctx) {
     });
     const unitField = () => unitHoursField(kit, { path: p, kind: 'equipment', basis: hoursBasis, unit: billingUnitOf(quote), ready: unitHoursReady(), where: stepName('service'), onValue: dropInheritedHours });
     // Por mes: horas por mes en el servicio (vacío = todo el mes). Un % cargado antes se ve en "Más detalle".
-    const monthField = () => (!monthUnit || hasManualSharePct(line) ? null : monthHoursField(kit, ctx, { path: p, kind: 'equipment', baseHours: monthBaseHours(line) }));
+    const monthField = () => (!monthUnit || hasManualSharePct(line) ? null : monthHoursField(kit, ctx, { path: p, kind: 'equipment', baseHours: monthBaseHours(line), serviceHours: serviceHoursMonth, serviceText: serviceHoursText }));
     // I7 (2026-11-18): por tiempo usado, con cuántas horas por mes se reparte lo de tenerlo (a la vista, junto a las horas de uso).
     const billableField = () => kit.num(`${p}.billableHoursPerMonth`, {
       // 0.20.1 (Joaco): no es otro costo; es con cuántas horas se reparte el costo del mes que ya sale de los datos del equipo.

@@ -597,7 +597,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
       cols: 4,
       fields: [
         { key: 'basicMonthly', label: 'Remunerativo', rule: 'money', unit: '$', required: true, hint: 'Básico, presentismo, antigüedad y adicionales remunerativos.' },
-        { key: 'nonRemunerativeMonthly', label: 'No remunerativo', rule: 'money', unit: '$', hint: 'Viandas, asignaciones y sumas no remunerativas. Si no hay: 0.' },
+        { key: 'nonRemunerativeMonthly', label: 'No remunerativo', rule: 'money', unit: '$', hint: 'Viandas, asignaciones y sumas no remunerativas. No llevan cargas patronales ni aportes (sólo las cargas propias del convenio, si las tiene). Si no hay: 0.' },
         { key: 'additionalsMonthly', label: 'Otros pagos remunerativos (cargado antes)', rule: 'money', unit: '$', when: (d) => hasValue(d.additionalsMonthly), hint: 'Se suma al remunerativo.' },
         { key: 'workerContributionsPct', label: 'Aportes del trabajador', rule: 'percent', unit: '%', hint: 'Jubilación, ley 19.032 y obra social (17 % habitual). Sólo para ver el neto.' },
         { ...baseFormFields('base', { periodLabel: '¿De qué mes es este sueldo?' })[0], hint: 'Los aumentos del convenio lo actualizan solos.' },
@@ -629,7 +629,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
       fields: [
         { key: 'sacPct', label: 'Aguinaldo (SAC)', rule: 'percent', unit: '%' },
         { key: 'vacationPct', label: 'Vacaciones', rule: 'percent', unit: '%' },
-        { key: 'employerContributionsPct', label: 'Cargas patronales', rule: 'percent', unit: '%' },
+        { key: 'employerContributionsPct', label: 'Cargas patronales', rule: 'percent', unit: '%', hint: 'Sólo sobre lo remunerativo (con aguinaldo y vacaciones): nunca sobre las sumas no remunerativas.' },
         { key: 'artPct', label: 'ART', rule: 'percent', unit: '%' },
         { key: 'fixedContributionsMonthly', label: 'Contribuciones fijas', rule: 'money', unit: '$/mes', hint: 'Ej.: contribución extraordinaria, seguro de vida colectivo.' },
         { key: 'nonRemunerativeChargesPct', label: 'Cargas sobre el no remunerativo', rule: 'percent', unit: '%', hint: 'Obra social, cuota sindical… Si no hay: 0.' },
@@ -782,7 +782,7 @@ function agreementSections() {
       fields: [
         { key: 'params.sacPct', label: 'Aguinaldo (SAC)', rule: 'percent', unit: '%' },
         { key: 'params.vacationPct', label: 'Vacaciones', rule: 'percent', unit: '%' },
-        { key: 'params.employerContributionsPct', label: 'Cargas patronales', rule: 'percent', unit: '%', hint: 'Sobre el remunerativo.' },
+        { key: 'params.employerContributionsPct', label: 'Cargas patronales', rule: 'percent', unit: '%', hint: 'Sólo sobre lo remunerativo (con aguinaldo y vacaciones): nunca sobre las sumas no remunerativas.' },
         { key: 'params.artPct', label: 'ART', rule: 'percent', unit: '%' },
         { key: 'params.fixedContributionsMonthly', label: 'Contribuciones fijas por persona', rule: 'money', unit: '$/mes', hint: 'Montos fijos del convenio (contribución extraordinaria, seguro de vida…). Sin cargas encima.' },
         { key: 'params.nonRemunerativeChargesPct', label: 'Cargas sobre el no remunerativo', rule: 'percent', unit: '%', hint: 'Obra social, cuota sindical… que el acuerdo aplica a las sumas no remunerativas. Si no hay: 0.' },

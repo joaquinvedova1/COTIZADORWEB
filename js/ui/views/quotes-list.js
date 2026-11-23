@@ -198,7 +198,7 @@ export function rateColumns({ onUpdate, href = ({ quote, summary }) => quoteDeta
           'span',
           { class: 'rate-cell' },
           h('span', { class: 'nowrap' }, formatMoney(rate)),
-          ru && ru.updated ? h('span', { class: 'cell-sub nowrap', title: `Aumento acumulado desde ${formatPeriod(ru.basePeriod)}` }, `${ru.totalPct >= 0 ? '+' : ''}${formatPercent(ru.totalPct, { decimals: 1 })}`) : null,
+          ru && ru.updated ? h('span', { class: 'cell-sub nowrap', title: `Aumento acumulado desde ${formatPeriod(ru.basePeriod)}` }, `${ru.totalPct >= 0 ? '+' : ''}${formatPercent(ru.totalPct)}`) : null,
         );
       },
     },

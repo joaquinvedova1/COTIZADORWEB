@@ -24,8 +24,8 @@ import { createTrace } from '../../../core/trace.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { onSessionReset } from '../../session-memory.js';
 import { baseText } from '../../economic-base-ui.js';
-import { assignmentBlock, monthHoursField, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
-import { billableHoursOf } from '../../../domain/cost-basis.js';
+import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
+import { billableHoursOf, serviceMonthHours, monthBaseHoursOf } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { laborHeadcountOf } from '../../../engines/labor-engine.js';
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
@@ -182,6 +182,11 @@ export function render(container, ctx) {
     return f > 0 ? { f, one: billingUnitOf(quote).singular || 'unidad' } : null;
   };
   const hoursKey = timeBasis ? (hoursBasis === 'job' ? 'assignedHoursPerUnit' : 'coverageHoursPerDay') : billingUnitOf(quote).kind === 'month' ? 'assignedHoursPerMonth' : 'positions';
+  // Cobro por mes (0.21.0, W-07): horas del servicio (días × horas por día) para arrancar cada recurso.
+  const monthUnitQuote = !timeBasis && billingUnitOf(quote).kind === 'month';
+  const serviceHoursMonth = monthUnitQuote ? serviceMonthHours(quote.activity || {}) : 0;
+  const serviceHoursText = serviceHoursMonth > 0 ? `${formatNumber(nonNegative(quote.activity.activeDaysPerMonth), { decimals: 2 })} días × ${formatNumber(nonNegative(quote.activity.hoursPerActiveDay), { decimals: 2 })} h` : '';
+  const withServiceHours = (line) => (monthUnitQuote ? prefillMonthHours(line, { serviceHours: serviceHoursMonth, baseHours: monthBaseHoursOf(quote, line, 'labor') }) : line);
   const hoursWhat = timeBasis || billingUnitOf(quote).kind === 'month' ? 'horas efectivas de trabajo' : 'datos en esta cotización';
 
   // ------------------------------------------------------------ acciones
@@ -193,7 +198,7 @@ export function render(container, ctx) {
       return;
     }
     const agreement = agreements.find((a) => a.id === profile.agreementId) || null;
-    const line = laborLineFromProfile(profile, agreement, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
+    const line = withServiceHours(laborLineFromProfile(profile, agreement, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) }));
     const index = lines.length;
     ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.${hoursKey}` });
     ctx.toast(`Se asignó "${line.role}" con su costo de Recursos. Indicá sus ${hoursWhat}.`, 'success');
@@ -208,7 +213,7 @@ export function render(container, ctx) {
         // La copia de Recursos de esta pantalla también lo tiene (lista para elegir, convenio).
         if (created && Array.isArray(resources.agreements)) resources.agreements.push(created);
         if (Array.isArray(resources.laborProfiles)) resources.laborProfiles.push(profile);
-        const line = laborLineFromProfile(profile, agreement, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) });
+        const line = withServiceHours(laborLineFromProfile(profile, agreement, { now: new Date().toISOString(), currency: quoteCurrencyOf(quote) }));
         const index = quote.labor.length;
         ctx.mutate((q) => q.labor.push(line), { focus: `labor.${index}.${hoursKey}` });
         ctx.toast(`"${line.role}" quedó guardado en Recursos y se asignó a la cotización. Indicá sus ${hoursWhat}.`, 'success');
@@ -459,7 +464,7 @@ export function render(container, ctx) {
     // Sólo cobrando por mes: en una cotización anterior por día o por trabajo sigue la pregunta de
     // "Cómo se cobra" (¿trabajan sólo para este servicio?), que escribe el % sin horas.
     if (billingUnitOf(quote).kind === 'month' && !hasManualSharePct(line) && line.assignment !== 'hired') {
-      return monthHoursField(kit, ctx, { path: p, kind: 'labor', baseHours: billableHoursOf(line, nonNegative(line.normalHoursPerMonth)) });
+      return monthHoursField(kit, ctx, { path: p, kind: 'labor', baseHours: billableHoursOf(line, nonNegative(line.normalHoursPerMonth)), serviceHours: serviceHoursMonth, serviceText: serviceHoursText });
     }
     const options = [
       { value: 'dedicated', label: 'Todo su mes (100 %)' },
@@ -699,7 +704,7 @@ export function render(container, ctx) {
             4,
             kit.num(`${p}.sacPct`, { label: 'Aguinaldo (SAC)', rule: 'percent', unit: '%', illustrative: illustrativeParam(line, 'sacPct') }),
             kit.num(`${p}.vacationPct`, { label: 'Vacaciones', rule: 'percent', unit: '%', illustrative: illustrativeParam(line, 'vacationPct') }),
-            kit.num(`${p}.employerContributionsPct`, { label: 'Cargas patronales', rule: 'percent', unit: '%', illustrative: illustrativeParam(line, 'employerContributionsPct') }),
+            kit.num(`${p}.employerContributionsPct`, { label: 'Cargas patronales', rule: 'percent', unit: '%', hint: 'Sólo sobre lo remunerativo (con aguinaldo y vacaciones): nunca sobre las sumas no remunerativas.', illustrative: illustrativeParam(line, 'employerContributionsPct') }),
             kit.num(`${p}.artPct`, { label: 'ART', rule: 'percent', unit: '%', illustrative: illustrativeParam(line, 'artPct') }),
           ),
         ),
