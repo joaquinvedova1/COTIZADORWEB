@@ -139,15 +139,20 @@ describe('estructura de costos por categoría elegida', () => {
     return q;
   }
 
-  test('Materiales se reemplaza por sus categorías; las elegidas sin líneas van en $ 0; nada de renglones en $ 0 no elegidos', () => {
+  test('Insumos y materiales se reemplaza por sus tipos con monto; nada de renglones en $ 0 no elegidos', () => {
     const q = quote();
     const r = computeQuote(q);
     const rows = displayCostRows(r.eecc, q.contract.components);
     const cats = rows.map((x) => x.category);
     assert.ok(!cats.includes('materials'));
-    assert.deepEqual(cats.filter((c) => c.startsWith('materials:')), ['materials:tools', 'materials:supplies', 'materials:ppe']);
-    assert.equal(rows.find((x) => x.category === 'materials:ppe').amount, 0);
-    assert.equal(rows.find((x) => x.category === 'materials:ppe').label, 'EPP');
+    // PLAN-2026-027: sólo los tipos con monto (el EPP elegido sin líneas ya no va en $ 0).
+    assert.deepEqual(cats.filter((c) => c.startsWith('materials:')), ['materials:tools', 'materials:supplies']);
+    // Con el bloque elegido y nada cargado: un solo renglón "Insumos y materiales" en $ 0.
+    const empty = { ...q, materials: [] };
+    const emptyRows = displayCostRows(computeQuote(empty).eecc, q.contract.components);
+    const block = emptyRows.find((x) => x.category === 'materials');
+    assert.ok(block && block.amount === 0 && block.label === 'Insumos y materiales');
+    assert.ok(!emptyRows.some((x) => String(x.category).startsWith('materials:')));
     // Sin vehículos ni equipos elegidos (y en $ 0): no hay renglón de equipos ni de combustible.
     assert.ok(!cats.includes('equipment'));
     assert.ok(!cats.includes('fuel'));

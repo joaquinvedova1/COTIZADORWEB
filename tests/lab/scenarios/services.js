@@ -920,4 +920,23 @@ export const SERVICE_SCENARIOS = [
     }),
     expect: { 'kpis.activeDays': 10 },
   })),
+  // ------------------------------------------- una sola lista "Insumos y materiales" (PLAN-2026-027, 0.22.0)
+  {
+    id: 'SRV-40-FIVE-MATERIAL-TYPES',
+    title: 'Mantenimiento de planta $/mes: una sola lista con los 5 tipos (material, insumo, herramienta, EPP especial y otro gasto)',
+    family: 'crew',
+    build: () => service({
+      id: 'srv-40', serviceType: 'crew', unit: 'month',
+      activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 9 },
+      labor: [person({ role: 'Mecánico', positions: 2, basicMonthly: 1900000 })],
+      materials: [
+        material({ description: 'Caño de 2"', component: 'materials', unit: 'm', basis: 'per_month', quantity: 30, unitCost: 12000 }),
+        material({ description: 'Electrodos', component: 'supplies', unit: 'kg', basis: 'per_active_day', quantity: 1.5, unitCost: 9000 }),
+        material({ description: 'Amoladora (reposición)', component: 'tools', unit: 'global', basis: 'per_month', quantity: 1, unitCost: 45000 }),
+        material({ description: 'Traje descartable', component: 'ppe', unit: 'unidad', basis: 'per_active_day', quantity: 2, unitCost: 6000 }),
+        material({ description: 'Permiso de trabajo', component: 'other', unit: 'global', basis: 'per_month', quantity: 1, unitCost: 80000 }),
+      ],
+    }),
+    expect: { 'kpis.activeDays': 22 },
+  },
 ];

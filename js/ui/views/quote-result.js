@@ -96,7 +96,7 @@ import { priceComposition } from '../../engines/price-composition-engine.js';
 import { invalidTaxesText } from '../billing-taxes-form.js';
 import { economicBaseSummary, baseText } from '../economic-base-ui.js';
 import { costBreakdown, costRowLabel, displayCostRows, OTHERS_KEY } from '../cost-breakdown.js';
-import { componentsOf, SERVICE_COMPONENTS } from '../../domain/contract.js';
+import { blocksOf, componentsOf, INCLUDE_BLOCKS } from '../../domain/contract.js';
 import { onSessionReset } from '../session-memory.js';
 import { isQuantityUnit, quantityText, quantityCeilText, quantityDecimals, workDaysText, unitTextsOf, capitalizeUnitPhrase } from '../unit-text.js';
 import {
@@ -4292,9 +4292,17 @@ function renderClientSheet(v, app) {
   } catch {
     company = '';
   }
-  const included = componentsOf(q.contract)
-    .map((id) => (SERVICE_COMPONENTS.find((c) => c.id === id) || {}).label)
-    .filter(Boolean);
+  // "Incluye": los bloques de "¿Qué incluye?" (PLAN-2026-027), sin repetir.
+  // Revisión 0.22.0: también lo que está cargado aunque la casilla no se haya marcado.
+  const list = (x) => (Array.isArray(x) ? x.length : 0);
+  const loaded = {
+    labor: list(q.labor) + list(q.contractedStaff) > 0,
+    equipment: list(q.equipment) > 0,
+    materials: !q.materialsNotApplicable && list(q.materials) + list(q.otherCosts) > 0,
+    travel: false,
+  };
+  const marked = new Set(blocksOf(q.contract));
+  const included = INCLUDE_BLOCKS.filter((b) => marked.has(b.id) || loaded[b.id]).map((b) => b.label);
   const row = (label, value) => (value ? h('div', { class: 'qr-client-row' }, h('dt', {}, label), h('dd', {}, value)) : null);
   const offer = typeof q.offerDate === 'string' && q.offerDate ? formatDate(q.offerDate) : formatDate(new Date());
   return h('section', { class: 'qr-client-sheet' },

@@ -22,6 +22,7 @@ import { CURRENCY } from '../config.js';
 import { emptyBase, normalizeBase, dayFromDate, isKnownCurrency } from '../domain/economic-base.js';
 import { familyIdOf } from '../domain/equipment-catalog.js';
 import { legacySnapshot } from '../domain/resource-snapshot.js';
+import { LINE_COMPONENT_IDS } from '../domain/contract.js';
 import { acquisitionOf, createExternalTerms, createMobilization, createEquipmentMobility, normalizeExchangeRates } from '../domain/quote-factory.js';
 
 export class MigrationError extends Error {
@@ -332,6 +333,46 @@ export function migrateV9ToV10(state) {
   return { ...src, schemaVersion: 10 };
 }
 
+/**
+ * v10 → v11 (PLAN-2026-027, una sola lista "Insumos y materiales"): el material de Recursos guarda
+ * su tipo (`resources.materials[].component`) y deja de usar cantidad, base y markup de reventa.
+ * Para cada material de Recursos sin tipo válido, se mira cómo lo clasificaron las cotizaciones
+ * y plantillas que lo usan (líneas con `snapshot.resourceId` o `sourceId` igual a su id y con un
+ * tipo explícito y válido): con exactamente UN tipo distinto, se copia; con ninguno o con varios,
+ * queda "Sin tipo" (se elige en Recursos). NO toca `quotes` ni `services` (ningún número ni texto
+ * de una cotización cambia) y no borra `basis`, `quantity` ni `resaleMarkupPct` del maestro (quedan
+ * guardados y sin uso). Idempotente. Se sube la versión porque una versión anterior ignoraría el
+ * tipo y volvería a copiar cantidad y base del maestro: así abre estos datos en sólo lectura.
+ */
+export function migrateV10ToV11(state) {
+  const src = isPlainObject(state) ? deepClone(state) : {};
+  const resources = isPlainObject(src.resources) ? src.resources : null;
+  const materials = resources && Array.isArray(resources.materials) ? resources.materials : [];
+  if (materials.length) {
+    // id del material de Recursos → tipos explícitos con que lo usan las líneas.
+    const usages = new Map();
+    const collect = (lines) => {
+      (Array.isArray(lines) ? lines : []).forEach((line) => {
+        if (!isPlainObject(line) || !LINE_COMPONENT_IDS.includes(line.component)) return;
+        const ids = new Set([isPlainObject(line.snapshot) ? line.snapshot.resourceId : null, line.sourceId].filter((x) => typeof x === 'string' && x));
+        ids.forEach((id) => {
+          if (!usages.has(id)) usages.set(id, new Set());
+          usages.get(id).add(line.component);
+        });
+      });
+    };
+    (Array.isArray(src.quotes) ? src.quotes : []).forEach((q) => { if (isPlainObject(q)) collect(q.materials); });
+    (Array.isArray(src.services) ? src.services : []).forEach((t) => { if (isPlainObject(t) && isPlainObject(t.defaults)) collect(t.defaults.materials); });
+    resources.materials = materials.map((m) => {
+      if (!isPlainObject(m) || LINE_COMPONENT_IDS.includes(m.component) || typeof m.id !== 'string') return m;
+      const found = usages.get(m.id);
+      if (!found || found.size !== 1) return m;
+      return { ...m, component: [...found][0] };
+    });
+  }
+  return { ...src, schemaVersion: 11 };
+}
+
 /** Agrega un valor a `legacy` sin perder lo que ya hubiera (aunque no fuera un objeto). */
 function withLegacy(legacy, key, value) {
   const base = isPlainObject(legacy) ? legacy : legacy === undefined || legacy === null ? {} : { previous: legacy };
@@ -350,6 +391,7 @@ export const MIGRATIONS = Object.freeze({
   7: migrateV7ToV8,
   8: migrateV8ToV9,
   9: migrateV9ToV10,
+  10: migrateV10ToV11,
 });
 
 /**

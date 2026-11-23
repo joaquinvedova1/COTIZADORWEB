@@ -12,7 +12,7 @@ import { h, mount } from '../../dom.js';
 import { card, dateField, formGrid, confirmDialog, infoTip } from '../../components.js';
 import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
-import { SERVICE_COMPONENTS, componentsOf, contractOf, contractUsesMaterials, contractWithComponents, lineComponentOf, modeForUnit, serviceTypeForContract } from '../../../domain/contract.js';
+import { INCLUDE_BLOCKS, SERVICE_COMPONENTS, blockOfComponent, blocksOf, componentsOf, contractOf, contractUsesMaterials, contractWithComponents, modeForUnit, serviceTypeForContract, withBlock } from '../../../domain/contract.js';
 import { isPlainObject } from '../../../core/object.js';
 import { formatMoney, formatNumber, formatPeriod, formatDayDate, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
@@ -102,103 +102,83 @@ function keepPlace(id, run) {
 }
 
 /**
- * Gastos cargados de una categoría de "¿Qué incluye el servicio?" (revisión 0.10.0, U1):
- * Materiales u Otros costos por la categoría de cada línea; Personal, sus puestos; Vehículos,
- * Equipos y Terceros, las líneas de Equipos (si ninguna de las tres queda marcada en `next`).
+ * Gastos cargados de un componente de "¿Qué incluye el servicio?", contados POR BLOQUE
+ * (PLAN-2026-027): Insumos y materiales, todas sus líneas y los gastos cargados antes; Personal,
+ * sus puestos; Equipos y vehículos, las líneas de Equipos. Un bloque sólo "tiene" gastos si
+ * ninguno de sus componentes queda marcado en `next` (si queda uno, el bloque sigue elegido).
  * @returns {{ count: number, step: string|null, one: string, many: string }}
  */
 export function loadedFor(quote, id, next = []) {
   const list = (v) => (Array.isArray(v) ? v.filter((x) => isPlainObject(x)) : []);
-  const def = SERVICE_COMPONENTS.find((c) => c.id === id) || {};
-  if (def.step === 'materials') {
-    const mats = quote.materialsNotApplicable ? [] : list(quote.materials).filter((m) => lineComponentOf(m, 'material') === id);
-    const others = list(quote.otherCosts).filter((o) => lineComponentOf(o, 'other') === id);
-    return { count: mats.length + others.length, step: 'materials', one: 'gasto cargado', many: 'gastos cargados' };
+  const block = blockOfComponent(id);
+  if (!block) return { count: 0, step: null, one: '', many: '' };
+  const stillChosen = next.some((x) => block.ids.includes(x));
+  if (block.id === 'materials') {
+    const mats = quote.materialsNotApplicable ? [] : list(quote.materials);
+    return { count: stillChosen ? 0 : mats.length + list(quote.otherCosts).length, step: 'materials', one: 'gasto cargado', many: 'gastos cargados' };
   }
-  if (id === 'labor') return { count: list(quote.labor).length + list(quote.contractedStaff).length, step: 'labor', one: 'puesto cargado', many: 'puestos cargados' };
-  if (def.equipment) {
-    const stillEquipment = next.some((x) => (SERVICE_COMPONENTS.find((c) => c.id === x) || {}).equipment);
-    return { count: stillEquipment ? 0 : list(quote.equipment).length, step: 'equipment', one: 'equipo cargado', many: 'equipos cargados' };
-  }
+  if (block.id === 'labor') return { count: stillChosen ? 0 : list(quote.labor).length + list(quote.contractedStaff).length, step: 'labor', one: 'puesto cargado', many: 'puestos cargados' };
+  if (block.id === 'equipment') return { count: stillChosen ? 0 : list(quote.equipment).length, step: 'equipment', one: 'equipo cargado', many: 'equipos cargados' };
   return { count: 0, step: null, one: '', many: '' };
 }
 
-/** "EPP tiene 1 gasto cargado ($ 45.000 por mes): borralo en «Materiales» para quitar la categoría." */
+/** "Insumos y materiales tiene 1 gasto cargado ($ 45.000 por mes): borralo en «Insumos y materiales» para desmarcarlo." */
 export function blockedRemovalText(quote, id, next = [], result = null) {
-  const def = SERVICE_COMPONENTS.find((c) => c.id === id) || {};
+  const block = blockOfComponent(id) || {};
   const l = loadedFor(quote, id, next);
   const n = l.count;
   let amount = null;
   try {
-    if (result && def.step === 'materials' && result.componentCosts) {
-      const part = result.componentCosts.byComponent[id];
-      const total = part ? part.amount : 0;
-      const jobs = result.componentCosts.jobsPerMonth;
-      if (total > 0.005) amount = jobs ? `${formatMoney(total / jobs)} en el trabajo` : `${formatMoney(total)} por mes`;
-    } else if (result && id === 'labor' && result.eecc) {
+    const jobs = result && result.componentCosts ? result.componentCosts.jobsPerMonth : null;
+    const say = (total) => (total > 0.005 ? (jobs ? `${formatMoney(total / jobs)} en el trabajo` : `${formatMoney(total)} por mes`) : null);
+    if (result && block.id === 'materials' && result.componentCosts) {
+      amount = say(Object.values(result.componentCosts.byComponent || {}).reduce((acc, part) => acc + (part && Number.isFinite(part.amount) ? part.amount : 0), 0));
+    } else if (result && block.id === 'labor' && result.eecc) {
       const row = result.eecc.rows.find((r) => r.category === 'labor');
-      const jobs = result.componentCosts ? result.componentCosts.jobsPerMonth : null;
-      if (row && row.amount > 0.005) amount = jobs ? `${formatMoney(row.amount / jobs)} en el trabajo` : `${formatMoney(row.amount)} por mes`;
+      amount = row ? say(row.amount) : null;
     }
   } catch {
     amount = null;
   }
   const what = `${formatNumber(n)} ${n === 1 ? l.one : l.many}${amount ? ` (${amount})` : ''}`;
-  const subject = def.equipment ? 'Equipos' : def.label || id;
-  return `${subject} tiene ${what}: ${n === 1 ? 'borralo' : 'borralos'} en «${stepName(l.step)}» para quitar la categoría.`;
+  return `${block.label || id} tiene ${what}: ${n === 1 ? 'borralo' : 'borralos'} en «${stepName(l.step)}» para desmarcarlo.`;
 }
 
-/** Grupos de componentes, en el orden de los pasos donde se cargan. */
-const COMPONENT_GROUPS = Object.freeze([
-  { title: 'Personas y equipos', steps: ['labor', 'equipment'], ids: ['labor', 'vehicle', 'machinery', 'subcontract'] },
-  { title: 'Materiales e insumos', steps: ['materials'], ids: ['tools', 'supplies', 'materials', 'ppe', 'other'] },
-  { title: 'Viajes', steps: ['logistics'], ids: ['travel'] },
-]);
-
 /**
- * "¿Qué incluye el servicio?" (PLAN-2026-019): componentes
- * que se suman en cualquier combinación (agrupados por el paso donde se
- * cargan, con link y cuántas líneas tiene) y componentes propios ("Otro").
+ * "¿Qué incluye el servicio?" en 4 casillas (PLAN-2026-027, decisión D4): Personal, Equipos y
+ * vehículos, Insumos y materiales y Viajes, cada una con el paso donde se carga y cuántas líneas
+ * tiene. En disco se siguen guardando los componentes de siempre (withBlock); los componentes
+ * propios guardados antes se ven con su ×.
  */
 function componentsComposer({ quote, components, custom, readOnly, ctx, apply }) {
-  const selected = new Set(components);
-  const toggle = (c) => {
-    const id = `cmp-${c.id}`;
-    const input = h('input', { type: 'checkbox', id, name: 'contractComponents', value: c.id, checked: selected.has(c.id), disabled: readOnly });
-    input.addEventListener('change', () => {
-      const next = SERVICE_COMPONENTS.map((x) => x.id).filter((x) => (x === c.id ? input.checked : selected.has(x)));
-      apply(next, custom, id);
-    });
-    return h('label', { class: 'choice', for: id, title: c.hint }, input, h('span', { class: 'choice-body' }, h('span', { class: 'choice-title' }, c.label), h('span', { class: 'choice-hint' }, c.hint)));
+  const chosenBlocks = new Set(blocksOf({ components }));
+  const loadedText = (stepId) => {
+    const n = loadedIn(quote, stepId);
+    return h('span', { class: 'qe-components-step' },
+      h('a', { href: ctx.href(stepId) }, stepName(stepId)),
+      h('span', { class: ['qe-components-count', n ? 'is-loaded' : 'is-empty'] }, n ? ` · ${formatNumber(n)} ${n === 1 ? 'cargado' : 'cargados'}` : ' · sin cargar'));
+  };
+  const toggle = (block) => {
+    const id = `cmp-${block.id}`;
+    const on = chosenBlocks.has(block.id) || (block.id === 'materials' && custom.length > 0);
+    const input = h('input', { type: 'checkbox', id, name: 'contractComponents', value: block.id, checked: on, disabled: readOnly });
+    input.addEventListener('change', () => apply(withBlock(components, block.id, input.checked), custom, id));
+    return h('label', { class: 'choice qe-include-block', for: id, title: block.hint },
+      input,
+      h('span', { class: 'choice-body' },
+        h('span', { class: 'choice-title' }, block.label),
+        h('span', { class: 'choice-hint' }, block.hint),
+        on ? h('span', { class: 'choice-hint qe-component-group-where small' }, 'Se carga en ', loadedText(block.step)) : null));
   };
 
-  const loadedText = (steps) => steps.map((s) => {
-    const n = loadedIn(quote, s);
-    return h('span', { class: 'qe-components-step' },
-      h('a', { href: ctx.href(s) }, stepName(s)),
-      h('span', { class: ['qe-components-count', n ? 'is-loaded' : 'is-empty'] }, n ? ` · ${formatNumber(n)} ${n === 1 ? 'cargado' : 'cargados'}` : ' · sin cargar'));
-  });
-
-  const groups = COMPONENT_GROUPS.map((g) => {
-    const used = g.ids.some((id) => selected.has(id)) || (g.steps.includes('materials') && custom.length > 0);
-    return h('div', { class: 'qe-component-group' },
-      h('div', { class: 'qe-component-group-head' },
-        h('span', { class: 'qe-component-group-title' }, g.title),
-        used ? h('span', { class: 'qe-component-group-where small' }, 'Se carga en ', ...loadedText(g.steps.filter((s) => SERVICE_COMPONENTS.some((c) => c.step === s && selected.has(c.id)) || (s === 'materials' && custom.length)))) : null),
-      h('div', { class: 'choice-grid qe-components' }, ...g.ids.map((id) => toggle(SERVICE_COMPONENTS.find((c) => c.id === id)))));
-  });
-
-  // Componentes propios guardados antes: un nombre libre que se carga como otro costo directo (paso Materiales).
+  // Componentes propios guardados antes: un nombre libre que se carga en "Insumos y materiales".
   const customRow = h('div', { class: 'qe-custom-components' },
     custom.length ? h('div', { class: 'variant-suggest-list' }, ...custom.map((name) => h('span', { class: 'qe-custom-chip' }, name,
-      readOnly ? null : h('button', { type: 'button', class: 'qe-chip-remove', 'aria-label': `Quitar ${name}`, on: { click: () => apply(components, custom.filter((x) => x !== name), 'cmp-custom') } }, '×')))) : null,
-    // Revisión 0.10.0 (U8): ya no se agregan componentes propios (es lo mismo que "Otros costos");
-    // una cotización que ya los tiene los sigue viendo, con su ×.
-    null);
+      readOnly ? null : h('button', { type: 'button', class: 'qe-chip-remove', 'aria-label': `Quitar ${name}`, on: { click: () => apply(components, custom.filter((x) => x !== name), 'cmp-custom') } }, '×')))) : null);
 
   return { fieldset: h('fieldset', { class: 'choice-group qe-includes' },
-    h('legend', { class: 'field-label' }, '¿Qué incluye el servicio? ', infoTip('Marcá cada categoría de gasto que lleva el servicio, en cualquier combinación: por ejemplo personal con vehículo e insumos (los químicos son insumos). Sin personal, un equipo o vehículo es alquiler sin operador. Cada categoría se costea una sola vez, en el paso que se indica, y se ve con su costo en el Resultado. Si falta algo, marcá "Otros costos" (permisos, seguros, residuos…).')),
-    ...groups,
+    h('legend', { class: 'field-label' }, '¿Qué incluye el servicio? ', infoTip('Marcá lo que lleva el servicio, en cualquier combinación: por ejemplo personal con una camioneta e insumos. Sin personal, un equipo o vehículo es alquiler sin operador. Cada cosa se costea una sola vez, en el paso que se indica, y se ve con su costo en el Resultado. Permisos, seguros del trabajo o residuos van en Insumos y materiales, con el tipo "Otro gasto".')),
+    h('div', { class: 'choice-grid qe-components qe-include-blocks' }, ...INCLUDE_BLOCKS.map(toggle)),
     custom.length ? h('div', { class: 'variant-suggest qe-custom-block' }, h('span', { class: 'variant-suggest-label' }, 'Otro componente'), customRow) : null,
   ) };
 }
@@ -283,7 +263,14 @@ export function render(container, ctx) {
       // sin verse): queda marcada y se dice dónde borrarlos. Misma regla que applyTemplate.
       const blocked = components.filter((id) => !list.includes(id) && loadedFor(quote, id, list).count > 0);
       if (blocked.length) {
-        blocked.forEach((id) => ctx.toast(blockedRemovalText(quote, id, list, ctx.result), 'warning'));
+        // Un aviso por bloque (PLAN-2026-027: los componentes de un bloque se desmarcan juntos).
+        const seen = new Set();
+        blocked.forEach((id) => {
+          const key = (blockOfComponent(id) || { id }).id;
+          if (seen.has(key)) return;
+          seen.add(key);
+          ctx.toast(blockedRemovalText(quote, id, list, ctx.result), 'warning');
+        });
         const kept = SERVICE_COMPONENTS.map((c) => c.id).filter((id) => list.includes(id) || blocked.includes(id));
         if (kept.length === components.length && extra === custom) {
           ctx.rerender();

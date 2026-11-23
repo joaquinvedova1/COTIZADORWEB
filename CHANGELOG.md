@@ -12,6 +12,26 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-23
+
+**Auditoría para cerrar la beta, tanda 3: una sola lista "Insumos y materiales".** Plan en project files `auditoria-beta/PLAN-TANDA-3.md` (PLAN-2026-027). **Esquema 11.** Sin cambio de fórmulas: ninguna cotización guardada cambia sus números (comparado con `computeQuote` antes y después en la demo, los fixtures, las plantillas y los escenarios del Test Lab). Reglas: docs/CALCULATION_RULES.md §37.
+
+### Cambiado
+
+- **Una sola lista "Insumos y materiales"** (antes "Materiales" con secciones y, aparte, "Otros costos" con "Va a"). Cada línea tiene un **Tipo** junto a "¿Qué es?": Material que queda en la obra, Insumo o consumible, Herramienta menor (reposición), EPP especial u Otro gasto. Un gasto se clasifica una sola vez. Debajo de la lista, lo que suma cada tipo.
+- **El tipo se elige una vez, en Recursos** (pestaña "Insumos y materiales") y viaja con la línea al agregarla. Si en la cotización es otro, la línea lo dice y ofrece "Usar el de Recursos" o "Guardar este tipo en Recursos". "Agregar en blanco" lleva al lado un selector de tipo que empieza en "Insumo o consumible" y recuerda el último que usaste mientras no cierres la pestaña.
+- **Recursos no guarda cuánto se usa** (P-03): un insumo o material de Recursos tiene qué es, tipo, unidad, costo unitario y fecha base (merma, flete y quién lo provee en "Más detalle"). Ya no pide cantidad, frecuencia ni markup. Al agregarlo a una cotización la cantidad queda vacía (se pide con su nombre) y "¿Cada cuánto se consume?" arranca según cómo cobrás: "Por válvula" si cobrás por válvula, "Por mes" por mes, día u hora, por trabajo con precio cerrado. Antes un kit "1 por mes" de Recursos agregado a una cotización por válvula se contaba 1 por válvula (40 kits por mes). Lo que cargaste antes en Recursos se conserva, sin uso.
+- **"Otros costos" guardados se ven como "Gastos cargados antes"**: siguen sumando igual, en el mismo renglón ("Suma en: Personal", "Suma en: Gastos de estructura"…). No se agregan nuevos. Los que suman en "Insumos y materiales" tienen el botón **"Pasar a la lista"**: pasan como un "Otro gasto" (cantidad 1, unidad global, el mismo monto) y la cotización suma exactamente lo mismo. Si uno suma en Gastos de estructura y además cargaste un % de estructura, se avisa que puede estar contado dos veces (aviso informativo, no cambia la completitud).
+- **"¿Qué incluye?" tiene 4 casillas**: Personal, Equipos y vehículos, Insumos y materiales y Viajes (antes 10). Cada una dice dónde se carga y cuánto hay cargado. Se guardan los mismos datos que antes: una cotización guardada abre con las casillas que le corresponden.
+- **Estructura de costos y Resultado**: el renglón se llama "Insumos y materiales" y se abre sólo en los tipos que tienen monto (antes mostraba los marcados en $ 0); con la casilla marcada y nada cargado, un renglón "Insumos y materiales" en $ 0. Los equipos propios se llaman siempre "Equipos y vehículos". El PDF para el cliente dice "Incluye" con las 4 casillas. Actualizar tarifa usa los mismos tipos y rótulos ("EPP especial", "Otros gastos"); las actualizaciones guardadas siguen valiendo.
+- **Ropa de trabajo y EPP básico** de cada persona siguen en su puesto (Personal), con ese nombre; "EPP especial" en la lista es sólo el del trabajo (trajes, respiradores, arneses).
+- **Completitud**: una línea con precio y sin cantidad dice "tiene precio y falta la cantidad" (y cuántas más hay así); los textos hablan de "insumos y materiales" y de "El servicio no usa insumos ni materiales".
+- **Revisión UX y de costos**: el EPP especial arranca "Por mes" aunque cobres por unidad (un arnés dura muchos trabajos); un "Otro gasto" pregunta "¿Cada cuánto lo pagás?" y explica qué hacer con un pago único; el PDF para el cliente dice "Incluye" también con lo cargado aunque no se haya marcado la casilla; los subtotales por tipo se leen como renglones; un insumo nuevo en Recursos arranca como "Insumo o consumible".
+
+### Esquema
+
+- `SCHEMA_VERSION` 10 → **11** (`migrateV10ToV11`): cada insumo o material de Recursos recibe el tipo con que lo usan tus cotizaciones y plantillas, sólo si todas coinciden; si no se usa o hay tipos distintos queda "Sin tipo" (la tabla de Recursos lo marca y hasta elegirlo se lee como Materiales). No cambia ninguna cotización ni plantilla, no borra la cantidad, la base ni el markup guardados y es idempotente. Una pestaña abierta con una versión anterior de RATEOS abre estos datos en sólo lectura hasta recargar.
+
 ## [0.21.1] - 2026-11-23
 
 **Beta pública: reportes, respaldo, privacidad.** Revisión de lanzamiento (project files `beta-publica/`). Sin cambio de esquema del workspace ni de fórmulas: ninguna cotización cambia sus números. Requiere aplicar en Supabase las migraciones `20261123221818` y `20261123223000` y volver a desplegar la Edge Function `bug-report-submit`.

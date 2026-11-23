@@ -217,7 +217,16 @@ export function validateState(state) {
   if (!isPlainObject(state.organization)) errors.push('organization: falta la organización.');
   else if (typeof state.organization.id !== 'string' || state.organization.id === '') errors.push('organization: falta "id".');
   if (!isPlainObject(state.resources)) errors.push('resources: debe ser un objeto.');
-  else RESOURCE_TYPES.forEach((t) => checkEntityList(state.resources[t] ?? [], `resources.${t}`, errors));
+  else {
+    RESOURCE_TYPES.forEach((t) => checkEntityList(state.resources[t] ?? [], `resources.${t}`, errors));
+    // v11 (PLAN-2026-027): tipo opcional de cada material de Recursos.
+    if (Array.isArray(state.resources.materials)) {
+      state.resources.materials.forEach((m, i) => {
+        if (!isPlainObject(m) || m.component === undefined || m.component === null) return;
+        if (typeof m.component !== 'string' || !LINE_COMPONENT_IDS.includes(m.component)) errors.push(`resources.materials[${i}].component: tipo desconocido.`);
+      });
+    }
+  }
   checkEntityList(state.services, 'services', errors, { requireName: 'name' });
   checkEntityList(state.quotes, 'quotes', errors, { requireName: 'name' });
   checkQuoteShapes(state.quotes, errors, state.services);

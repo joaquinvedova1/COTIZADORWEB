@@ -13,7 +13,8 @@ import { vatFinanceForNewQuote } from './vat-finance.js';
 import { emptyBase, normalizeBase, isValidDayDate, isKnownCurrency, dayFromDate } from './economic-base.js';
 import { familyIdOf } from './equipment-catalog.js';
 import { createSnapshot } from './resource-snapshot.js';
-import { contractWithComponents, serviceTypeForContract } from './contract.js';
+import { contractWithComponents, serviceTypeForContract, LINE_COMPONENT_IDS } from './contract.js';
+import { resourceMaterialType } from './material-types.js';
 import { COST_BASIS_TIME } from './cost-basis.js';
 
 /** Configuración por defecto de la organización (valores ILUSTRATIVOS). */
@@ -480,35 +481,89 @@ export function blankEquipmentLine({ acquisition = 'owned', id = createId(), hou
   return line;
 }
 
-/** Línea de material a partir de un ítem de biblioteca. */
+/**
+ * Línea de "Insumos y materiales" a partir de un material de Recursos (PLAN-2026-027, P-03).
+ * El maestro dice QUÉ es (descripción, unidad, tipo), cuánto cuesta y de qué mes es el valor;
+ * CUÁNTO se usa y CADA CUÁNTO son de la cotización: la línea nace con la cantidad vacía (la
+ * completitud avisa "Material sin cantidad") y sin base (la pone quien la agrega, según la
+ * unidad en que se cobra: material-types.defaultMaterialBasis). La cantidad, la base y el
+ * markup de reventa que un material guardado antes todavía tenga NO se copian (un kit "1 por
+ * mes" agregado a una cotización por válvula se leía como 1 por mes; el markup ya no se ofrece).
+ */
 export function materialLineFromLibrary(mat = {}, { id = createId(), now = new Date().toISOString(), currency = CURRENCY } = {}) {
   const line = {
     id,
     sourceId: mat.id ?? null,
     description: mat.description ?? 'Nuevo material',
     unit: mat.unit ?? 'unidad',
-    basis: mat.basis ?? 'per_month',
-    quantity: mat.quantity ?? 1,
+    quantity: null,
     unitCost: mat.unitCost ?? 0,
     wastePct: mat.wastePct ?? 0,
     logisticsPct: mat.logisticsPct ?? 0,
-    resaleMarkupPct: mat.resaleMarkupPct ?? 0,
+    resaleMarkupPct: 0,
     providedBy: mat.providedBy ?? null,
     base: normalizeBase(mat.base, { currency }),
     snapshot: null,
     illustrative: Boolean(mat.illustrative),
   };
+  // El tipo viaja con el material (no entra en la huella económica: cambiarlo no desactualiza nada).
+  const type = resourceMaterialType(mat);
+  if (type) line.component = type;
   line.snapshot = mat.id ? createSnapshot('materials', mat, line, { now }) : null;
   return line;
 }
 
 /**
  * Material nuevo en blanco (V-21): nace con proveedor "Nosotros" (lo habitual),
- * así no queda un pendiente por un dato que casi siempre es el mismo. Las
+ * así no queda un pendiente por un dato que casi siempre es el mismo. Cantidad 1 y
+ * "por mes" (quien la agrega ajusta la base a la unidad en que se cobra). Las
  * líneas guardadas y las de biblioteca no se tocan.
  */
 export function blankMaterialLine(opts = {}) {
-  return { ...materialLineFromLibrary({}, opts), providedBy: 'contractor' };
+  return { ...materialLineFromLibrary({}, opts), basis: 'per_month', quantity: 1, providedBy: 'contractor' };
+}
+
+/** Comportamiento de un gasto cargado antes → base de una línea de la lista. */
+const BEHAVIOR_TO_BASIS = Object.freeze({ fixed_monthly: 'per_month', per_active_day: 'per_active_day', per_activation: 'per_activation', per_output: 'per_output', per_billable_unit: 'per_output' });
+
+/**
+ * "Pasar a la lista" (PLAN-2026-027, decisión D2): un gasto cargado antes (`otherCosts[]`) con
+ * "Va a: Materiales" como línea de "Insumos y materiales" que suma EXACTAMENTE lo mismo:
+ * cantidad 1, unidad "global", costo unitario = monto, sin merma ni logística, lo provee la
+ * empresa y no se factura aparte (aunque la cotización facture materiales aparte: el gasto
+ * nunca se facturaba). El comportamiento pasa a la base equivalente ("fijo mensual" → "por
+ * mes") y se copian el % de unidades que lo usan y la unidad producida. La base económica
+ * lleva la moneda de la cotización y queda SIN período (nunca se inventa una fecha base).
+ * Devuelve null si el gasto no es de la categoría Materiales (el resto se queda donde está).
+ */
+export function otherCostToMaterialLine(o, quote = {}, { id = createId() } = {}) {
+  if (!isPlainObject(o)) return null;
+  // Sólo "Va a: Materiales" explícito (el mismo criterio que el escenario de materiales).
+  if (o.category !== 'materials') return null;
+  const amount = Number(o.amount);
+  const currency = isPlainObject(quote) && isKnownCurrency(quote.currency) ? quote.currency : CURRENCY;
+  const line = {
+    id,
+    sourceId: null,
+    description: typeof o.description === 'string' ? o.description : '',
+    component: LINE_COMPONENT_IDS.includes(o.component) ? o.component : 'other',
+    unit: 'global',
+    basis: BEHAVIOR_TO_BASIS[o.behavior] || 'per_month',
+    quantity: 1,
+    unitCost: Number.isFinite(amount) && amount > 0 ? amount : 0,
+    wastePct: 0,
+    logisticsPct: 0,
+    resaleMarkupPct: 0,
+    providedBy: 'contractor',
+    billedSeparately: false,
+    base: emptyBase({ currency }),
+    snapshot: null,
+    illustrative: o.illustrative === true,
+  };
+  ['usagePct', 'outputUnit', 'outputPerActiveDay'].forEach((k) => {
+    if (o[k] !== undefined) line[k] = deepClone(o[k]);
+  });
+  return line;
 }
 
 export function createVehicle({ id = createId(), name = 'Vehículo', count = 1, consumptionLPer100Km = 0, costPerKm = 0 } = {}) {
@@ -658,6 +713,18 @@ export function createQuoteFromTemplate(template, { organizationId, settings, no
     merged[k] = (Array.isArray(merged[k]) ? merged[k] : []).filter(isPlainObject).map(mark);
   });
   merged.logistics.vehicles = (Array.isArray(merged.logistics.vehicles) ? merged.logistics.vehicles : []).filter(isPlainObject).map(mark);
+  // Una sola lista "Insumos y materiales" (PLAN-2026-027): los gastos de la plantilla que suman en
+  // Materiales pasan a la lista, con el mismo costo. Los que suman en otro renglón quedan como
+  // "Gastos cargados antes". Con "no usa materiales" no se tocan (la lista no sumaría).
+  if (merged.materialsNotApplicable !== true) {
+    const kept = [];
+    merged.otherCosts.forEach((o) => {
+      const line = otherCostToMaterialLine(o, merged);
+      if (line) merged.materials.push(line);
+      else kept.push(o);
+    });
+    merged.otherCosts = kept;
+  }
   const remap = (id) => (typeof id === 'string' && idMap.has(id) ? idMap.get(id) : null);
   merged.equipment = merged.equipment.map((e) => ({
     ...e,

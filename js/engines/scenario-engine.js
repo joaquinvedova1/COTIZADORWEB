@@ -23,7 +23,7 @@ import { vatFinanceOf, withCompanyVatCondition } from '../domain/vat-finance.js'
 export const SENSITIVITY_VARIABLES = Object.freeze([
   { id: 'salariesPct', label: 'Salarios', unit: '%' },
   { id: 'fuelPct', label: 'Combustible', unit: '%' },
-  { id: 'materialsPct', label: 'Materiales', unit: '%' },
+  { id: 'materialsPct', label: 'Insumos y materiales', unit: '%' },
   { id: 'activityPct', label: 'Utilización (días de trabajo)', unit: '%' },
   { id: 'paymentTermDays', label: 'Plazo de pago', unit: 'días' },
   { id: 'commercialDiscountPct', label: 'Descuento comercial', unit: 'puntos' },

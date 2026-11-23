@@ -46,8 +46,8 @@ export function templateContents(service) {
   const lines = [
     [len(d.labor), 'puesto', 'puestos'],
     [len(d.equipment), 'equipo', 'equipos'],
-    [len(d.materials), 'material', 'materiales'],
-    [len(d.otherCosts), 'otro costo', 'otros costos'],
+    [len(d.materials), 'insumo o material', 'insumos y materiales'],
+    [len(d.otherCosts), 'gasto cargado antes', 'gastos cargados antes'],
     [len(isPlainObject(d.logistics) ? d.logistics.vehicles : null), 'vehículo', 'vehículos'],
   ]
     .filter(([n]) => n > 0)
