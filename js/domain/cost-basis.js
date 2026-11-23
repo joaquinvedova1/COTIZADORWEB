@@ -110,6 +110,9 @@ export function resolveUnitHours(quote, activity = {}) {
  */
 export function capMonthlyRunningHours(quote, activity = {}) {
   if (!isPlainObject(quote) || usesTimeBasis(quote) || !Array.isArray(quote.equipment)) return quote;
+  // Sólo cobrando por mes (ahí se ve y se edita el dato) y sólo si el equipo se comparte: "todo el
+  // mes" escrito con el número del placeholder vale lo mismo que el campo vacío.
+  if (billingUnitOf(quote).kind !== 'month') return quote;
   const days = Number(activity.activeDaysPerMonth);
   const dayHours = Number(activity.hoursPerActiveDay);
   if (!(days > 0)) return quote;
@@ -117,11 +120,11 @@ export function capMonthlyRunningHours(quote, activity = {}) {
   const equipment = quote.equipment.map((line) => {
     if (!isPlainObject(line) || line.acquisition === 'rented' || line.acquisition === 'outsourced') return line;
     const assigned = Number(line.assignedHoursPerMonth);
-    if (!(Number.isFinite(assigned) && assigned > 0)) return line;
+    if (!(Number.isFinite(assigned) && assigned > 0) || line.assignment !== 'shared') return line;
     const cap = assigned / days;
     const raw = line.hoursPerActiveDay;
     const blank = raw === null || raw === undefined || raw === '';
-    const running = blank ? (dayHours > 0 ? dayHours : Infinity) : Number(raw);
+    const running = blank ? (dayHours > 0 ? dayHours : 0) : Number(raw);
     if (!(running > cap + 1e-9)) return line;
     changed = true;
     return { ...line, hoursPerActiveDay: cap };

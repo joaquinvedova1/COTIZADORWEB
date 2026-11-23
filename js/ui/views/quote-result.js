@@ -1806,7 +1806,10 @@ function profitStat(v) {
   const unreliable = ok ? unreliableText(v.r.completeness, 'esta ganancia') : null;
   const losing = ok && profit < -1e-6;
   // 0.20.0: la ganancia, primero en la unidad de cobro.
-  const perUnit = ok && !single ? perBilledUnitAmount(v.r, v.q, Math.abs(profit)) : null;
+  // Con abono, guardia, adicionales o mínimo garantizado la ganancia no es "por unidad": se deja la del mes.
+  const rev = est.revenue || {};
+  const plainRevenue = !(Math.abs(Number(rev.otherRevenue) || 0) > 0.005) && !(Math.abs(Number(rev.guaranteeTopUp) || 0) > 0.005);
+  const perUnit = ok && !single && !covered && plainRevenue ? perBilledUnitAmount(v.r, v.q, Math.abs(profit)) : null;
   let hint;
   if (!ok) hint = statHint(hasRate(k) ? 'Sin facturación no hay ganancia.' : 'Sin tarifa no hay ganancia.');
   else if (unreliable) hint = statHint(h('strong', { class: 'qr-unreliable-note' }, unreliable));
@@ -3910,7 +3913,7 @@ function deepDefinitions(v) {
     {
       key: 'eecc',
       summary: '¿En qué se va el costo?',
-      hint: `Los rubros del costo ${closedOf(v).single ? 'del trabajo' : 'del mes'} y la estructura de costos completa (EECC).`,
+      hint: `Los rubros del costo ${closedOf(v).single ? 'del trabajo' : perBilledUnitAmount(v.r, v.q, v.k.totalCost) !== null ? `por ${unitNoun(v)}` : 'del mes'} y la estructura de costos completa.`,
       build: () => {
         const e = v.r.eecc || {};
         const breakdown = safeSection('¿En qué se va el costo?', () => renderCostBreakdown(v));

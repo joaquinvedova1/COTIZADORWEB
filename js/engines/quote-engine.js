@@ -413,6 +413,19 @@ export function computeQuote(quoteInput = {}, { settings = {}, listRateOverride 
         severity: 'warning',
       });
     });
+    // 0.20.0: un vehículo que llega por sus medios y además suma horas de uso puede contar el viaje
+    // dos veces (por hora y por km). Sólo avisa; qué horas son de viaje lo decide quien cotiza.
+    const routeKm = nonNegative(quote.logistics && quote.logistics.distanceKm);
+    (Array.isArray(quote.equipment) ? quote.equipment : []).forEach((e, i) => {
+      if (!e || e.acquisition === 'rented' || e.acquisition === 'outsourced') return;
+      const line = model.equipment[i];
+      if (!(routeKm > 0) || !e.mobilization || e.mobilization.mode !== 'self' || !line || !(line.variablePerActiveDay > 0.005)) return;
+      issues.push({
+        path: `equipment.${i}.hoursPerActiveDay`,
+        message: `"${e.name || 'Equipo'}": suma ${formatNumber(line.hoursPerActiveDay, { decimals: 2 })} h por día de uso (combustible y mantenimiento por hora) y además el traslado por km. Si esas horas incluyen el viaje, o el vehículo sólo lleva gente y queda estacionado, bajá las "Horas con el motor andando" (0 = sólo viaja).`,
+        severity: 'warning',
+      });
+    });
   }
   const ctx = createEconomicsContext(quote, model, { referenceHourPrice, referenceHourCost: resourceNormalHourCost(model.outOfHours) });
   issues.push(...unitIssues(quote, ctx));

@@ -668,7 +668,8 @@ export function costPlaceLabel(r, quote, what) {
   const info = quote ? billingUnitOf(quote) : null;
   const units = r && r.estimate && r.estimate.revenue ? r.estimate.revenue.billableUnits : null;
   if (!info || isClosedPrice(r) || info.kind === 'month' || !(Number.isFinite(units) && units > 1e-9)) return `${what} en el costo del mes`;
-  return `${what} en el costo por ${info.singular || 'unidad'}`;
+  // El valor ya dice "por válvula · por mes": el rótulo no lo repite.
+  return `${what} en el costo`;
 }
 
 /** "trabajo" / "mes" para rótulos ("Costo del equipo en el trabajo"): trabajo sólo con trabajos cargados. */

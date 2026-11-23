@@ -935,7 +935,8 @@ export function render(container, ctx) {
         // 0.18.0 (Joaco, 2026-11-20): primero las horas del equipo en el trabajo (o en el mes, si
         // se cobra por mes); con ellas y el valor de su hora sale lo que cuesta tenerlo.
         timeBasis ? (assignedKey(line) === 'assignedHoursPerUnit' ? unitField() : jobHoursField()) : monthField(),
-        vehicle || timeBasis ? null : hoursField(),
+        // 0.20.0: en un vehículo por tiempo usado las horas con el motor andando van a la vista (0 = sólo viaja).
+        vehicle ? (timeBasis ? hoursField() : null) : (timeBasis ? null : hoursField()),
         // Sin "Cantidad" (Joaco, 2026-11-20): si hay otro equipo igual, se agrega otra vez. Una línea con otra cantidad la sigue mostrando.
         line.quantity !== null && line.quantity !== undefined && line.quantity !== '' && Math.abs(Number(line.quantity) - 1) < 1e-9 ? null : kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true, hint: 'Cargada antes. Para sumar otro equipo igual, agregalo otra vez.' }),
         operatorField(i),
@@ -1034,7 +1035,7 @@ export function render(container, ctx) {
           },
         },
         // 0.19.0: una sola pregunta a la vista; de qué horas sale el valor hora y el motor andando, acá.
-        timeBasis ? kit.group('Valor hora', formGrid(3, billableField(), hoursField())) : null,
+        timeBasis ? kit.group('Valor hora', formGrid(3, billableField(), vehicle ? null : hoursField())) : null,
         fromResource
           ? h('p', { class: 'qe-note' }, 'Estos datos se cargan una sola vez en ', h('a', { href: '#/recursos' }, 'Recursos'), '. Si los cambiás acá, cambian sólo en esta cotización.')
           : null,

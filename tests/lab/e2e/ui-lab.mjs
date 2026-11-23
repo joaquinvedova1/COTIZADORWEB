@@ -32,6 +32,7 @@ import { createStaticServer } from '../../../scripts/serve.mjs';
 import { computeQuote } from '../../../js/engines/quote-engine.js';
 import { formatMoney, formatMoneyCeil, formatNumber } from '../../../js/core/format.js';
 import { fieldHref } from '../../../js/ui/field-links.js';
+import { perBilledUnitAmount } from '../../../js/ui/result-text.js';
 import { cot0010Quote } from '../../fixtures/cot-0010.js';
 import { service, person, owned, external, material, product, ingredient, worker, fixedCost } from '../lib/build.js';
 import { computeProduct } from '../../../js/engines/product-engine.js';
@@ -220,6 +221,11 @@ if (!outDir.startsWith(ROOT + path.sep)) throw new Error('--out tiene que quedar
 mkdirSync(outDir, { recursive: true });
 
 const results = [];
+/** Costo que muestra el resumen en vivo: en la unidad de cobro si aplica (0.20.0); si no, el del mes. */
+const summaryCostOf = (r, q) => {
+  const per = perBilledUnitAmount(r, q, r.kpis.totalCost);
+  return formatMoney(per !== null ? per : r.kpis.totalCost);
+};
 const norm = (s) => String(s || '').replace(/[  ]/g, ' ').replace(/\s+/g, ' ').trim();
 
 async function runMode(mode) {
@@ -328,7 +334,8 @@ async function runMode(mode) {
       };
       return { cost: read('totalCost'), rate: read('commercialRate') };
     });
-    check(s.id, 'resumen en vivo: costo del mes = motor', norm(summary.cost) === norm(money), `resumen "${norm(summary.cost)}" · motor "${money}"`);
+    // 0.20.0: por hora, día o unidad el resumen dice el costo en la unidad de cobro (lo del mes ÷ unidades).
+    check(s.id, 'resumen en vivo: costo = motor (en la unidad de cobro)', norm(summary.cost).startsWith(norm(summaryCostOf(r, q))), `resumen "${norm(summary.cost)}" · motor "${summaryCostOf(r, q)}"`);
     if (rate) check(s.id, 'resumen en vivo: tarifa = motor', norm(summary.rate).includes(norm(rate)), `resumen "${norm(summary.rate)}" · motor "${rate}"`);
     await scan(s.id, 'editor');
 
@@ -354,7 +361,8 @@ async function runMode(mode) {
 
     // Viajes facturables ≠ viajes físicos ≠ días ≠ km (unidad "viaje", PLAN-2026-012): cada magnitud con su nombre y su valor.
     if (q.unit === 'trip' && !(q.logistics && q.logistics.notApplicable) && r.model.transport.kmPerTrip > 0) {
-      await go(`#/cotizaciones/${encodeURIComponent(q.id)}/modality`, 300);
+      // 0.20.0: el ritmo (y sus viajes y km) se carga en el paso 1.
+      await go(`#/cotizaciones/${encodeURIComponent(q.id)}/service`, 300);
       await page.waitForSelector('[data-kpi="totalCost"]', { timeout: 8000 }).catch(() => {});
       await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
       // Sin las ayudas (i) (se leen al pasar el cursor): rótulo y valor quedan vecinos.
@@ -451,8 +459,8 @@ async function runMode(mode) {
     check(id, 'ECO-01: el PDF imprime "RESULTADO NO CONFIABLE" antes del margen', at >= 0 && marginAt > at, `aviso en ${at}, margen en ${marginAt}`);
   };
   {
-    const t = await screenText('E2E-11', 'modality');
-    check('E2E-11', 'D1: "Cómo se cobra" muestra salidas promedio, costeadas y el efecto del redondeo', /Salidas promedio por mes: 0,5/.test(t) && /salidas costeadas: 0,5/.test(t) && /efecto del redondeo/i.test(t), 'faltan los tres números');
+    const t = await screenText('E2E-11', 'service');
+    check('E2E-11', 'D1: el paso 1 muestra salidas promedio, costeadas y el efecto del redondeo', /Salidas promedio por mes: 0,5/.test(t) && /salidas costeadas: 0,5/.test(t) && /efecto del redondeo/i.test(t), 'faltan los tres números');
     check('E2E-11', 'D1: la casilla se llama "Cada salida se cuenta completa"', t.includes('Cada salida se cuenta completa'), 'no aparece el rótulo');
   }
   {
@@ -469,12 +477,12 @@ async function runMode(mode) {
     check('E2E-14', 'D7: el precio de ejemplo se ve ILUSTRATIVO, con su base, y se puede confirmar', confirm && /ILUSTRATIVO de ejemplo/.test(t) && /Base no definida|mes de la oferta/.test(t), `confirmar: ${confirm}`);
   }
   {
-    const t = await screenText('E2E-15', 'modality');
+    const t = await screenText('E2E-15', 'service');
     const at = t.search(/Km facturables/);
     check('E2E-15', 'D4: km facturables y km de ruta por separado', /Km facturables\s*2\.400 km/.test(t) && /Km de ruta por mes\s*2\.400 km/.test(t), `no aparecen los dos: …${at >= 0 ? t.slice(Math.max(0, at - 80), at + 220) : 'sin "Km facturables"'}…`);
   }
   {
-    const t = await screenText('E2E-16', 'modality');
+    const t = await screenText('E2E-16', 'service');
     check('E2E-16', 'D8: on-call nombra la activación "llamado" (y nunca "salida")', t.includes('¿Cómo son los llamados?') && !/\bsalidas?\b/i.test(t.replace(/salidas? de caja/gi, '')), 'mezcla nombres');
   }
   // ---- ECO-01 (AUD-T1 H-01, H-02, H-03): lo que se ve en pantalla y los botones de cada aviso.
@@ -491,8 +499,8 @@ async function runMode(mode) {
       cost: (document.querySelector('[data-kpi="totalCost"] .qe-sum-full') || {}).textContent,
       banner: Boolean([...document.querySelectorAll('.qe-unit-confirm')].find((b) => !b.hidden)),
     }));
-    const expected = formatMoney(byId['E2E-18'].r.kpis.totalCost);
-    check('E2E-17', 'H-01: el botón "Por viaje completo" cambia la unidad, el costo es el del motor y el aviso se va', after.unit === 'trip:round_trip' && norm(after.cost) === norm(expected) && !after.banner, `${JSON.stringify(after)} · motor ${expected}`);
+    const expected = summaryCostOf(byId['E2E-18'].r, byId['E2E-18'].q);
+    check('E2E-17', 'H-01: el botón "Por viaje completo" cambia la unidad, el costo es el del motor y el aviso se va', after.unit === 'trip:round_trip' && norm(after.cost).startsWith(norm(expected)) && !after.banner, `${JSON.stringify(after)} · motor ${expected}`);
     // Vuelve a "Por salida" y confirma: el aviso se va y el costo vuelve al de "por salida".
     await page.selectOption('select[name="equipment.0.external.unit"]', 'activation');
     await page.waitForTimeout(900);
@@ -502,7 +510,7 @@ async function runMode(mode) {
       text: document.body.textContent,
       cost: (document.querySelector('[data-kpi="totalCost"] .qe-sum-full') || {}).textContent,
     }));
-    check('E2E-17', 'H-01: "Sí, cobra por salida" deja la confirmación a la vista y el costo de siempre', /Confirmado: el proveedor cobra por salida/.test(confirmed.text) && norm(confirmed.cost) === norm(formatMoney(byId['E2E-17'].r.kpis.totalCost)), norm(confirmed.cost));
+    check('E2E-17', 'H-01: "Sí, cobra por salida" deja la confirmación a la vista y el costo de siempre', /Confirmado: el proveedor cobra por salida/.test(confirmed.text) && norm(confirmed.cost).startsWith(norm(summaryCostOf(byId['E2E-17'].r, byId['E2E-17'].q))), norm(confirmed.cost));
     // Confirmación ligada al supuesto: con 3 viajes por salida ya no vale y vuelve el crítico.
     // Por el enlace al campo de la app (abre el desplegable donde está).
     await go(fieldHref(byId['E2E-17'].q.id, 'logistics.tripsPerActivation').replace(/^.*#/, '#'), 600);

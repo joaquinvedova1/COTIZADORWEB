@@ -163,8 +163,6 @@ describe('U8–U12 · textos', () => {
     assert.equal(v.equipmentLabel, 'Vehículos');
     assert.equal(v.otherLabel, 'Combustible y viajes');
     assert.equal(chosenResourceRows({}).otherLabel, 'Materiales, combustible y viajes');
-    const m = code('js/ui/views/quote-steps/modality.js');
-    assert.match(m, /Los costos se calculan con los días de trabajo; el precio, \$\{perText\(info\)\}\./);
   });
 
   test('U11: unidad de cobro definida; tarifa del mes', () => {

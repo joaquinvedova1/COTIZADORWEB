@@ -459,9 +459,6 @@ export function render(container, ctx) {
       `Cobrás por ${info.singular || 'unidad'}. `,
       h('a', { href: ctx.href('service') }, `Se cambia en «${stepName('service')}»`),
       '.'),
-    byQuantity
-      ? h('p', { class: 'qe-note' }, `Los costos se calculan con los días de trabajo; el precio, ${perText(info)}.`)
-      : null,
     knownRate
       ? formGrid(
         2,
@@ -993,7 +990,6 @@ export function render(container, ctx) {
   const rhythmSummary = card(
     { className: 'qe-rhythm-summary' },
     byQuantity ? quantityKeyline : daysKeyline,
-    h('p', { class: 'qe-note' }, h('a', { href: ctx.href('service') }, `Se cambia en «${stepName('service')}»`), '.'),
   );
 
   // ------------------------------------------------------------------------------------

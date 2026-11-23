@@ -838,3 +838,8 @@
 .qe-unit-first .form-grid { margin-top: 4px; }
 .qe-quoted-item { margin: 0; font-size: 1rem; }
 .qe-component-section .qe-toolbar { margin-top: 8px; }
+
+/* 0.20.0: el ritmo de trabajo en el paso 1, como una tarjeta más (título chico, con aire). */
+.qe-rhythm-card .qe-question { margin-bottom: 14px; }
+.qe-rhythm-card .qe-question-title { font-size: var(--fs-lg); font-weight: 600; letter-spacing: 0; }
+.qe-rhythm-card .qe-keyline { margin-bottom: 12px; }

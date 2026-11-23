@@ -28,16 +28,23 @@ test('abono por mes: hidrogrúa asignada 20 h por mes usa 20 h, no 22 días × 9
 });
 
 test('abono por mes: horas de uso más bajas que el tope se respetan; sin horas asignadas no cambia nada', () => {
-  const low = monthly([crane({ hoursPerActiveDay: 0.5, assignedHoursPerMonth: 20 })]);
+  const low = monthly([crane({ hoursPerActiveDay: 0.5, assignedHoursPerMonth: 20, assignment: 'shared', fixedCostSharePct: 10 })]);
   assert.equal(capMonthlyRunningHours(low, { activeDaysPerMonth: 22, hoursPerActiveDay: 9 }), low);
   const none = monthly([crane({ hoursPerActiveDay: 9 })]);
   assert.equal(capMonthlyRunningHours(none, { activeDaysPerMonth: 22, hoursPerActiveDay: 9 }), none);
   // Horas de uso vacías: valen el día de servicio, y también se topean.
-  const blank = monthly([crane({ hoursPerActiveDay: null, assignedHoursPerMonth: 44 })]);
+  const blank = monthly([crane({ hoursPerActiveDay: null, assignedHoursPerMonth: 44, assignment: 'shared', fixedCostSharePct: 22 })]);
   near(capMonthlyRunningHours(blank, { activeDaysPerMonth: 22, hoursPerActiveDay: 9 }).equipment[0].hoursPerActiveDay, 2);
   // Alquilado o por tiempo usado: no aplica. No muta la cotización.
   const rented = monthly([{ ...crane({ assignedHoursPerMonth: 20, hoursPerActiveDay: 9 }), acquisition: 'rented' }]);
   assert.equal(capMonthlyRunningHours(rented, { activeDaysPerMonth: 22, hoursPerActiveDay: 9 }), rented);
+  // "Todo el mes" escrito con número (reservado) y otra unidad de cobro: no se topea.
+  const whole = monthly([crane({ hoursPerActiveDay: 9, assignedHoursPerMonth: 81, assignment: 'reserved' })]);
+  assert.equal(capMonthlyRunningHours(whole, { activeDaysPerMonth: 22, hoursPerActiveDay: 9 }), whole);
+  const byDay = { ...monthly([crane({ hoursPerActiveDay: 9, assignedHoursPerMonth: 20, assignment: 'shared', fixedCostSharePct: 10 })]), unit: 'day' };
+  assert.equal(capMonthlyRunningHours(byDay, { activeDaysPerMonth: 22, hoursPerActiveDay: 9 }), byDay);
+  // Sin horas de servicio cargadas el uso sigue en 0.
+  assert.equal(capMonthlyRunningHours(blank, { activeDaysPerMonth: 22, hoursPerActiveDay: 0 }), blank);
   const before = JSON.stringify(blank);
   computeQuote(blank);
   assert.equal(JSON.stringify(blank), before);
@@ -66,7 +73,7 @@ test('una cifra del mes se dice primero en la unidad de cobro', () => {
   const q = { unit: 'custom', unitName: 'válvula' };
   assert.equal(perBilledUnitAmount(r, q, 4000000), 100000);
   assert.equal(unitAmountText(r, q, 4000000).replace(/ /g, ' '), '$ 100.000 por válvula · $ 4.000.000 por mes');
-  assert.equal(costPlaceLabel(r, q, 'Equipos'), 'Equipos en el costo por válvula');
+  assert.equal(costPlaceLabel(r, q, 'Equipos'), 'Equipos en el costo');
   // Por mes o sin unidades cargadas: como siempre, por mes.
   assert.equal(perBilledUnitAmount(r, { unit: 'month' }, 4000000), null);
   assert.equal(costPlaceLabel(r, { unit: 'month' }, 'Equipos'), 'Equipos en el costo del mes');
