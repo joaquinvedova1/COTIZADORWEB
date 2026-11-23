@@ -34,7 +34,7 @@ import { formatMoney, formatMoneyCeil, formatNumber } from '../../../js/core/for
 import { fieldHref } from '../../../js/ui/field-links.js';
 import { perBilledUnitAmount } from '../../../js/ui/result-text.js';
 import { cot0010Quote } from '../../fixtures/cot-0010.js';
-import { service, person, owned, external, material, product, ingredient, worker, fixedCost } from '../lib/build.js';
+import { service, person, owned, external, material, otherCost, product, ingredient, worker, fixedCost } from '../lib/build.js';
 import { computeProduct } from '../../../js/engines/product-engine.js';
 import { assertSafeReport } from '../lib/report.js';
 import { createDb, installSupabaseMock, SUPA } from './supabase-mock.mjs';
@@ -98,7 +98,7 @@ export const E2E_SCENARIOS = [
     build: () => service({ id: 'lab-e05', serviceType: 'crew', unit: 'hour', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 0 }, labor: [person()] }),
   },
   {
-    id: 'E2E-06', title: 'Material con precio y cantidad 0 (LAB-F8)',
+    id: 'E2E-06', title: 'Insumo con precio y cantidad 0 en la lista de insumos y materiales (LAB-F8)',
     build: () => service({ id: 'lab-e06', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], materials: [material({ description: 'Electrodos', basis: 'per_active_day', quantity: 0, unitCost: 18000 })] }),
   },
   {
@@ -118,7 +118,7 @@ export const E2E_SCENARIOS = [
     },
   },
   {
-    id: 'E2E-10', title: 'Avisos informativos: puesto sin posiciones y materiales ignorados (LAB-F9)',
+    id: 'E2E-10', title: 'Avisos informativos: puesto sin posiciones e insumos y materiales sin sumar (LAB-F9)',
     build: () => {
       const q = service({ id: 'lab-e10', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person({ role: 'Oficial' }), person({ role: 'Ayudante', positions: 0, basicMonthly: 1200000 })], materials: [material({ description: 'Pintura', quantity: 10, unitCost: 20000 })] });
       q.materialsNotApplicable = true;
@@ -190,6 +190,31 @@ export const E2E_SCENARIOS = [
     build: () => service({
       id: 'lab-e22', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()],
       finance: { vat: { applies: true, ratePct: 21, payLagDays: 20 } },
+    }),
+  },
+  // ---- 0.22.0 "Una sola lista Insumos y materiales" (PLAN-2026-027; en el plan, E2E-21/22/23).
+  {
+    id: 'E2E-23', title: 'Insumo con tipo creado en Recursos y agregado a una cotización por válvula: nace "Por válvula", sin cantidad y con su tipo',
+    build: () => {
+      const q = service({
+        id: 'lab-e23', serviceType: 'per_unit', unit: 'custom', unitName: 'válvula',
+        activity: { billableQuantityPerMonth: 40, unitsPerActiveDay: 4, daysPerActivation: 0.25, hoursPerActiveDay: 9 },
+        labor: [person({ role: 'Técnico de válvulas' })], materials: [],
+      });
+      q.materialsNotApplicable = false;
+      return q;
+    },
+  },
+  {
+    id: 'E2E-24', title: '"¿Qué incluye?" con 4 casillas: Personal, Equipos y vehículos, Insumos y materiales y Viajes',
+    build: () => service({ id: 'lab-e24', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()] }),
+  },
+  {
+    id: 'E2E-25', title: 'Gasto cargado antes que suma en Mano de obra: se ve en "Gastos cargados antes" y suma igual en resumen, Resultado y PDF',
+    build: () => service({
+      id: 'lab-e25', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 15 }, labor: [person({ role: 'Soldador' })],
+      materials: [material({ description: 'Electrodos', component: 'supplies', basis: 'per_active_day', quantity: 2, unitCost: 9000 })],
+      otherCosts: [otherCost({ description: 'Seguro de vida obligatorio', category: 'labor', behavior: 'fixed_monthly', amount: 90000 })],
     }),
   },
 ];
@@ -579,6 +604,75 @@ async function runMode(mode) {
     check('E2E-22', 'K-03: Financiación dice cuánto cuesta por mes adelantar el IVA (monto del motor)', fin.includes('Adelantar el IVA te cuesta') && fin.includes(norm(formatMoney(k.vatFinance))) && fin.includes('Ya está en la tarifa sugerida'), `motor ${formatMoney(k.vatFinance)}`);
     const res = await screenText('E2E-22', 'result');
     check('E2E-22', 'K-03: la composición del precio tiene "Costo financiero del IVA" con el monto del motor', res.includes('Costo financiero del IVA') && res.includes(norm(formatMoney(k.vatFinance))), `motor ${formatMoney(k.vatFinance)}`);
+  }
+  {
+    // E2E-23 (PLAN-2026-027, P-03): el maestro no trae cantidad ni base. Se crea en Recursos (con su
+    // tipo), se agrega a la cotización por válvula y nace "Por válvula", sin cantidad y con el tipo.
+    const NAME = 'Kit de juntas E2E';
+    await go('#/recursos/materiales', 900);
+    await tap(page.getByRole('button', { name: 'Agregar insumo o material' }).first());
+    const dlg = page.locator('dialog[open]').last();
+    await dlg.waitFor({ timeout: 4000 }).catch(() => {});
+    const formFields = await dlg.evaluate((d) => [...d.querySelectorAll('label')].map((l) => l.textContent.trim()));
+    check('E2E-23', 'Recursos: el formulario no pide cantidad, frecuencia ni markup', !formFields.some((t) => /^(Cantidad|Base|Markup|¿Cada cuánto)/i.test(t)), formFields.join(' · '));
+    await dlg.getByLabel('Descripción', { exact: true }).fill(NAME);
+    await dlg.getByLabel('Tipo', { exact: true }).selectOption({ label: 'Insumo o consumible' });
+    await page.waitForTimeout(200);
+    await dlg.getByLabel('Unidad', { exact: true }).selectOption('juego');
+    await page.waitForTimeout(200);
+    const cost = dlg.getByLabel(/^Costo unitario/).first();
+    await cost.fill('15000');
+    await cost.press('Tab');
+    await tap(dlg.getByRole('button', { name: 'Guardar' }));
+    await page.waitForTimeout(1200);
+    const listed = norm(await page.evaluate(() => document.body.innerText));
+    check('E2E-23', 'Recursos: el insumo queda en la lista con su tipo', listed.includes(NAME) && /Insumo o consumible|Insumos y consumibles/.test(listed), 'no aparece');
+
+    const qid = byId['E2E-23'].q.id;
+    await go(`#/cotizaciones/${encodeURIComponent(qid)}/materials`, 900);
+    await page.waitForSelector('.qe-materials-add', { timeout: 8000 }).catch(() => {});
+    const picker = page.locator('.qe-materials-add select').first();
+    await picker.selectOption({ label: NAME });
+    await tap(page.locator('.qe-materials-add').getByRole('button', { name: 'Agregar', exact: true }).first());
+    await page.waitForTimeout(1000);
+    const born = await page.evaluate(() => {
+      const basis = document.querySelector('select[name="materials.0.basis"]');
+      const qty = document.querySelector('[name="materials.0.quantity"]');
+      const type = document.querySelector('select[name="materials.0.component"]');
+      return {
+        basis: basis ? basis.value : null,
+        basisText: basis && basis.selectedOptions[0] ? basis.selectedOptions[0].textContent.trim() : null,
+        qty: qty ? qty.value : null,
+        type: type ? type.value : null,
+      };
+    });
+    check('E2E-23', 'nace "Por válvula", con la cantidad vacía y el tipo de Recursos', born.basis === 'per_output' && born.basisText === 'Por válvula' && born.qty === '' && born.type === 'supplies', JSON.stringify(born));
+    const qty = page.locator('[name="materials.0.quantity"]').first();
+    await qty.scrollIntoViewIfNeeded().catch(() => {});
+    await qty.fill('2');
+    await qty.press('Tab');
+    await page.waitForTimeout(1000);
+    const card = norm(await page.evaluate(() => (document.querySelector('.qe-lines') || {}).textContent || ''));
+    check('E2E-23', 'con cantidad 2, la línea cuesta 2 × $ 15.000 por válvula', card.includes(norm(`${formatMoney(30000)} por válvula`)), card.slice(0, 300));
+  }
+  {
+    // E2E-24: "¿Qué incluye?" en 4 bloques (decisión D4), en escritorio y en celular.
+    await screenText('E2E-24', 'service');
+    const boxes = await page.evaluate(() => [...document.querySelectorAll('input[name="contractComponents"]')].map((i) => {
+      const label = i.closest('label') || document.querySelector(`label[for="${i.id}"]`);
+      const r = i.getBoundingClientRect();
+      return { value: i.value, label: label ? label.textContent : '', shown: r.width > 0 && r.height > 0 };
+    }));
+    check('E2E-24', '4 casillas en "¿Qué incluye?"', boxes.length === 4 && boxes.map((b) => b.value).join(',') === 'labor,equipment,materials,travel', JSON.stringify(boxes.map((b) => b.value)));
+    check('E2E-24', 'las casillas se llaman Personal, Equipos y vehículos, Insumos y materiales y Viajes', ['Personal', 'Equipos y vehículos', 'Insumos y materiales', 'Viajes'].every((l, i) => boxes[i] && boxes[i].label.includes(l)), boxes.map((b) => norm(b.label).slice(0, 40)).join(' · '));
+    await scan('E2E-24', '¿Qué incluye?');
+  }
+  {
+    // E2E-25 (decisión D2): los otros costos guardados siguen sumando igual y se ven como "Gastos cargados antes".
+    const t = await screenText('E2E-25', 'materials');
+    check('E2E-25', 'el paso muestra "Gastos cargados antes" con el gasto y dónde suma', t.includes('Gastos cargados antes') && t.includes('Suma en: Personal (cargado antes)'), 'no aparece el bloque');
+    const move = await page.evaluate(() => [...document.querySelectorAll('.qe-legacy-costs button')].filter((b) => /Pasar a la lista/.test(b.textContent)).length);
+    check('E2E-25', 'un gasto que suma en Personal no se puede "Pasar a la lista"', move === 0, `${move} botones`);
   }
   {
     const pr = computeProduct(structuredClone(prod));

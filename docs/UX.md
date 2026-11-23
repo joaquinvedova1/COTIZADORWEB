@@ -79,7 +79,7 @@ Los 11 pasos internos siguen existiendo (y sus URLs), agrupados en **6 etapas** 
 | Etapa | Pasos internos |
 |---|---|
 | 1. El servicio | Qué servicio es y qué incluye |
-| 2. Los recursos | Personal (con su costo por mes, hora normal, hora extra 50 % y 100 %), equipos (amortización y mantenimiento a la vista), materiales, movilización y viajes |
+| 2. Los recursos | Personal (con su costo por mes, hora normal, hora extra 50 % y 100 %), equipos (amortización y mantenimiento a la vista), insumos y materiales, movilización y viajes |
 | 3. Cómo se cobra | Lo que cuestan los recursos, unidad y actividad en horario normal, dedicación, fuera de horario (opcional), guardia (opcional), adicionales |
 | 4. Costos y condiciones | Gastos de estructura, financiamiento, imprevistos |
 | 5. El precio | Margen, impuestos sobre lo que facturás y reglas comerciales |
@@ -99,6 +99,8 @@ Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, dí
 - **Equipos**: "¿Cómo lo obtenés?" (Propio / Alquilado / Tercerizado) cambia la ficha: un propio muestra valor de reposición, vida útil y consumo (lo demás en "Opciones avanzadas"); un externo muestra proveedor, tarifa neta, unidad, mínimo, vigencia y "¿Qué incluye la tarifa?"; el tratamiento fiscal queda en un desplegable con su resumen ("IVA 21 % · sí, lo recupero"). "Operador (de Personal)" vincula el puesto que lo opera.
 - **Movilización y viajes**: primero "¿Cómo llega cada equipo al lugar del servicio?" (una fila por equipo, con km, litros y $ por llamado y "Ver cálculo"); después "Logística auxiliar: vehículos de apoyo y de personal", con la advertencia de no cargar dos veces un equipo que ya se moviliza solo.
 - **Tipo de servicio**: "Base económica de la oferta" con la fecha de la oferta, la base por rubro, las advertencias y los tipos de cambio de la cotización.
+
+**Insumos y materiales** (0.22.0, PLAN-2026-027): una sola lista, sin secciones. Cada línea tiene un **Tipo** junto a "¿Qué es?" (Material que queda en la obra, Insumo o consumible, Herramienta menor, EPP especial, Otro gasto) que viene de Recursos; si no coincide con el de Recursos, la línea lo dice y ofrece "Usar el de Recursos" o "Guardar este tipo en Recursos". Arriba: "Desde tus recursos" + Agregar (nace con la cantidad vacía y "Por válvula" / "Por mes" según la unidad de cobro) y "Tipo" + "Agregar en blanco" (empieza en "Insumo o consumible" y recuerda el último de la sesión). Debajo, el subtotal por tipo. Los otros costos guardados con versiones anteriores se ven sólo si existen, en **"Gastos cargados antes"**, con "Suma en: …" y, los que suman en este renglón, el botón "Pasar a la lista". Ya no hay "Va a" ni "Categoría". "¿Qué incluye?" (paso 1) tiene 4 casillas: Personal, Equipos y vehículos, Insumos y materiales y Viajes. La ropa de trabajo y el EPP básico de cada persona siguen en su puesto (Personal).
 
 ### Resultado
 
