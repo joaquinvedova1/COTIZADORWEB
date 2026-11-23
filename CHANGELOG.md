@@ -12,6 +12,15 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-11-23
+
+Textos y pantalla, sin cambio de cálculos (observaciones del dueño sobre la 0.20.0).
+
+### Cambiado
+
+- **Movilización y viajes · detalle**: cada bloque se muestra sólo si tiene algo ("Vehículos y equipos que van por sus medios", "Vehículos cargados por km, peajes y alojamiento") y ya no llevan letras A / B / C. Un bloque en $ 0 hacía pensar que la camioneta no estaba contada.
+- **Equipos · valor hora**: la pregunta es "¿Cuántas horas por mes trabaja, entre todos tus trabajos?" y la ayuda aclara que no es un costo más: es con cuántas horas se reparte el costo del mes del equipo.
+
 ## [0.20.0] - 2026-11-23
 
 **La cotización en la unidad de cobro (primera tanda de la evaluación contra la ruta).** El ritmo de trabajo se pregunta apenas se elige la unidad, las pantallas y el Resultado dicen cada cifra primero en la unidad de cobro, y se corrigen dos errores de costo. Sin cambio de esquema. Reglas: docs/CALCULATION_RULES.md §36.3.
