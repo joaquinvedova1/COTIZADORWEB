@@ -25,7 +25,7 @@ export const MATERIAL_TYPES = deepFreeze([
   { id: 'materials', label: 'Material que queda en la obra', short: 'Materiales', hint: 'Lo que queda en la obra: caños, cables, pintura.', example: 'Ej.: caño, cable, pintura' },
   { id: 'supplies', label: 'Insumo o consumible', short: 'Insumos y consumibles', hint: 'Lo que se gasta al trabajar: electrodos, discos, gas, filtros, químicos, repuestos que se consumen.', example: 'Ej.: electrodos, juntas, gas, filtros' },
   { id: 'tools', label: 'Herramienta menor (reposición)', short: 'Herramientas', hint: 'Lo que gastás en reponerlas (no el precio de compra entero). Si dura años y vale mucho, cargala en Equipos.', example: 'Ej.: amoladora, llaves, discos de corte' },
-  { id: 'ppe', label: 'EPP especial', short: 'EPP especial', hint: 'Sólo el EPP especial del trabajo (trajes, respiradores, arneses). La ropa de trabajo y el EPP básico de cada persona van en su puesto, en Personal.', example: 'Ej.: traje descartable, arnés, respirador' },
+  { id: 'ppe', label: 'EPP especial', short: 'EPP especial', hint: 'Sólo el EPP especial del trabajo (trajes, respiradores, arneses). La ropa de trabajo y el EPP básico de cada persona van en su puesto, en Personal. Si dura varios trabajos, cargá la parte que le toca a éste.', example: 'Ej.: traje descartable, arnés, respirador' },
   { id: 'other', label: 'Otro gasto', short: 'Otros gastos', hint: 'Permisos, seguros del trabajo, disposición de residuos, ingeniería.', example: 'Ej.: permiso, seguro del trabajo, residuos' },
 ]);
 
@@ -73,13 +73,14 @@ function isClosedQuote(q) {
  * sabe en qué unidad se cobra cada cotización (un kit "por mes" agregado a una cotización por
  * válvula se leía como 40 kits por mes).
  *   precio cerrado o unidad de evento (llamado, trabajo, hito) → per_activation
- *   unidad de cantidad (válvula, m³, viaje…)                    → per_output (herramientas y otros gastos → per_month)
+ *   unidad de cantidad (válvula, m³, viaje…)                    → per_output (herramientas, EPP especial y otros gastos → per_month)
  *   el resto (mes, día, hora)                                   → per_month
  */
 export function defaultMaterialBasis(quote = {}, type = DEFAULT_BLANK_TYPE) {
   const q = isPlainObject(quote) ? quote : {};
   const kind = billingUnitOf(q).kind;
   if (isClosedQuote(q) || kind === 'event') return 'per_activation';
-  if (kind === 'quantity') return type === 'tools' || type === 'other' ? 'per_month' : 'per_output';
+  // EPP especial (arnés, respirador) dura varios trabajos: arranca por mes, como herramientas (revisión 0.22.0).
+  if (kind === 'quantity') return type === 'tools' || type === 'other' || type === 'ppe' ? 'per_month' : 'per_output';
   return 'per_month';
 }

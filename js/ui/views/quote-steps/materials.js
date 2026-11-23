@@ -445,13 +445,18 @@ export function render(container, ctx) {
         ),
         typeNote(line, i),
         // 2 · Cuánto usás: cantidad, en qué unidad y cada cuánto ("2 · unidad · por diagnóstico").
-        h('p', { class: 'qe-material-step' }, '¿Cuánto usás?'),
+        h('p', { class: 'qe-material-step' }, component === 'other' ? '¿Cada cuánto?' : '¿Cuánto usás?'),
         formGrid(
           showCustomUnit ? 4 : 3,
           kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: kit.out(() => `${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}/${basisPer(quote.materials[i] && quote.materials[i].basis, T, outputUnitShownOf(quote.materials[i], quote))}`) }),
           unitSelect,
           showCustomUnit ? kit.text(`${p}.unit`, { label: 'Tu unidad', maxLength: 30, placeholder: 'Ej.: bidón, rollo, kit' }) : null,
-          kit.select(`${p}.basis`, { label: '¿Cada cuánto se consume?', options: basisChoices(QUOTE_MATERIAL_BASES, line.basis), structural: true }),
+          kit.select(`${p}.basis`, {
+            label: component === 'other' ? '¿Cada cuánto lo pagás?' : '¿Cada cuánto se consume?',
+            options: basisChoices(QUOTE_MATERIAL_BASES, line.basis),
+            structural: true,
+            ...(component === 'other' ? { hint: 'Si se paga una sola vez (un permiso, un seguro del trabajo), dividilo por los meses del contrato o elegí "por trabajo" si cobrás por trabajo.' } : {}),
+          }),
         ),
         outputInMain ? outputFields() : null,
         partialUse ? usageField() : null,
@@ -724,13 +729,13 @@ export function render(container, ctx) {
 
   const inQuoteUnit = (x) => (x.perJob !== null && x.perJob !== undefined ? `${formatMoney(x.perJob)} en el trabajo` : `${formatMoney(x.amount)} por mes`);
   // Un renglón por tipo con monto (lo que suma en "Insumos y materiales", igual que los hijos del Resultado).
-  const byType = kit.region((r) => {
+  const byType = kit.out((r) => {
     const parts = r.componentCosts && r.componentCosts.byComponent ? r.componentCosts.byComponent : null;
-    if (!parts) return null;
+    if (!parts) return '';
     const items = MATERIAL_TYPE_IDS.filter((id) => parts[id] && parts[id].inMaterials && parts[id].inMaterials.amount > 0.005)
       .map((id) => h('li', {}, h('span', {}, materialTypeShort(id)), h('span', { class: 'mono' }, inQuoteUnit(parts[id].inMaterials))));
-    return items.length > 1 ? h('ul', { class: 'qe-type-subtotals' }, ...items) : null;
-  }, { className: 'qe-type-subtotals-host' });
+    return items.length > 1 ? h('ul', { class: 'qe-type-subtotals' }, ...items) : '';
+  }, { tag: 'div', className: 'qe-type-subtotals-host', allowEmpty: true });
 
   const list = card(
     { title: 'Insumos y materiales', subtitle: 'Todo lo que se compra para el trabajo, en una sola lista. El tipo de cada uno se elige una vez, en Recursos.', className: 'qe-component-section' },
@@ -760,7 +765,7 @@ export function render(container, ctx) {
       const share = row ? `${formatPercent(row.displayPct)} del costo total` : '';
       const jobs = closedJobsPerMonth(r);
       if (jobs !== null) return `${share} · lo del mes con ${workDaysText(r.activity.activeDaysPerMonth)}, dividido por ${formatNumber(jobs, { decimals: 2 })} ${Math.abs(jobs - 1) < 1e-9 ? 'trabajo' : 'trabajos'}.`;
-      return `${share} · fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día de trabajo.`;
+      return `${share} · fijo ${formatMoney(r.model.materials.fixedMonthly)} por mes + ${formatMoney(r.model.materials.variablePerActiveDay)} por día de trabajo${quote.otherCosts.length ? ' (sin los gastos cargados antes)' : ''}.`;
     },
     trace: (r) => materialsTrace(r, T, quote),
     className: 'qe-keyline-total',

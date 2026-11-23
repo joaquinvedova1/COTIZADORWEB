@@ -1304,7 +1304,7 @@ function materialSections(settings = {}) {
 }
 
 function newMaterial() {
-  return { description: '', component: null, unit: 'unidad', unitCost: 0, wastePct: 0, logisticsPct: 0, providedBy: 'contractor', base: emptyBase({ currency: CURRENCY }), illustrative: false };
+  return { description: '', component: 'supplies', unit: 'unidad', unitCost: 0, wastePct: 0, logisticsPct: 0, providedBy: 'contractor', base: emptyBase({ currency: CURRENCY }), illustrative: false };
 }
 
 function locationSections() {

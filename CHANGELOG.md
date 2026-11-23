@@ -25,7 +25,8 @@ Reglas para este archivo:
 - **"¿Qué incluye?" tiene 4 casillas**: Personal, Equipos y vehículos, Insumos y materiales y Viajes (antes 10). Cada una dice dónde se carga y cuánto hay cargado. Se guardan los mismos datos que antes: una cotización guardada abre con las casillas que le corresponden.
 - **Estructura de costos y Resultado**: el renglón se llama "Insumos y materiales" y se abre sólo en los tipos que tienen monto (antes mostraba los marcados en $ 0); con la casilla marcada y nada cargado, un renglón "Insumos y materiales" en $ 0. Los equipos propios se llaman siempre "Equipos y vehículos". El PDF para el cliente dice "Incluye" con las 4 casillas. Actualizar tarifa usa los mismos tipos y rótulos ("EPP especial", "Otros gastos"); las actualizaciones guardadas siguen valiendo.
 - **Ropa de trabajo y EPP básico** de cada persona siguen en su puesto (Personal), con ese nombre; "EPP especial" en la lista es sólo el del trabajo (trajes, respiradores, arneses).
-- **Completitud**: una línea con precio y sin cantidad dice "tiene precio y falta la cantidad"; los textos hablan de "insumos y materiales" y de "El servicio no usa insumos ni materiales".
+- **Completitud**: una línea con precio y sin cantidad dice "tiene precio y falta la cantidad" (y cuántas más hay así); los textos hablan de "insumos y materiales" y de "El servicio no usa insumos ni materiales".
+- **Revisión UX y de costos**: el EPP especial arranca "Por mes" aunque cobres por unidad (un arnés dura muchos trabajos); un "Otro gasto" pregunta "¿Cada cuánto lo pagás?" y explica qué hacer con un pago único; el PDF para el cliente dice "Incluye" también con lo cargado aunque no se haya marcado la casilla; los subtotales por tipo se leen como renglones; un insumo nuevo en Recursos arranca como "Insumo o consumible".
 
 ### Esquema
 

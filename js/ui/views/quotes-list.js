@@ -45,7 +45,7 @@ const STATUS_TONES = Object.freeze({ draft: 'gray', sent: 'blue', won: 'green', 
 /** Etapas del editor (para explicar "cómo sigue" sin mostrar los 11 pasos). */
 const QUOTE_STAGES = Object.freeze([
   { title: 'El servicio', text: 'Qué servicio vas a prestar y en qué unidad le cobrás al cliente.' },
-  { title: 'Los recursos', text: 'Tu gente (sueldo por mes y valor de su hora), equipos, materiales y viajes.' },
+  { title: 'Los recursos', text: 'Tu gente (sueldo por mes y valor de su hora), equipos, insumos y materiales, y viajes.' },
   { title: 'Cómo se cobra', text: 'Horario normal, cuánto esperás trabajar y si lleva horas extra.' },
   { title: 'Otros gastos', text: 'Gastos de estructura, plazo de cobro e imprevistos.' },
   { title: 'El precio', text: 'Cuánto querés ganar y tus reglas comerciales.' },

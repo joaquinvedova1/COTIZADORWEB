@@ -723,7 +723,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         button(per === 'unit' ? 'Agregar empaque' : 'Agregar ingrediente', { variant: 'primary', icon: 'plus', onClick: () => addBlankMaterial(per), attrs: { 'data-edit': 'true' } }),
         per === 'batch' && library.length
           ? selectField({
-            label: 'O traelo de Recursos → Materiales',
+            label: 'O traelo de Recursos → Insumos y materiales',
             name: 'pe-add-material',
             value: '',
             includeEmpty: true,

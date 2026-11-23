@@ -700,14 +700,16 @@ export function evaluateCompleteness(quoteInput = {}) {
     const ok = materials.every((m) => Boolean(m.providedBy));
     // Un material que pagamos con precio y sin cantidad (o al revés) suma $ 0: se avisa (Test Lab, PLAN-2026-013).
     const paidByUs = (m) => MATERIAL_PROVIDERS.some((p) => p.id === m.providedBy && p.costForUs !== false);
-    const incomplete = materials.map((m, index) => ({ m, index })).find(({ m }) => paidByUs(m) && (nonNegative(m.unitCost) > 0) !== (nonNegative(m.quantity) > 0));
+    const isIncomplete = (m) => paidByUs(m) && (nonNegative(m.unitCost) > 0) !== (nonNegative(m.quantity) > 0);
+    const incomplete = materials.map((m, index) => ({ m, index })).find(({ m }) => isIncomplete(m));
+    const incompleteCount = materials.filter(isIncomplete).length;
     // Un material con cantidad y sin precio se nombra así (tanda novatos 2026-11): "Material sin precio".
     const label = !ok ? 'Responsable de materiales' : incomplete ? (nonNegative(incomplete.m.unitCost) > 0 ? 'Material sin cantidad' : 'Material sin precio') : 'Responsable de materiales';
     const item = rule('materials', label, 'materials', 2, !ok ? 'missing' : incomplete ? 'warning' : 'ok',
       !ok
         ? 'Hay materiales sin definir quién los provee (cliente, nosotros o tercero).'
         : incomplete
-          ? `"${(typeof incomplete.m.description === 'string' && incomplete.m.description.trim()) || 'Material'}" tiene ${nonNegative(incomplete.m.unitCost) > 0 ? (emptyValue(incomplete.m.quantity) ? 'precio y falta la cantidad' : 'precio pero cantidad 0') : 'cantidad pero precio 0'}: no suma costo. Completalo o quitá la línea.`
+          ? `"${(typeof incomplete.m.description === 'string' && incomplete.m.description.trim()) || 'Material'}"${incompleteCount > 1 ? ` (y ${incompleteCount - 1} más)` : ''} tiene ${nonNegative(incomplete.m.unitCost) > 0 ? (emptyValue(incomplete.m.quantity) ? 'precio y falta la cantidad' : 'precio pero cantidad 0') : 'cantidad pero precio 0'}: no suma costo. Completalo o quitá la línea.`
           : 'Todos los materiales tienen responsable.');
     if (ok && incomplete) {
       item.focus = `materials.${incomplete.index}.${nonNegative(incomplete.m.unitCost) > 0 ? 'quantity' : 'unitCost'}`;
@@ -765,7 +767,7 @@ export function evaluateCompleteness(quoteInput = {}) {
   } else if (travelNotNeeded(quote)) {
     // Revisión UX tanda novatos: sin "Viáticos y alojamiento" en "¿Qué incluye?" y sin nada que
     // viaje, la ruta vacía ya suma $ 0: la distancia no es un dato que falte.
-    items.push(rule('logistics', 'Viajes', 'logistics', 1, 'ok', 'El servicio no incluye viajes (no se marcó "Viáticos y alojamiento" en "¿Qué incluye?").'));
+    items.push(rule('logistics', 'Viajes', 'logistics', 1, 'ok', 'El servicio no incluye viajes (no se marcó "Viajes" en "¿Qué incluye?").'));
   } else {
     const moves = vehicles.some((v) => nonNegative(v.count) > 0)
       || equipment.some((e) => isPlainObject(e.mobilization) && ['self', 'transported', 'support'].includes(e.mobilization.mode))

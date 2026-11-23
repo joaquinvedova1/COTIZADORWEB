@@ -48,11 +48,11 @@ describe('defaultMaterialBasis: la base sale de la unidad en que se cobra', () =
     assert.equal(defaultMaterialBasis(service({ unit: 'day' }), 'supplies'), 'per_month');
     assert.equal(defaultMaterialBasis(service({ unit: 'month' }), 'materials'), 'per_month');
   });
-  test('unidad de cantidad → por unidad cobrada; herramientas y otros gastos → por mes', () => {
+  test('unidad de cantidad → por unidad cobrada; herramientas, EPP especial y otros gastos → por mes', () => {
     const q = valveQuote();
     assert.equal(defaultMaterialBasis(q, 'supplies'), 'per_output');
     assert.equal(defaultMaterialBasis(q, 'materials'), 'per_output');
-    assert.equal(defaultMaterialBasis(q, 'ppe'), 'per_output');
+    assert.equal(defaultMaterialBasis(q, 'ppe'), 'per_month');
     assert.equal(defaultMaterialBasis(q, 'tools'), 'per_month');
     assert.equal(defaultMaterialBasis(q, 'other'), 'per_month');
   });

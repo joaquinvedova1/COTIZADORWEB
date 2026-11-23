@@ -4293,9 +4293,16 @@ function renderClientSheet(v, app) {
     company = '';
   }
   // "Incluye": los bloques de "¿Qué incluye?" (PLAN-2026-027), sin repetir.
-  const included = blocksOf(q.contract)
-    .map((id) => (INCLUDE_BLOCKS.find((b) => b.id === id) || {}).label)
-    .filter(Boolean);
+  // Revisión 0.22.0: también lo que está cargado aunque la casilla no se haya marcado.
+  const list = (x) => (Array.isArray(x) ? x.length : 0);
+  const loaded = {
+    labor: list(q.labor) + list(q.contractedStaff) > 0,
+    equipment: list(q.equipment) > 0,
+    materials: !q.materialsNotApplicable && list(q.materials) + list(q.otherCosts) > 0,
+    travel: false,
+  };
+  const marked = new Set(blocksOf(q.contract));
+  const included = INCLUDE_BLOCKS.filter((b) => marked.has(b.id) || loaded[b.id]).map((b) => b.label);
   const row = (label, value) => (value ? h('div', { class: 'qr-client-row' }, h('dt', {}, label), h('dd', {}, value)) : null);
   const offer = typeof q.offerDate === 'string' && q.offerDate ? formatDate(q.offerDate) : formatDate(new Date());
   return h('section', { class: 'qr-client-sheet' },
