@@ -358,7 +358,7 @@ export function siteFooter(app) {
         h('div', { class: 'pub-footer-brand' }, brand({ className: 'pub-brand-sm' }), h('p', {}, 'Hecho en Neuquén, Patagonia argentina.')),
         h('p', { class: 'pub-footer-privacy' }, publicIcon('lock', { size: 16 }), h('span', {}, 'Tus datos quedan en tu cuenta, protegidos: nadie de otra empresa puede verlos. La demo no necesita cuenta y no guarda nada.')),
       ),
-      h('div', { class: 'pub-footer-meta' }, reportLink(app), signedIn ? h('a', { href: '#/inicio', class: 'pub-footer-link' }, 'Abrir RATEOS') : h('a', { href: '#/login', class: 'pub-footer-link' }, 'Ingresar'), h('span', { class: 'pub-footer-version mono' }, versionText)),
+      h('div', { class: 'pub-footer-meta' }, reportLink(app), h('a', { href: '#/privacidad', class: 'pub-footer-link' }, 'Privacidad y condiciones'), signedIn ? h('a', { href: '#/inicio', class: 'pub-footer-link' }, 'Abrir RATEOS') : h('a', { href: '#/login', class: 'pub-footer-link' }, 'Ingresar'), h('span', { class: 'pub-footer-version mono' }, versionText)),
     ),
   );
 }
