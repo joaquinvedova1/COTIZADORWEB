@@ -867,11 +867,12 @@ export function render(container, ctx) {
     const monthField = () => (!monthUnit || hasManualSharePct(line) ? null : monthHoursField(kit, ctx, { path: p, kind: 'equipment', baseHours: monthBaseHours(line) }));
     // I7 (2026-11-18): por tiempo usado, con cuántas horas por mes se reparte lo de tenerlo (a la vista, junto a las horas de uso).
     const billableField = () => kit.num(`${p}.billableHoursPerMonth`, {
-      label: 'Horas por mes para el valor hora (opcional)',
+      // 0.20.1 (Joaco): no es otro costo; es con cuántas horas se reparte el costo del mes que ya sale de los datos del equipo.
+      label: '¿Cuántas horas por mes trabaja, entre todos tus trabajos?',
       rule: 'hours',
       unit: 'h/mes',
       placeholder: billablePlaceholder(i),
-      hint: 'Las horas que el equipo trabaja en un mes entre todos tus trabajos. Su costo del mes se divide por estas horas para sacar el valor hora: con menos horas, cada hora cuesta más.',
+      hint: 'No es un costo más ni cambia los datos del equipo: es sólo con cuántas horas se reparte su costo del mes. Valor hora = costo del mes (amortización, seguro, patente…) ÷ estas horas. Vacío = un mes completo de trabajo. Si el equipo trabaja menos horas por mes, cada hora cuesta más.',
     });
     // Nombre: un equipo en blanco que resulta ser un vehículo arranca con 0 h en la locación.
     const nameField = () => {

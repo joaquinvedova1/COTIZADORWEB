@@ -821,8 +821,9 @@ export function render(container, ctx) {
         'Distancia / actividad del proveedor (tarifa por km o por viaje, en Equipos)',
         kit.region((r) => providerActivityList(r) || ''),
       ), (r) => Boolean(transportOf(r) && transportOf(r).providers.length)),
-      kit.group(
-        'A. Movilización propia (equipos que van por sus medios)',
+      // 0.20.1 (Joaco): cada bloque sólo si tiene algo; "B en $ 0" hacía pensar que la camioneta no se contaba.
+      kit.toggle(kit.group(
+        'Vehículos y equipos que van por sus medios',
         kit.stats(
           kit.stat(`${T.Many} por mes`, (r) => formatNumber(activationsOf(r), { decimals: 2 }), { hint: `Días de trabajo ÷ días ${T.per}.` }),
           kit.stat(`Km ${T.per}`, (r) => formatValue(mobOf(r).kmPerActivation, 'km'), { hint: (r) => `Ruta de ${formatValue(mobOf(r).routeKmPerActivation, 'km')} ${T.per} × equipos que van por sus medios.` }),
@@ -832,18 +833,18 @@ export function render(container, ctx) {
           kit.stat('Desgaste por mes', (r) => formatMoney(perMonth(r, mobOf(r).wearPerActivation)), { hint: 'Mantenimiento y neumáticos por km (sin amortización).' }),
           kit.stat('Costo mensual de movilización', (r) => formatMoney(perMonth(r, mobOf(r).perActivation)), { emphasis: true }),
         ),
-      ),
-      kit.group(
-        'B. Vehículos por km (cargados antes), peajes y alojamiento',
+      ), (r) => mobOf(r).kmPerActivation > 0 || mobOf(r).perActivation > 0.005),
+      kit.toggle(kit.group(
+        'Vehículos cargados por km, peajes y alojamiento',
         kit.stats(
           kit.stat(`Km de vehículos ${T.per}`, (r) => formatValue(r.model.logistics.vehicleKmPerActivation, 'km'), { hint: (r) => `${formatValue(r.model.logistics.kmPerMonth, 'km')} por mes` }),
           kit.stat('Litros por mes', (r) => formatValue(r.model.logistics.litersPerMonth, 'liters'), { hint: (r) => `${formatValue(r.model.logistics.litersPerActivation, 'liters')} ${T.per}` }),
           kit.stat(`Costo ${T.per}`, (r) => formatMoney(r.model.logistics.costPerActivation), { hint: 'Combustible + desgaste + peajes + viáticos.' }),
           kit.stat('Costo mensual (vehículos por km, peajes y alojamiento)', (r) => formatMoney(r.model.logistics.monthlyCost), { emphasis: true }),
         ),
-      ),
+      ), (r) => r.model.logistics.monthlyCost > 0.005 || r.model.logistics.vehicleKmPerActivation > 0),
       kit.group(
-        'C. Total',
+        'Total',
         kit.stats(
           kit.stat('Km por mes', (r) => formatValue(perMonth(r, mobOf(r).kmPerActivation) + r.model.logistics.kmPerMonth, 'km')),
           kit.stat('Litros por mes', (r) => formatValue(perMonth(r, mobOf(r).litersPerActivation) + r.model.logistics.litersPerMonth, 'liters')),
