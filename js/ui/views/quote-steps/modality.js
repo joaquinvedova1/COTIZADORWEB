@@ -607,7 +607,7 @@ export function render(container, ctx) {
         placeholder: tripUnit ? 'Ej.: 2' : 'Ej.: 500',
         hint: tripUnit
           ? `Viajes que hacés en un día de trabajo. Con esto se calculan los días de trabajo (personal, equipos) y los viajes ${T.per}; los km del mes salen de los viajes que facturás.`
-          : 'Lo que hacés en un día de trabajo (rendimiento). Con esto se calculan los días de trabajo: lo que consume personal, equipos y combustible.',
+          : `Tu rendimiento: lo que hace todo el equipo en un día de trabajo. Con esto cada costo del día (personal, equipos, combustible) se lleva a ${perText(info)}.`,
         onValue: (value) => {
           syncRouteTrips();
           deriveManHourDay(value);

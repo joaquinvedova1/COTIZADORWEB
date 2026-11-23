@@ -2170,6 +2170,14 @@ Caso: grúa con valor hora de tenerla $ 5.000 y usarla $ 16.000; 0,5 h por válv
 
 **Aviso de horas de más:** si las horas por día de un recurso (cargadas o derivadas) superan las horas del día de trabajo, el motor sigue contando sólo las del día y agrega un aviso en la línea ("las horas de más no se están contando en el costo"). Antes el recorte era silencioso.
 
+**0.20.0 · el rendimiento se pregunta una vez; las horas, por día.** Cobrando por cualquier cantidad (m³, tonelada, válvula, unidad propia…) ya no se preguntan "horas por unidad" (nadie sabe cuántas horas lleva un m³): el rendimiento del día (`activity.unitsPerActiveDay`, "unidades por día de trabajo") se carga en el paso 1 y cada recurso propio dice sus **horas por día de trabajo** (vacío = todo el día). El costo por unidad se calcula y se muestra:
+
+```
+costo por unidad = horas por día × valor hora ÷ unidades por día de trabajo
+```
+
+Hormigón por m³, 60 m³ por día: cuadrilla 4 × 8 h × $ 8.000 = $ 256.000 por día → $ 4.267 por m³; bomba 8 h × $ 25.000 → $ 3.333 por m³. Por válvula, 8 por día: grúa 4 h por día × $ 21.000 → $ 10.500 por válvula (lo mismo que 0,5 h por válvula). El dato `assignedHoursPerUnit` ya cargado se sigue convirtiendo igual (tabla de arriba) y se muestra en su línea; las líneas nuevas no lo piden. Por trabajo o llamado se siguen pidiendo las horas en el trabajo. **No cambia ningún resultado.**
+
 ### 36.3 Cobro por mes: las horas de uso no superan las asignadas (0.20.0)
 
 Cobrando por mes, un equipo propio con "horas asignado por mes" (`assignedHoursPerMonth`) no puede andar más horas que las asignadas. Sus horas de uso por día de servicio quedan, como mucho, en:

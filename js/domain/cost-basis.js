@@ -52,8 +52,27 @@ export function resourceHoursBasis(quote) {
   if (!usesTimeBasis(quote)) return null;
   const u = billingUnitOf(quote);
   if (u.kind === 'event') return u.id === 'job' || u.id === 'call' ? 'job' : 'day';
-  if (u.kind === 'quantity' && (u.custom || COUNTABLE_UNITS.includes(u.id))) return 'unit';
+  // 0.20.0 (pedido del dueño: "no se puede poner h/m3"): cobrando por cualquier cantidad (m³,
+  // válvula, unidad propia…) el rendimiento del día se carga una vez, en el paso 1, y cada recurso
+  // dice sus horas por día de trabajo. El costo por unidad se calcula y se muestra, no se pregunta.
   return 'day';
+}
+
+/** ¿Las cifras de cada recurso se muestran también por unidad cobrada? (cobro por cantidad, por tiempo usado). */
+export function showsPerUnit(quote) {
+  return usesTimeBasis(quote) && billingUnitOf(quote).kind === 'quantity';
+}
+
+/**
+ * Cómo se convierten a horas por día las horas guardadas "en la unidad" (`assignedHoursPerUnit`):
+ * 'job' en cada trabajo o llamado; 'unit' el dato heredado de la 0.19.0 (horas por válvula) en
+ * unidades contables o propias; null si no aplica.
+ */
+export function unitHoursConversion(quote) {
+  if (!usesTimeBasis(quote)) return null;
+  const u = billingUnitOf(quote);
+  if (u.kind === 'event') return u.id === 'job' || u.id === 'call' ? 'job' : null;
+  return u.kind === 'quantity' && (u.custom || COUNTABLE_UNITS.includes(u.id)) ? 'unit' : null;
 }
 
 /**
@@ -82,7 +101,7 @@ export function unitHoursFactor(basis, activity = {}) {
  * El dato en la unidad manda sobre uno por día cargado antes.
  */
 export function resolveUnitHours(quote, activity = {}) {
-  const basis = resourceHoursBasis(quote);
+  const basis = unitHoursConversion(quote);
   if (basis !== 'unit' && basis !== 'job') return capMonthlyRunningHours(quote, activity);
   const factor = unitHoursFactor(basis, activity);
   if (!(factor > 0)) return quote;

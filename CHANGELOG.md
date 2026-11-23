@@ -21,6 +21,7 @@ Reglas para este archivo:
 - **El ritmo va en el paso 1**: cuántas unidades por mes y por día, días del trabajo y horas por día se cargan en "El servicio", debajo de la unidad de cobro (antes, en "Cómo se cobra", después de los recursos). "Cómo se cobra" lo muestra y enlaza al paso 1. Los pendientes y avisos de esos datos llevan al paso 1.
 - **Primero la unidad de cobro**: cobrando por hora, día o unidad, el resumen en vivo dice "Costo $ X / válvula" y el Resultado "Te cuesta $ X / válvula" y "Ganás $ X / válvula" (lo del mes queda debajo). Los totales de Personal, Equipos, Movilización, Imprevistos, Estructura y Financiación se leen "$ X por válvula · $ Y por mes". La estructura de costos suma una columna "Por válvula".
 - El paso 1 se llama "El servicio" en todos los textos (antes algunos decían "Contrato").
+- **Sin "horas por m3"** (pedido del dueño): cobrando por cualquier cantidad (m³, válvula, unidad propia…) el rendimiento del día se carga una vez en el paso 1 y cada recurso dice sus horas por día de trabajo; el costo por unidad se calcula y se muestra. Las horas por unidad ya cargadas se siguen viendo y contando igual. Por trabajo se siguen pidiendo las horas en el trabajo. No cambia ningún resultado.
 
 ### Corregido
 

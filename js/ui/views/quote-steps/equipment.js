@@ -42,7 +42,7 @@ import { fieldHref } from '../../field-links.js';
 import { assignmentBlock, monthHoursField, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
 import { closedJobsPerMonth, quoteUnitPlace, unitAmountText, costPlaceLabel, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText, equipmentFullHourRate } from '../../result-text.js';
-import { usesTimeBasis, resourceHoursBasis, unitHoursFactor } from '../../../domain/cost-basis.js';
+import { usesTimeBasis, unitHoursConversion, showsPerUnit, unitHoursFactor } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { workDaysText } from '../../unit-text.js';
 import { isVehicleFamily, looksLikeVehicleName } from '../../../domain/equipment-catalog.js';
@@ -465,11 +465,13 @@ export function render(container, ctx) {
   // propio cuesta las horas del trabajo × el valor de su hora. No hay "% de sus costos fijos".
   const timeBasis = usesTimeBasis(quote);
   // 0.19.0: las horas de cada equipo se piden en la unidad de cobro (por válvula, en el trabajo) o por día.
-  const hoursBasis = resourceHoursBasis(quote);
+  // Cómo se convierte el dato "en la unidad": 'job' (horas en el trabajo) o 'unit' (heredado de la 0.19.0).
+  const hoursBasis = unitHoursConversion(quote);
+  const perUnitShown = showsPerUnit(quote);
   const unitHoursReady = () => unitHoursFactor(hoursBasis, ctx.result && ctx.result.activity ? ctx.result.activity : {}) > 0;
   /** Cobro por unidad contable con el rendimiento cargado: las cuentas se dicen "por válvula" (0.19.0). */
   const perUnitView = (r) => {
-    const f = hoursBasis === 'unit' && r && r.activity ? nonNegative(r.activity.unitsPerActiveDay) : 0;
+    const f = perUnitShown && r && r.activity ? nonNegative(r.activity.unitsPerActiveDay) : 0;
     return f > 0 ? { f, one: billingUnitOf(quote).singular || 'unidad' } : null;
   };
   const assignedKey = (line) => (asksUnitHours(hoursBasis, line, 'assignedHoursPerDay') ? 'assignedHoursPerUnit' : 'assignedHoursPerDay');

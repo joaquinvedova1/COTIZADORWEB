@@ -18,7 +18,7 @@ import { vatIsCost } from '../../../domain/catalogs.js';
 import { openNewLaborProfileDialog } from '../library.js';
 import { formatMoney, formatNumber, formatPercent, EMPTY } from '../../../core/format.js';
 import { closedJobsPerMonth, lineMonthAtEstimate, perBilledUnitSuffix, unitAmountText, costPlaceLabel, roleOvertimeMonth, overtimeWorkLabel, closedLaborCostText, timeLaborCostText, laborHourStat, BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT } from '../../result-text.js';
-import { usesTimeBasis, resourceHoursBasis, unitHoursFactor } from '../../../domain/cost-basis.js';
+import { usesTimeBasis, unitHoursConversion, showsPerUnit, unitHoursFactor } from '../../../domain/cost-basis.js';
 import { nonNegative, isFiniteNumber, roundRate } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
@@ -173,13 +173,15 @@ export function render(container, ctx) {
 
   // 0.18.0: lo que se pide de cada recurso asignado son sus horas (por día de trabajo o por mes).
   // 0.19.0: en la unidad de cobro (por válvula, en el trabajo) cuando la unidad lo permite.
-  const hoursBasis = resourceHoursBasis(quote);
+  // Cómo se convierte el dato "en la unidad": 'job' (horas en el trabajo) o 'unit' (heredado de la 0.19.0).
+  const hoursBasis = unitHoursConversion(quote);
+  const perUnitShown = showsPerUnit(quote);
   /** Cobro por unidad contable con el rendimiento cargado: las cuentas se dicen "por válvula". */
   const perUnitView = (r) => {
-    const f = hoursBasis === 'unit' && r && r.activity ? nonNegative(r.activity.unitsPerActiveDay) : 0;
+    const f = perUnitShown && r && r.activity ? nonNegative(r.activity.unitsPerActiveDay) : 0;
     return f > 0 ? { f, one: billingUnitOf(quote).singular || 'unidad' } : null;
   };
-  const hoursKey = timeBasis ? (hoursBasis === 'unit' || hoursBasis === 'job' ? 'assignedHoursPerUnit' : 'coverageHoursPerDay') : billingUnitOf(quote).kind === 'month' ? 'assignedHoursPerMonth' : 'positions';
+  const hoursKey = timeBasis ? (hoursBasis === 'job' ? 'assignedHoursPerUnit' : 'coverageHoursPerDay') : billingUnitOf(quote).kind === 'month' ? 'assignedHoursPerMonth' : 'positions';
   const hoursWhat = timeBasis || billingUnitOf(quote).kind === 'month' ? 'horas efectivas de trabajo' : 'datos en esta cotización';
 
   // ------------------------------------------------------------ acciones
