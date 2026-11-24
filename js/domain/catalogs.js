@@ -117,14 +117,20 @@ export const AGREEMENT_PARAM_KEYS = deepFreeze(['normalHoursPerMonth', 'overtime
  * copiada de una plantilla o biblioteca de demostración, o convenio ilustrativo. Si la
  * línea viene de un convenio o un perfil PROPIO, sólo por la marca: una carga real que
  * coincide con el valor de ejemplo (SAC 8,33 %, 176 h, 50 %) no es ilustrativa. Sólo
- * una línea suelta, sin origen, se compara por valor con el ejemplo.
+ * una línea suelta, sin origen, se compara por valor con el ejemplo. Un parámetro que está en
+ * `line.ownParams` (0.25.0, R-06) nunca es ilustrativo, salvo en una cotización o producto de
+ * demostración.
  * @param {object} line  línea de personal
  * @param {string} key   parámetro (sacPct, normalHoursPerMonth…)
  * @param {{ agreement?: object|null, wholeIllustrative?: boolean }} [options]
  */
 export function isIllustrativeAgreementParam(line, key, { agreement = null, wholeIllustrative = false } = {}) {
   const l = line && typeof line === 'object' ? line : {};
-  if (wholeIllustrative || l.illustrative === true || Boolean(agreement && agreement.illustrative)) return true;
+  if (wholeIllustrative) return true;
+  // R-06 (0.25.0): un parámetro que la persona escribió (o marcó con "Son mis valores") es suyo,
+  // aunque coincida con el valor de ejemplo. `ownParams` es opcional: sin él, como siempre.
+  if (Array.isArray(l.ownParams) && l.ownParams.includes(key)) return false;
+  if (l.illustrative === true || Boolean(agreement && agreement.illustrative)) return true;
   const hasOrigin = Boolean(agreement) || (typeof l.sourceId === 'string' && l.sourceId !== '');
   if (hasOrigin) return false;
   return l[key] === ILLUSTRATIVE_AGREEMENT_PARAMS[key];

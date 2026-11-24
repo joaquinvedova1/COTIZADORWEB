@@ -186,9 +186,12 @@ function equipmentCases() {
   return out;
 }
 
+/** Casos que la 0.25.0 agrega después de la foto (sin "antes"; se controlan en sus propios tests). */
+const NEW_IN_0_25 = new Set(['product:PRD-11-NON-REMUNERATIVE']);
+
 const allB = [
   ...all.map((c) => ({ id: `quote:${c.id}`, run: () => photoB(c.run()) })),
-  ...productCases().map((c) => ({ id: c.id, run: () => photoProduct(computeProduct(c.run())) })),
+  ...productCases().filter((c) => !NEW_IN_0_25.has(c.id)).map((c) => ({ id: c.id, run: () => photoProduct(computeProduct(c.run())) })),
   ...equipmentCases(),
 ];
 

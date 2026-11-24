@@ -68,7 +68,10 @@ export function oracleProduct(p) {
     // Costo hora con cargas = costo mensual por persona ÷ horas normales (§3 y §23).
     const remunerative = n(l.basicMonthly) + n(l.additionalsMonthly);
     const loadFactor = (1 + frac(l.sacPct) + frac(l.vacationPct)) * (1 + frac(l.employerContributionsPct) + frac(l.artPct));
-    const monthly = remunerative * loadFactor + n(l.insuranceMonthly) + n(l.ppeMonthly) + n(l.trainingMonthly) + n(l.transferMonthly);
+    // 0.25.0 (R-07): el no remunerativo se suma tal cual (sin SAC, vacaciones ni cargas patronales),
+    // más las cargas del convenio sobre él si las hay (§ "Aportes y cargas").
+    const nonRemunerative = n(l.nonRemunerativeMonthly) * (1 + frac(l.nonRemunerativeChargesPct));
+    const monthly = remunerative * loadFactor + n(l.insuranceMonthly) + n(l.ppeMonthly) + n(l.trainingMonthly) + n(l.transferMonthly) + nonRemunerative;
     const hourly = div(monthly, n(l.normalHoursPerMonth), null);
     batchLabor += hourly === null ? 0 : (n(l.people, 1) * n(l.minutesPerBatch) * hourly) / 60;
   }

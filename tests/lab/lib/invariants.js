@@ -670,6 +670,24 @@ export const PRODUCT_INVARIANTS = [
     },
   },
   {
+    // 0.25.0 (PLAN-2026-029, R-07): el campo nuevo "No remunerativo por mes" vacío o en 0 da el
+    // producto de siempre; con un monto, sube el costo por mes de la persona en ese monto (sin cargas).
+    id: 'PINV-11', title: 'Producto: "No remunerativo por mes" vacío o 0 da el mismo producto; con un monto suma ese monto por persona, sin cargas',
+    check(p, r) {
+      if (!list(p.labor).length) return notApplicable;
+      const zero = clone(p); zero.labor.forEach((l) => { l.nonRemunerativeMonthly = 0; });
+      const none = clone(p); none.labor.forEach((l) => { delete l.nonRemunerativeMonthly; });
+      const a = prun(zero);
+      const b = prun(none);
+      const same = a.unitCost === b.unitCost && a.pricing.suggestedPrice === b.pricing.suggestedPrice && a.perBatch.labor === b.perBatch.labor;
+      const more = clone(none); more.labor.forEach((l) => { l.nonRemunerativeMonthly = 100000; l.nonRemunerativeChargesPct = 0; });
+      const c = prun(more);
+      const delta = c.labor.map((l, i) => l.monthlyPerPerson - b.labor[i].monthlyPerPerson);
+      const sumsPlain = delta.every((d) => Math.abs(d - 100000) <= 1e-6);
+      return same && sumsPlain ? ok('0 = vacío; +$ 100.000 por persona') : fail(`0 vs vacío: ${a.unitCost} / ${b.unitCost}; diferencia por persona ${delta.join(', ')}`);
+    },
+  },
+  {
     id: 'PINV-07', title: 'Producto: nunca NaN ni Infinity',
     check(p, r) {
       const bad = findNonFinite({ r: { ...r, traces: r.traces } });
