@@ -1994,6 +1994,24 @@ function draftBanner(v) {
 }
 
 /**
+ * Horas del mes que la cotización no paga (0.23.1, auditoría de la 0.23.0, Q-04): el aviso quedaba
+ * dentro de "¿Te falta cargar algo?" y un precio corto por $ 2.880.000 al mes no se veía arriba.
+ * Una línea sobre los números, con el monto del motor, que abre el detalle.
+ */
+function capacityBanner(v) {
+  const notices = (v.r.completeness && v.r.completeness.notices) || [];
+  const idle = notices.find((n) => n && n.id === 'idle_capacity');
+  const over = notices.find((n) => n && n.id === 'over_capacity');
+  if (!idle && !over) return null;
+  const names = (n) => (n.targets || []).map((t) => `"${t.name}"`).join(', ');
+  const title = idle ? `Este precio no cobra ${money(idle.amount)} por mes de lo que cuesta tener a ${names(idle)}.` : `Esta cotización le pide más horas que las de su mes a ${names(over)}.`;
+  const text = idle ? 'Está bien si otros trabajos pagan el resto de su mes. Si sólo tiene este trabajo, el precio queda corto.' : 'Revisá los días, sus horas o las horas que trabaja por mes.';
+  const node = alertLine('warning', title, text, button('Ver por qué', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }));
+  node.classList.add('qr-capacity');
+  return node;
+}
+
+/**
  * Tus tarifas (PLAN-2026-025, V-12): la tarifa del horario normal y todo lo demás que se le
  * cobra al cliente (horas fuera de horario, guardia, mínimos, adicionales). Las filas las arma
  * `tariffRows` (../result-text.js) con los valores del motor. Sólo aparece si hay algo más que
@@ -2043,6 +2061,7 @@ function renderSummary(v) {
         sub ? h('p', { class: 'qr-summary-sub' }, sub) : null),
       h('div', { class: 'qr-summary-badges' }, illustrativeBadge(v))),
     draft,
+    capacityBanner(v),
     // PLAN-2026-026: la carilla. Qué cobro, cuánto me cuesta, cuánto gano (en $ y en %); abajo,
     // la tarifa mínima. El detalle sigue en "Ver el detalle".
     h('dl', { class: 'qr-stats' }, priceStat(v), costStat(v), profitStat(v), marginStat(v), floorStat(v)),

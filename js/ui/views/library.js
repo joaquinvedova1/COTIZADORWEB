@@ -1719,7 +1719,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const { close } = openDialog({
       title: `Usado en: ${name}`,
       content: h('div', { class: 'stack lib-usage' },
-        h('p', { class: 'small muted' }, 'Las cotizaciones guardan su propia copia de los valores: cambiar este recurso no las modifica. El % es la parte de sus costos fijos que carga cada cotización (100 % si está dedicado o reservado).'),
+        h('p', { class: 'small muted' }, 'Las cotizaciones guardan su propia copia de los valores: cambiar este recurso no las modifica. El % es la parte de su mes que paga cada cotización: sus horas en el trabajo sobre las de su mes, o 100 % si cobra su mes completo.'),
         h('h4', {}, `Adjudicadas (compromiso real): ${formatPercent(usage.committedPct)}`),
         committed.length ? h('ul', {}, ...committed.map((r) => usageRowNode(r, type))) : h('p', { class: 'small muted' }, 'Ninguna cotización ganada lo usa.'),
         h('h4', {}, `Borradores y enviadas (uso potencial): ${formatPercent(usage.potentialPct)}`),

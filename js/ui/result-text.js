@@ -993,8 +993,8 @@ export function longClosedJobNote(r) {
 // ------------------------------------------------- por tiempo usado (2026-11-18)
 
 /** Campo de las horas facturables de un puesto (M7): igual en Recursos, en la cotización y en el aviso. */
-export const BILLABLE_HOURS_LABEL = 'Horas que le cobrás a clientes por mes (opcional)';
-export const BILLABLE_HOURS_HINT = 'Las horas que de verdad trabaja para clientes en un mes. Ejemplo: de 176 h normales, 140. Con esto se calcula la hora para cotizar trabajos: las horas sin cliente (esperas, taller, días flojos) quedan cubiertas en cada hora. Vacío = las horas normales. Si son más que las normales, esas horas son extra: no las cargues acá.';
+export const BILLABLE_HOURS_LABEL = 'Horas que trabaja para clientes por mes, entre todos tus trabajos (opcional)';
+export const BILLABLE_HOURS_HINT = 'No son las horas de esta cotización ni de un cliente: son todas las que trabaja para clientes en un mes, sumando todos tus trabajos. Ejemplo: de 176 h normales, 140. Con esto se calcula la hora para cotizar trabajos: las horas sin cliente (esperas, taller, días flojos) quedan cubiertas en cada hora. Vacío = las horas normales. Si son más que las normales, esas horas son extra: no las cargues acá.';
 /** Aviso (M7): cargaron más horas facturables que las normales. */
 export const BILLABLE_OVER_NORMAL_NOTE = 'Cargaste más horas que las normales: la hora para cotizar queda más barata que la normal. Las horas de más son horas extra.';
 
@@ -1086,7 +1086,7 @@ export function laborHourStat(line, normalHours) {
   const own = Boolean(p.ownBillableHours);
   return {
     value: p.billableHourlyCost,
-    hint: own ? `Costo por mes ÷ ${formatNumber(p.billableHoursPerMonth, { decimals: 2 })} horas que le cobrás a clientes por mes.` : normal,
+    hint: own ? `Costo por mes ÷ ${formatNumber(p.billableHoursPerMonth, { decimals: 2 })} horas que trabaja para clientes por mes (todos tus trabajos).` : normal,
   };
 }
 

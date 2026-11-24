@@ -24,6 +24,8 @@ Reglas para este archivo:
 - Puestos con relevos (más personas que puestos): el mes del puesto es el de todas sus personas (sin exceso falso) y lo que queda sin cobrar cuenta todas las nóminas.
 - **Recursos › Usado en** cuenta las mismas horas que cobra la cotización (antes podía decir 17 % donde el costo cobraba 45 %), muestra "cobra su mes completo" y avisa si más de una cotización cobra el mes completo del mismo recurso. Los avisos de más del 100 % aclaran que RATEOS no sabe en qué mes se hace cada trabajo ni qué propuestas son alternativas.
 - "Actualizar en esta cotización" desde Recursos conserva la decisión de mes completo.
+- Resultado: el aviso de horas del mes sin cobrar se ve arriba, junto al precio, con el monto (antes quedaba dentro de "¿Te falta cargar algo?").
+- "Horas que le cobrás a clientes por mes" pasa a llamarse "Horas que trabaja para clientes por mes, entre todos tus trabajos": se leía como las horas de un cliente y, con 16 cargado, una cotización de 64 h costaba cuatro sueldos.
 - Traslados: la ayuda del desgaste por km ya no pide cargar la amortización si el vehículo también está en Equipos (se contaba dos veces).
 
 ## [0.23.0] - 2026-11-23
