@@ -287,6 +287,9 @@ export function auditTerminology() {
   for (const hit of retiredStepNames()) {
     findings.push(finding('UX-TERM-STEP', 'P1', 'P1 UX', 'Texto que cita el paso retirado "Cómo se cobra"', `${hit.file}: ${hit.text} — desde 0.24.0 no hay paso "Cómo se cobra": el ritmo está en "El servicio", las horas extra en "Personal" y el precio a mano en "El precio" (o agregarlo a STEP_NAMES_ALLOWED con su motivo).`, hit));
   }
+  for (const hit of retiredFloorNames()) {
+    findings.push(finding('UX-TERM-FLOOR', 'P1', 'P1 UX', 'Texto que dice "precio piso"', `${hit.file}: ${hit.text} — desde 0.24.0 es "Precio mínimo" (no ganás ni perdés), como "tarifa mínima" en las cotizaciones (o agregarlo a FLOOR_NAMES_ALLOWED con su motivo).`, hit));
+  }
   for (const hit of jornadaWords()) {
     findings.push(finding('UX-TERM-JORNADA', 'P1', 'P1 UX', 'Texto que habla de "jornada" sin un dato de jornada diaria', `${hit.file}: ${hit.text} — el control de horas del personal es de cobertura mensual: "horas de cobertura" / "horas cargadas para este puesto".`, hit));
   }
@@ -383,6 +386,28 @@ export function retiredStepNames() {
     const allowed = STEP_NAMES_ALLOWED[rel] || [];
     for (const lit of literals) {
       if (!RETIRED_STEP_NAME.test(lit) || allowed.includes(lit)) continue;
+      hits.push({ file: rel, text: lit.slice(0, 140) });
+    }
+  }
+  return hits;
+}
+
+/**
+ * Glosario (PLAN-2026-028, 0.24.0, decisión D4): "Precio piso" pasó a "Precio mínimo". Ningún
+ * literal de js/ (sin comentarios) dice "precio piso", salvo los de FLOOR_NAMES_ALLOWED
+ * (archivo → textos exactos), cada uno con su motivo. "Bajo piso" (tarifa debajo de la mínima)
+ * es otra frase y no se controla acá.
+ */
+const RETIRED_FLOOR_NAME = /precio\s+piso/i;
+export const FLOOR_NAMES_ALLOWED = Object.freeze({});
+
+/** Literales de js/ que dicen "precio piso" fuera de la lista permitida (UX-TERM-FLOOR). */
+export function retiredFloorNames() {
+  const hits = [];
+  for (const { rel, literals } of jsLiterals()) {
+    const allowed = FLOOR_NAMES_ALLOWED[rel] || [];
+    for (const lit of literals) {
+      if (!RETIRED_FLOOR_NAME.test(lit) || allowed.includes(lit)) continue;
       hits.push({ file: rel, text: lit.slice(0, 140) });
     }
   }

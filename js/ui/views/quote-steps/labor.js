@@ -23,6 +23,7 @@ import { nonNegative, isFiniteNumber, roundRate } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { onSessionReset } from '../../session-memory.js';
+import { hasText } from '../../optional-fields.js';
 import { baseText } from '../../economic-base-ui.js';
 import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
 import { billableHoursOf, serviceMonthHours, monthBaseHoursOf } from '../../../domain/cost-basis.js';
@@ -739,7 +740,10 @@ export function render(container, ctx) {
             kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative }),
             // Pasajes de la persona (micro o avión de los relevos): no es el vehículo, que va en Equipos.
             kit.num(`${p}.transferMonthly`, { label: 'Pasajes o traslado de la persona', rule: 'money', unit: '$/mes', illustrative, hint: `Por persona y mes: micro, avión o reintegro. Si viaja en un vehículo de "${stepName('equipment')}", ya está ahí: dejalo en 0.` }),
-            kit.text(`${p}.category`, { label: 'Categoría', maxLength: 120, hint: 'Sólo informativa (no cambia el costo).' }),
+            // 0.24.0 (P-14): sólo informativa; se ve sólo si ya tiene texto (no se borra nada).
+            hasText(line.category)
+              ? kit.text(`${p}.category`, { label: 'Categoría', maxLength: 120, hint: 'Sólo informativa (no cambia el costo).' })
+              : null,
           ),
         ),
         // PLAN-2026-012: dedicada / compartida (% explícito del costo fijo) / contratada para el servicio.

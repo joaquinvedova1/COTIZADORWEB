@@ -32,7 +32,8 @@ export function fieldHref(quoteId, path) {
   return field ? `${base}?campo=${encodeURIComponent(field)}` : base;
 }
 
-const GUARD_FIELDS = new Set(['availability', 'availabilityHoursPerDay', 'availabilityWindow', 'guardType']);
+// 0.24.0: el tiempo de respuesta sólo está en "Detalle de la guardia" (P-14).
+const GUARD_FIELDS = new Set(['availability', 'availabilityHoursPerDay', 'availabilityWindow', 'guardType', 'responseTimeHours']);
 
 /** Paso del flujo en el que vive un campo (ruta de validateQuote). */
 export function stepOfPath(path) {

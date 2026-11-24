@@ -273,7 +273,7 @@ function equipmentTrace(result, index, source) {
           { label: 'Tenerlo por mes × cantidad (no se carga entero: va por hora)', value: line.fullFixedMonthly, format: 'money' },
           { label: line.time.ownBillableHours ? 'Horas por mes que lo usás o alquilás' : 'Horas por mes (si trabaja todo el mes a este ritmo)', value: line.time.billableHoursPerMonth, format: 'hours' },
           { label: 'Tenerlo por hora (lo de tenerlo en el mes ÷ horas por mes, por unidad)', value: line.time.hourlyCost, format: 'rate' },
-          { label: line.time.ownHours ? 'Horas asignado a esta cotización por día' : 'Horas asignado a esta cotización por día (todo el día de trabajo)', value: line.time.hoursPerDay, format: 'hours' },
+          { label: line.time.ownHours ? 'Horas asignadas a este trabajo por día' : 'Horas asignadas a este trabajo por día (todo el día de trabajo)', value: line.time.hoursPerDay, format: 'hours' },
           { label: 'Tenerlo por día de trabajo × cantidad', value: line.ownershipPerActiveDay, format: 'money' },
         ]
         : line.shared
@@ -859,7 +859,7 @@ export function render(container, ctx) {
       if (Number(value) > 0 && run > 0 && dayHours !== null && Math.abs(run - dayHours) < 1e-9) ctx.update(`${p}.hoursPerActiveDay`, null);
     };
     const jobHoursField = () => kit.num(`${p}.assignedHoursPerDay`, {
-      label: 'Horas asignado a esta cotización',
+      label: 'Horas asignadas a este trabajo',
       rule: 'hoursPerDay',
       unit: 'h/día',
       placeholder: dayHours !== null && dayHours > 0 ? `${formatNumber(dayHours, { decimals: 2 })} (todo el día)` : 'Todo el día',

@@ -14,7 +14,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runCampaign, BLOCKING } from './lib/lab.js';
-import { auditQuoteUx, auditActivationTerms, hardcodedActivationWords, jornadaWords, auditJornadaWording, auditProductFinanceScope, retiredStepNames } from './lib/ux-audit.js';
+import { auditQuoteUx, auditActivationTerms, hardcodedActivationWords, jornadaWords, auditJornadaWording, auditProductFinanceScope, retiredStepNames, retiredFloorNames } from './lib/ux-audit.js';
 import { activationTerms } from '../../js/domain/activation-terms.js';
 import { service, person } from './lib/build.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
@@ -98,6 +98,10 @@ describe('Test Lab — terminología de la interfaz (auditor UX F)', () => {
   // PLAN-2026-028 (0.24.0): el paso "Cómo se cobra" se disolvió; ningún texto lo cita (UX-TERM-STEP).
   test('ningún literal del código cita el paso retirado "Cómo se cobra"', () => {
     assert.deepEqual(retiredStepNames(), []);
+  });
+  // PLAN-2026-028 (0.24.0, D4): "Precio piso" pasó a "Precio mínimo" (UX-TERM-FLOOR).
+  test('ningún literal del código dice "precio piso"', () => {
+    assert.deepEqual(retiredFloorNames(), []);
   });
   test('los ítems y avisos de la completitud apuntan a uno de los 10 pasos', () => {
     assert.equal(QUOTE_STEPS.length, 10);

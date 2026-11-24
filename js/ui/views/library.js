@@ -40,10 +40,11 @@ import { formatMoney, formatMoneyIn, formatNumber, formatPercent, formatPeriod, 
 import { isFiniteNumber, toNumber } from '../../core/money.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
-import { AGREEMENT_TYPES, AGREEMENT_TYPES_SORTED, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_UNIT_PRESETS, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf, vatIsCost } from '../../domain/catalogs.js';
+import { AGREEMENT_TYPES, AGREEMENT_TYPES_SORTED, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_UNIT_PRESETS, MATERIAL_PROVIDERS, materialProviderOptions, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf, vatIsCost } from '../../domain/catalogs.js';
 import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
 import { maintenanceOf } from '../../engines/equipment-engine.js';
 import { wearNote } from '../equipment-wear-ui.js';
+import { hasText, positiveValue, unitDataParts } from '../optional-fields.js';
 import { EQUIPMENT_FAMILIES, familyById, familyIdOf, familyVariants, isVehicleFamily, modelLabel, suggestedMobility } from '../../domain/equipment-catalog.js';
 import { emptyBase } from '../../domain/economic-base.js';
 import { createExternalTerms, createEquipmentMobility, acquisitionOf } from '../../domain/quote-factory.js';
@@ -587,7 +588,17 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
       fields: [
         { key: 'role', label: 'Rol / puesto', kind: 'text', required: true, placeholder: 'Ej.: Técnico HSE, operario, chofer' },
         { key: 'agreementId', label: 'Convenio', kind: 'select', options: agreementOptions, includeEmpty: true, emptyLabel: 'Sin convenio', rerender: true, hint: (d) => (String(d.agreementId || '').startsWith(CATALOG_AGREEMENT) ? 'Se agrega a tus Convenios al guardar, con porcentajes de ejemplo: revisalos ahí con los de tu convenio vigente.' : 'De él salen las cargas sociales y los aumentos.') },
-        { key: 'category', label: 'Categoría', kind: 'text', placeholder: 'Según tu convenio' },
+      ],
+    },
+    {
+      // 0.24.0 (P-14): la categoría es sólo informativa (no cambia el costo): va plegada.
+      title: 'Más detalle (opcional)',
+      collapsible: true,
+      key: 'labor-more',
+      openWhen: (d) => hasText(d.category),
+      summary: (d) => (hasText(d.category) ? `Categoría: ${d.category.trim()}.` : 'Categoría del convenio (sólo informativa).'),
+      fields: [
+        { key: 'category', label: 'Categoría', kind: 'text', placeholder: 'Según tu convenio', hint: 'Sólo informativa (no cambia el costo).' },
       ],
     },
     {
@@ -599,7 +610,7 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
         { key: 'basicMonthly', label: 'Remunerativo', rule: 'money', unit: '$', required: true, hint: 'Básico, presentismo, antigüedad y adicionales remunerativos.' },
         { key: 'nonRemunerativeMonthly', label: 'No remunerativo', rule: 'money', unit: '$', hint: 'Viandas, asignaciones y sumas no remunerativas. No llevan cargas patronales ni aportes (sólo las cargas propias del convenio, si las tiene). Si no hay: 0.' },
         { key: 'additionalsMonthly', label: 'Otros pagos remunerativos (cargado antes)', rule: 'money', unit: '$', when: (d) => hasValue(d.additionalsMonthly), hint: 'Se suma al remunerativo.' },
-        { key: 'workerContributionsPct', label: 'Aportes del trabajador', rule: 'percent', unit: '%', hint: 'Jubilación, ley 19.032 y obra social (17 % habitual). Sólo para ver el neto.' },
+        { key: 'workerContributionsPct', label: 'Aportes del trabajador (% del remunerativo)', rule: 'percent', unit: '%', hint: 'Jubilación, ley 19.032 y obra social (17 % habitual). Sólo para ver el neto: no cambian tu costo.' },
         { ...baseFormFields('base', { periodLabel: '¿De qué mes es este sueldo?' })[0], hint: 'Los aumentos del convenio lo actualizan solos.' },
       ],
       live: profileCost ? (draft) => {
@@ -787,7 +798,7 @@ function agreementSections() {
         { key: 'params.fixedContributionsMonthly', label: 'Contribuciones fijas por persona', rule: 'money', unit: '$/mes', hint: 'Montos fijos del convenio (contribución extraordinaria, seguro de vida…). Sin cargas encima.' },
         { key: 'params.nonRemunerativeChargesPct', label: 'Cargas sobre el no remunerativo', rule: 'percent', unit: '%', hint: 'Obra social, cuota sindical… que el acuerdo aplica a las sumas no remunerativas. Si no hay: 0.' },
         { key: 'params.otherChargesPct', label: 'Otras cargas y provisiones', rule: 'percent', unit: '%', hint: 'Sobre el remunerativo, sin cargas encima: fondo de cese laboral (UOCRA), provisión por despido, ausentismo, licencias… Lo define tu convenio o tu contador. Si no hay: 0.' },
-        { key: 'params.workerContributionsPct', label: 'Aportes del trabajador', rule: 'percent', unit: '%', hint: 'Sólo para mostrar el neto: no cambian tu costo.' },
+        { key: 'params.workerContributionsPct', label: 'Aportes del trabajador (% del remunerativo)', rule: 'percent', unit: '%', hint: 'Sólo para mostrar el neto: no cambian tu costo.' },
       ],
     },
     {
@@ -894,7 +905,8 @@ function mobilitySection({ vehicle = false } = {}) {
       // Un vehículo los pide arriba, a la vista ("Consumo en ruta").
       vehicle ? null : TRAVEL_FUEL_FIELD,
       vehicle ? null : TRAVEL_WEAR_FIELD,
-      { key: 'mobility.speedKmh', label: 'Velocidad estimada (opcional)', rule: 'quantity', unit: 'km/h', nullable: true },
+      // 0.24.0 (P-14): no mueve ningún número; se ve sólo si ya tiene valor (no se borra).
+      { key: 'mobility.speedKmh', label: 'Velocidad estimada (opcional)', rule: 'quantity', unit: 'km/h', nullable: true, when: (d) => positiveValue(d.mobility && d.mobility.speedKmh) },
     ],
     extra: ({ draft, rerender }) =>
       h(
@@ -1038,15 +1050,23 @@ function equipmentSections(models = [], settings = {}) {
         hint: 'Elegí la familia y, si querés, una variante común: completa la capacidad y sugiere el nombre. Podés cambiar todo o cargarlo desde cero.',
         fields: [
           { key: 'familyId', label: 'Familia', kind: 'select', options: FAMILY_OPTIONS, rerender: true },
-          CAPACITY_FIELD,
           { key: 'name', label: 'Nombre', kind: 'text', required: true, placeholder: 'Ej.: Vactor 12 yd³ / 1.500 gal' },
         ],
         extra: ({ draft: d, rerender }) => variantSuggestions({ draft: d, rerender }),
       },
       {
-        title: 'Identificación de la unidad',
+        // 0.24.0 (P-14): interno, modelo, año, dominio y capacidad no mueven ningún número: plegados.
+        title: 'Datos de la unidad (opcional)',
+        key: 'unit-data',
+        collapsible: true,
+        openWhen: (d) => unitDataParts(d).length > 0,
+        summary: (d) => {
+          const parts = unitDataParts(d);
+          return parts.length ? `${parts.join(' · ')}.` : 'Interno, modelo, año, dominio y capacidad.';
+        },
         cols: 4,
         fields: [
+          CAPACITY_FIELD,
           { key: 'internalCode', label: 'Interno', kind: 'text', maxLength: 40, placeholder: 'Ej.: EQ-014' },
           {
             key: 'modelId',
@@ -1104,7 +1124,8 @@ function equipmentSections(models = [], settings = {}) {
           },
           fields: [
             { key: 'residualValue', label: 'Valor residual', rule: 'money', unit: (d) => currencySymbol(d), hint: 'Mismo período y moneda que el valor de reposición.' },
-            { key: 'currentValue', label: 'Valor actual (informativo)', rule: 'money', unit: '$' },
+            // 0.24.0 (P-14): informativo; se ve sólo si ya tiene valor.
+            { key: 'currentValue', label: 'Valor actual (informativo)', rule: 'money', unit: '$', when: (d) => positiveValue(d.currentValue) },
             { key: 'insuranceAnnual', label: 'Seguro anual', rule: 'money', unit: '$' },
             { key: 'licenseAnnual', label: 'Patente / impuestos anuales', rule: 'money', unit: '$' },
             { key: 'certificationsAnnual', label: 'Certificaciones e inspecciones (anual)', rule: 'money', unit: '$' },
@@ -1222,7 +1243,8 @@ function modelSections() {
         { key: 'model', label: 'Modelo', kind: 'text', required: true, maxLength: 60, placeholder: 'Ej.: PD4211' },
         { key: 'year', label: 'Año / generación (opcional)', rule: 'integer', nullable: true },
         { key: 'capacity', name: 'capacity', label: 'Capacidad / especificación (opcional)', kind: 'text', maxLength: 80, placeholder: 'Ej.: 12 yd³ / 1.500 gal' },
-        { key: 'fuelType', label: 'Combustible (opcional)', kind: 'text', maxLength: 40, placeholder: 'Ej.: gasoil' },
+        // 0.24.0 (P-14): informativo; se ve sólo si ya tiene texto.
+        { key: 'fuelType', label: 'Combustible (opcional)', kind: 'text', maxLength: 40, placeholder: 'Ej.: gasoil', when: (d) => hasText(d.fuelType) },
       ],
       extra: ({ draft, rerender }) => variantSuggestions({ draft, rerender, nameKey: null }),
     },
@@ -1297,7 +1319,7 @@ function materialSections(settings = {}) {
       fields: [
         { key: 'wastePct', label: 'Merma', rule: 'percent', unit: '%', hint: 'Lo que se pierde o desperdicia.' },
         { key: 'logisticsPct', label: 'Flete hasta la obra', rule: 'percent', unit: '%', hint: 'Flete y manipuleo, como % del costo.' },
-        { key: 'providedBy', label: '¿Quién lo provee?', kind: 'select', options: options(MATERIAL_PROVIDERS), includeEmpty: true, emptyLabel: 'Sin definir' },
+        { key: 'providedBy', label: '¿Quién lo provee?', kind: 'select', options: (d) => materialProviderOptions(d && d.providedBy), includeEmpty: true, emptyLabel: 'Sin definir' },
       ],
     },
     { title: 'Marca', cols: 2, fields: [illustrativeField] },

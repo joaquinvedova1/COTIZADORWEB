@@ -841,7 +841,6 @@ export function render(container, ctx) {
             timePace && !timePaceInMain ? `${T.g('una', 'un')} ${T.one} por día` : null,
             hoursInMain ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día de trabajo` : 'horas por día sin cargar',
             paceMatters && kind === 'quantity' && hasNumber(a.daysPerActivation) ? activationPaceText(Number(a.daysPerActivation), T) : null,
-            isOnCall && !asksAvailability && a.availability !== 'none' && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
           ].filter(Boolean);
           return parts.join(' · ');
         },
@@ -859,20 +858,8 @@ export function render(container, ctx) {
       // Puede durar varios días o haber varias en un día (se guarda 1 / N).
       quantityPaceSlot,
       timePace && !timePaceInMain ? timePace : null,
-      isOnCall && !asksAvailability && !(quote.activity && quote.activity.availability === 'none')
-        ? kit.group(
-          'Tiempo de respuesta',
-          formGrid(
-            2,
-            kit.num('activity.responseTimeHours', {
-              label: 'Tiempo máximo de respuesta',
-              rule: 'hours',
-              unit: 'h',
-              hint: 'Desde el llamado hasta estar operativo en locación.',
-            }),
-          ),
-        )
-        : null,
+      // 0.24.0 (P-14): "Tiempo máximo de respuesta" no mueve ningún número: salió del ritmo y
+      // queda sólo en "Detalle de la guardia" (en "El precio"), para las que ya tienen guardia.
       // UX 1: un trabajo cerrado más largo que el mes no es un error; se dice como dato (azul).
       kit.out((r) => {
         const text = longClosedJobNote(r);

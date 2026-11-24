@@ -124,7 +124,7 @@ export function unitHoursField(kit, { path, kind, basis, unit, ready, where, onV
   const cost = kind === 'labor' ? 'el valor de su hora' : 'su valor hora (amortización, seguro, patente, mantenimiento y combustible)';
   const pending = ready ? '' : ` Falta cargar ${basis === 'job' ? 'los días del trabajo' : `cuántos ${unit.plural || 'unidades'} hacés por día`} en «${where}»: hasta entonces cuenta todo el día.`;
   return kit.num(`${path}.assignedHoursPerUnit`, {
-    label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignado a esta cotización',
+    label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignadas a este trabajo',
     rule: 'hours',
     unit: `h/${unit.short || unit.singular || 'unidad'}`,
     placeholder: 'Todo el día de trabajo',
@@ -177,7 +177,7 @@ export function monthHoursField(kit, ctx, { path, baseHours, kind, serviceHours 
     }
   };
   const field = kit.num(`${path}.assignedHoursPerMonth`, {
-    label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignado a esta cotización',
+    label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignadas a este trabajo',
     rule: 'hours',
     unit: 'h/mes',
     placeholder: baseText ? `${baseText} (todo el mes)` : 'Todo el mes',

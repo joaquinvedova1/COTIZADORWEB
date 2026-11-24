@@ -7,6 +7,7 @@
  */
 
 import { contingencyPriceOverlap } from '../../../domain/price-adjustment.js';
+import { riskItemVisible } from '../../optional-fields.js';
 import { h, mount } from '../../dom.js';
 import { card, formGrid, checkboxField } from '../../components.js';
 import { RISK_ITEMS } from '../../../domain/catalogs.js';
@@ -82,6 +83,9 @@ export function render(container, ctx) {
   const rows = RISK_ITEMS.map((item) => {
     const index = quote.risk.items.findIndex((r) => r && r.id === item.id);
     if (index < 0) return null;
+    // 0.24.0 (P-15): con el precio que ya contempla la inflación, "Suba de precios" e "Inflación"
+    // se ocultan si están en 0 (se contarían dos veces). Con un valor cargado se ven siempre.
+    if (!riskItemVisible(quote, quote.risk.items[index])) return null;
     const p = `risk.items.${index}`;
     const row = h(
       'div',

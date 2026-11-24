@@ -14,7 +14,7 @@
 
 import { h, mount } from '../../dom.js';
 import { button, card, formGrid, selectField, table, confirmDialog } from '../../components.js';
-import { QUOTE_MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS, vatIsCost } from '../../../domain/catalogs.js';
+import { QUOTE_MATERIAL_BASES, materialProviderOptions, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS, vatIsCost } from '../../../domain/catalogs.js';
 import { materialLineFromLibrary, blankMaterialLine, otherCostToMaterialLine } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
 import { workDaysText } from '../../unit-text.js';
@@ -467,7 +467,7 @@ export function render(container, ctx) {
           kit.num(`${p}.unitCost`, { label: `${component === 'other' ? 'Monto' : 'Costo unitario'} (${vatIsCost(ctx.settings) ? 'con' : 'sin'} IVA)`, hint: vatIsCost(ctx.settings) ? 'Como monotributista o exento, el IVA de lo que comprás es costo: cargá el precio con IVA.' : null, rule: 'money', unit: kit.out(() => `${sym}/${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}`), illustrative }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',
-            options: MATERIAL_PROVIDERS.map((m) => ({ value: m.id, label: m.label })),
+            options: materialProviderOptions(quote.materials[i] && quote.materials[i].providedBy),
             includeEmpty: true,
             emptyLabel: 'Elegí quién lo provee…',
           }),
