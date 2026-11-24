@@ -74,18 +74,23 @@ Antes del resultado completo, cuatro pasos de una pregunta cada uno: el servicio
 
 ### Editor de cotización
 
-Los 11 pasos internos siguen existiendo (y sus URLs), agrupados en **6 etapas** con los recursos antes que la forma de cobro (PLAN-2026-025):
+Los pasos internos (10 desde la 0.24.0, con sus URLs) se agrupan en **5 etapas**, con los recursos antes que el precio (PLAN-2026-025). En la 0.24.0 (PLAN-2026-028) la etapa "Cómo se cobra" se disolvió: el ritmo de trabajo va en "El servicio", "Horas extra del trabajo" al final de "Personal", "¿Cómo viaja el personal a la locación?" en "Movilización y viajes" y el precio a mano, la hora fuera de horario, la guardia y los adicionales cargados antes en "El precio" (bloque "Cargado antes"). Una URL vieja `…/modality` abre "El precio".
 
 | Etapa | Pasos internos |
 |---|---|
-| 1. El servicio | Qué servicio es y qué incluye |
-| 2. Los recursos | Personal (con su costo por mes, hora normal, hora extra 50 % y 100 %), equipos (amortización y mantenimiento a la vista), insumos y materiales, movilización y viajes |
-| 3. Cómo se cobra | Lo que cuestan los recursos, unidad y actividad en horario normal, dedicación, fuera de horario (opcional), guardia (opcional), adicionales |
-| 4. Costos y condiciones | Gastos de estructura, financiamiento, imprevistos |
-| 5. El precio | Margen, impuestos sobre lo que facturás y reglas comerciales |
-| 6. Resultado | Resultado (con "Tus tarifas": horario normal, fuera de horario y guardia) |
+| 1. El servicio | Qué servicio es, qué incluye, unidad de cobro y ritmo de trabajo |
+| 2. Los recursos | Personal (con su costo por mes, hora normal, hora extra 50 % y 100 % y, al final, las horas extra del trabajo), equipos (amortización y mantenimiento a la vista), insumos y materiales, movilización y viajes |
+| 3. Otros gastos | Gastos de estructura, financiamiento, imprevistos |
+| 4. El precio | Margen, "¿Ya tenés un precio? (opcional, sin IVA)", impuestos sobre lo que facturás, reglas comerciales y lo cargado antes (fuera de horario, guardia, adicionales) |
+| 5. Resultado | Resultado (con "Tus tarifas": horario normal, fuera de horario y guardia) |
 
-Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, días para no perder) y "Ver más". La tarifa piso dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir).
+**Precio a mano: un solo campo** (0.24.0, P-12): "¿Ya tenés un precio? (opcional, sin IVA)", a la vista debajo del margen ("Vacío = RATEOS te sugiere el precio con tu margen"). Escribe en `pricing.knownRate` si la cotización es "ya tengo la tarifa" y en `pricing.offeredRateOverride` si no; los dos dan los mismos números (INV-33). En una "ya tengo la tarifa", "Borrar mi precio y usar el sugerido" (con confirmación) la pasa a calcular la tarifa. La pantalla ya no ofrece elegir el modo.
+
+Resumen en vivo: a la vista sólo el precio; costo del mes, tarifa mínima y días para no perder en "Ver más". La tarifa mínima dice si incluye los impuestos sobre lo que facturás (naranja si están sin definir).
+
+**Datos de tu empresa** (0.24.0, W-10): mientras la Configuración sea de ejemplo, Inicio y "Nuevo servicio" muestran la tarjeta "Datos de tu empresa" (combustible, plazo de cobro, tasa mensual, imprevistos, margen y condición frente al IVA; los valores de ejemplo como texto de muestra). "Guardar" los deja como propios y la cotización siguiente nace sin "ILUSTRATIVO"; "Ahora no" deja todo como estaba. Con una empresa responsable inscripta y el IVA completo, la cotización nueva no pregunta por el IVA: una línea dice "Facturás con IVA … (tu empresa) · Cambiar sólo acá".
+
+**Campos que no mueven números** (0.24.0, P-14): se ocultan o se pliegan, pero nunca se borran, y si tienen un valor guardado se siguen viendo. "Tiempo máximo de respuesta" está sólo en "Detalle de la guardia"; "Categoría" del puesto, sólo si tiene texto (en Recursos, en "Más detalle"); "Valor actual", "Velocidad estimada" y "Combustible" del modelo, sólo con valor; interno, modelo, año, dominio y capacidad del equipo en "Datos de la unidad (opcional)". "¿Quién lo provee?" ofrece "Lo pago yo" y "Lo pone el cliente" ("Tercero contratado por nosotros" sólo donde ya estaba elegida).
 
 **Convención de montos: sin IVA.** Es una convención explícita de cada cotización (`vatTreatment`), no un supuesto silencioso: la primera etapa lo dice al empezar ("Esta cotización usa costos, precios y tarifas sin IVA: si tenés un valor con IVA, descontalo antes de cargarlo"), cada etapa muestra la marca **"Montos sin IVA"**, los formularios de equipos, materiales y el precio del combustible lo repiten donde suele llegar un precio con IVA, y el resultado y la impresión lo rotulan.
 
@@ -102,9 +107,18 @@ Resumen en vivo con 4 números (costo del mes, tarifa piso, tarifa sugerida, dí
 
 **Insumos y materiales** (0.22.0, PLAN-2026-027): una sola lista, sin secciones. Cada línea tiene un **Tipo** junto a "¿Qué es?" (Material que queda en la obra, Insumo o consumible, Herramienta menor, EPP especial, Otro gasto) que viene de Recursos; si no coincide con el de Recursos, la línea lo dice y ofrece "Usar el de Recursos" o "Guardar este tipo en Recursos". Arriba: "Desde tus recursos" + Agregar (nace con la cantidad vacía y "Por válvula" / "Por mes" según la unidad de cobro) y "Tipo" + "Agregar en blanco" (empieza en "Insumo o consumible" y recuerda el último de la sesión). Debajo, el subtotal por tipo. Los otros costos guardados con versiones anteriores se ven sólo si existen, en **"Gastos cargados antes"**, con "Suma en: …" y, los que suman en este renglón, el botón "Pasar a la lista". Ya no hay "Va a" ni "Categoría". "¿Qué incluye?" (paso 1) tiene 4 casillas: Personal, Equipos y vehículos, Insumos y materiales y Viajes. La ropa de trabajo y el EPP básico de cada persona siguen en su puesto (Personal).
 
+### Glosario (0.24.0)
+
+- **Precio mínimo** (Productos, antes "Precio piso"): el precio que no gana ni pierde. En las cotizaciones se sigue llamando **tarifa mínima**, distinta de la **tarifa sugerida** (par del auditor `UX-TERM-DISTINCT`). El control `UX-TERM-FLOOR` impide que vuelva "precio piso". Pasar toda la app de "tarifa" a "precio" queda para una versión aparte (decisión D4).
+- **"Cómo se cobra"** ya no es un paso: ningún texto lo cita (`UX-TERM-STEP`).
+- **Aportes del trabajador (% del remunerativo)**: se calculan sólo sobre el remunerativo y sólo dan el neto; no cambian el costo.
+- **Horas asignadas a este trabajo**: las horas de un equipo o recurso que paga esta cotización (antes "Horas asignado a esta cotización").
+
 ### Resultado
 
 La primera vista responde **sólo cuatro preguntas**: **¿Cuánto me cuesta? ¿Cuánto tengo que cobrar? ¿Cuánto tengo que trabajar? ¿Cuánto margen queda?** (4 números con "Ver cálculo", la frase de los días, la nota "Montos sin IVA…" y las alertas críticas, como la de impuestos sobre lo que facturás sin definir). Aunque el motor sea más completo, nada más va arriba (progressive disclosure).
+
+**Un solo precio** (0.24.0, W-01): arriba hay una sola cifra grande, el precio que se cobra ("Precio sugerido" o "Tu precio", según de dónde sale), y debajo una línea "Te cuesta $ X · ganás $ Y (Z %)". La tarifa mínima pasa a un renglón "¿Hasta cuánto puedo bajar?" con su "Ver cálculo"; las tarjetas de costo, ganancia, margen y mínima quedan en "Todos los indicadores". El margen se muestra como lo pidió la persona; la diferencia por redondeo queda en "Ver cálculo".
 
 Todo lo demás está en **"Profundizá"**, cerrado por defecto y dibujado al abrirlo: **"¿Cómo se forma tu precio?"** (de cada $ 100 que facturás: costo, impuestos y ganancia; 100 % del precio), **"¿En qué se va el costo?"** (4 rubros + otros, y la estructura de costos completa; 100 % del costo), **reparto de la tarifa (apropiación) y total del contrato**, tarifa según días trabajados (matriz), escenarios y sensibilidad, reglas comerciales y descuentos, margen vs markup, **base económica de la oferta** (bases por rubro, tipos de cambio y externos: costo económico vs salida de caja vs crédito fiscal), completitud y "Ver cálculo completo" (con **"Los números cierran"**). Al imprimir se abren todas las secciones.
 

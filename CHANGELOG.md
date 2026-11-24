@@ -12,6 +12,26 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-24
+
+**Menos preguntas.** Auditoría para cerrar la beta, tanda 4 (project files `auditoria-beta/PLAN-TANDA-4.md`, PLAN-2026-028): PR 1, 2, 3 y 5 del plan. **Esquema 11, sin cambio.** Sin cambio de fórmulas: ninguna cotización ni producto cambia sus números (foto de `computeQuote` antes de tocar el código, `tests/engines/tanda4-sin-cambio.test.js`: KPIs, estructura de costos y completitud de la demo, los fixtures y los escenarios y sondas del Test Lab; de la completitud sólo cambia el paso al que apunta cada pendiente). Reglas: docs/CALCULATION_RULES.md §38.
+
+### Cambiado
+
+- **Sin el paso "Cómo se cobra"** (P-12, P-13, G15): la cotización tiene 10 pasos en 5 etapas (El servicio, Los recursos, Otros gastos, El precio, Resultado). El ritmo de trabajo va en "El servicio", "Horas extra del trabajo" al final de "Personal", "¿Cómo viaja el personal a la locación?" en "Movilización y viajes", y la hora fuera de horario, la guardia y los adicionales cargados antes en "El precio" (bloque "Cargado antes"). Salen "Lo que ya cargaste", "Con tu tarifa" y "Ver tarifas según el margen" (están en el resumen en vivo y en el Resultado). Un enlace viejo `…/modality` abre "El precio". Los pendientes de la completitud llevan al paso donde está el campo.
+- **Un solo campo de precio a mano**: "¿Ya tenés un precio? (opcional, sin IVA)", a la vista debajo del margen. Reemplaza "Tu tarifa" y "Tarifa ofrecida a mano"; con el mismo precio los dos daban los mismos números (INV-33). En una cotización "ya tengo la tarifa", "Borrar mi precio y usar el sugerido" (con confirmación). `pricingMode` sigue en el modelo.
+- **Un solo precio en el Resultado y en el resumen** (W-01): una cifra grande ("Precio sugerido" o "Tu precio") y la línea "Te cuesta $ X · ganás $ Y (Z %)". La tarifa mínima pasa a "¿Hasta cuánto puedo bajar?" con su "Ver cálculo"; las demás tarjetas quedan en "Todos los indicadores". En el resumen en vivo, a la vista sólo el precio.
+- **Datos de la empresa una sola vez** (W-10): mientras la Configuración sea de ejemplo, Inicio y "Nuevo servicio" muestran la tarjeta "Datos de tu empresa" (combustible, plazo de cobro, tasa, imprevistos, margen y condición frente al IVA). "Guardar" los deja como propios y la cotización siguiente nace sin "ILUSTRATIVO". En la cotización, "Guardar como valor de mi empresa" para el combustible y la tasa; en las creadas antes, "Son los valores de mi empresa" en el aviso (el número no cambia).
+- **IVA** (P-11): con una empresa responsable inscripta y los dos valores cargados, la cotización nueva nace con "¿Facturás con IVA?" = Sí y muestra una línea en vez de la pregunta ("Cambiar sólo acá"). Un externo nuevo nace con "Sí, lo recupero" (mismo costo que sin definir, INV-34). Los guardados sin definir: botón "Recupero el IVA de todos (responsable inscripto)"; la regla no cambia sola (D6).
+- **Mismo rótulo en Configuración y en la cotización** (P-19): "Plazo de cobro", "Redondeo", "Imprevistos" y "Precio del combustible".
+- **Campos que no mueven números** (P-14): "Tiempo máximo de respuesta" sale del ritmo y queda en "Detalle de la guardia". "Categoría" del puesto, en la cotización sólo si tiene texto y en Recursos en "Más detalle". "Valor actual", "Velocidad estimada" y "Combustible" del modelo, sólo si ya tienen valor. Interno, modelo, año, dominio y capacidad del equipo, en "Datos de la unidad (opcional)". "¿Quién lo provee?": "Lo pago yo" y "Lo pone el cliente"; "Tercero contratado por nosotros" sólo donde ya estaba elegida. Nada se borra.
+- **"Suba de precios" e "Inflación"** (P-15) se ocultan sólo si están en 0 y el precio ya contempla la inflación.
+- **Textos**: "Aportes del trabajador (% del remunerativo)" (el motor ya los calculaba así); "Viáticos y alojamiento" dice lo mismo que el bloque de viajes (P-10); "Horas asignadas a este trabajo" (P-21); en Productos, "Precio piso" pasa a **"Precio mínimo"** (W-11, D4).
+
+### Test Lab
+
+- Controles estáticos `UX-TERM-STEP` (ningún texto cita "Cómo se cobra") y `UX-TERM-FLOOR` (ningún texto dice "precio piso"). Invariantes INV-33 y INV-34. Sonda PRB-24. Navegador E2E-26 a E2E-32.
+
 ## [0.23.0] - 2026-11-23
 
 **Horas del mes que la cotización no paga.** Sale de la evaluación contra la ruta y de la simulación E-01 de la beta (hidrogrúa y operador cobrando por día: el costo por día era igual con 20 o con 2 días de trabajo y no se avisaba). Sin cambio de fórmulas ni de esquema: ninguna cotización cambia sus números.
