@@ -571,6 +571,7 @@
   .qe-sum-main .qe-sum-item { border-top: 0; padding: 0.3rem 1rem 0.65rem; }
   .qe-sum-main .qe-sum-item[data-kpi="commercialRate"] { background: transparent; }
   .qe-sum-main .qe-sum-item::before { top: 6px; bottom: 10px; }
+  .qe-sum-main .qe-sum-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.5rem; }
   .qe-sum-main .qe-sum-value { font-size: 1.12rem; }
   .qe-sum-main .qe-sum-unit { font-size: 0.78rem; }
   .qe-summary-inner:not(.is-expanded) .qe-sum-hint,
@@ -628,20 +629,10 @@
 @media (max-width: 760px) {
   .qe-summary { margin: 0 -1rem; border-left: 0; border-right: 0; }
   .qe-sum-main .qe-sum-item { padding: 0.2rem 0.35rem 0.55rem 0.6rem; justify-content: space-between; }
-  .qe-summary-inner:not(.is-expanded) .qe-sum-main .qe-sum-label {
-    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; white-space: nowrap;
-  }
-  .qe-summary-inner:not(.is-expanded) .qe-sum-short { display: block; }
-  .qe-summary-inner:not(.is-expanded) .qe-sum-full {
-    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; white-space: nowrap;
-  }
-  /* Valor abreviado y, debajo, la unidad (/día): entra sin pisarse aun a 320 px (MOB-6). */
+  /* C11 (revisión de la 0.24.0): una sola columna, el rótulo entero y la cifra completa con la
+     unidad en la misma línea (antes, rótulo corto y "$ 402 mil" en tres renglones). */
   .qe-summary-inner:not(.is-expanded) .qe-sum-main .qe-sum-item { justify-content: flex-start; }
-  .qe-summary-inner:not(.is-expanded) .qe-sum-labels { min-height: 1.8rem; align-items: flex-end; }
-  .qe-summary-inner:not(.is-expanded) .qe-sum-compact { display: inline-flex; flex-direction: column; font-size: 0.95rem; line-height: 1.15; white-space: nowrap; }
-  .qe-summary-inner:not(.is-expanded) .qe-sum-compact-unit { margin-left: 0; line-height: 1.2; }
-  /* Un texto ("No se alcanza") puede ocupar dos renglones: nunca se sale de la pantalla. */
-  .qe-summary-inner:not(.is-expanded) .qe-sum-compact { max-width: 100%; white-space: normal; }
+  .qe-summary-inner:not(.is-expanded) .qe-sum-main .qe-sum-value { max-width: 100%; white-space: normal; }
   /* La barra fija ocupa lo menos posible (A11Y-1): el botón mantiene 44 px de
      objetivo táctil pero se superpone al relleno del encabezado. */
   .qe-summary-head { padding: 0.3rem 0.75rem 0; }
@@ -651,7 +642,6 @@
 }
 
 @media (max-width: 360px) {
-  .qe-summary-inner:not(.is-expanded) .qe-sum-compact { font-size: 0.875rem; }
   .qe-sum-main .qe-sum-item { padding-left: 0.5rem; padding-right: 0.3rem; }
 }
 

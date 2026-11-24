@@ -234,8 +234,9 @@ export function render(container, ctx) {
   const closedSingle = (r) => isClosedPrice(r) && isFiniteNumber(r.kpis.billableQuantity) && Math.abs(r.kpis.billableQuantity - 1) < 1e-9;
   const commercialLabel = (r) => {
     const src = r.kpis.commercialSource;
-    if (isClosedPrice(r)) return src === 'known_rate' ? 'Tu precio (de lista)' : 'Precio ofrecido (de lista)';
-    return src === 'known_rate' ? 'Tu tarifa (de lista)' : 'Tarifa ofrecida (de lista)';
+    // C5 (revisión de la 0.24.0): el precio a mano se llama igual en sus dos modos y en el Resultado.
+    if (src === 'known_rate' || src === 'offered') return 'Tu precio (de lista)';
+    return isClosedPrice(r) ? 'Precio forzado (de lista)' : 'Tarifa forzada (de lista)';
   };
 
   // ------------------------------------------------------------ margen
@@ -881,11 +882,13 @@ export function render(container, ctx) {
     priceCard,
     adjustmentQuestion,
     adjustmentCard,
+    // C2 (revisión de la 0.24.0): lo cargado antes cobra plata hoy, así que va antes de los dos
+    // pliegues opcionales; "Opciones comerciales" queda más abajo, como dice la guardia.
+    legacyShown ? kit.question('Cargado antes', 'Esta cotización ya tenía estos cobros: se siguen cobrando igual. Las cotizaciones nuevas no los ofrecen.', { level: 3 }) : null,
+    legacyShown ? legacySlot : null,
     kit.question('¿Querés ajustar descuentos o redondeo?', `Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }),
     pricingOptions,
     showCommercial ? commercialCard : null,
-    legacyShown ? kit.question('Cargado antes', 'Esta cotización ya tenía estos cobros: se siguen cobrando igual. Las cotizaciones nuevas no los ofrecen.', { level: 3 }) : null,
-    legacyShown ? legacySlot : null,
   );
   return { update() {} };
 }

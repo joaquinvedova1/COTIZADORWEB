@@ -137,3 +137,52 @@ describe('C-3 de costos: "¿Cómo viaja el personal?" con el paso de viajes ocul
     assert.match(code('js/ui/views/quote-steps/service.js'), /if \(travelInService\(quote\)\) \{[\s\S]{0,200}renderCharge\(travelSlot, \{ \.\.\.ctx, part: 'travel' \}\)/);
   });
 });
+
+describe('UX: textos y orden (C2, C3, C5, C6, C10, C11; C-6 de costos)', async () => {
+  const { retiredFloorNames } = await import('../lab/lib/ux-audit.js');
+
+  test('C10: ningún literal dice "piso" (UX-TERM-FLOOR ampliado)', () => {
+    assert.deepEqual(retiredFloorNames(), []);
+    assert.match(code('tests/lab/lib/ux-audit.js'), /const RETIRED_FLOOR_NAME = \/\\bpiso\\b\/i;/);
+    assert.match(code('js/ui/views/dashboard.js'), /'Servicios por debajo de la tarifa mínima'/);
+    assert.match(code('js/ui/views/quote-result.js'), /'Tarifa por debajo de la mínima\.'/);
+    assert.match(code('js/ui/result-text.js'), /`La tarifa mínima supone que facturás/);
+  });
+
+  test('C2: "Cargado antes" va antes de "Opciones comerciales" (la guardia dice "más abajo")', () => {
+    const margin = code('js/ui/views/quote-steps/margin.js');
+    assert.ok(margin.indexOf("legacyShown ? legacySlot : null,") < margin.indexOf('showCommercial ? commercialCard : null,'));
+    assert.match(code('js/ui/views/quote-steps/modality.js'), /se cambian más abajo, en "Opciones comerciales"/);
+  });
+
+  test('C3: un enlace viejo …/modality?campo= va al paso del campo', () => {
+    assert.match(code('js/ui/views/quote-editor.js'), /const target = campo \? stepOfPath\(campo\) : null;/);
+  });
+
+  test('C5: el precio a mano se llama "Tu precio" en el resumen en vivo y en "El precio"', () => {
+    const editor = code('js/ui/views/quote-editor.js');
+    assert.match(editor, /case 'known_rate':\n\s+case 'offered':\n\s+return 'Tu precio';/);
+    assert.match(code('js/ui/views/quote-steps/margin.js'), /if \(src === 'known_rate' \|\| src === 'offered'\) return 'Tu precio \(de lista\)';/);
+    const result = code('js/ui/views/quote-result.js');
+    assert.match(result, /`El precio que cargaste en «\$\{stepLabel\('margin'\)\}»\.`/);
+    assert.match(result, /'este precio' : 'tu precio'/);
+  });
+
+  test('C6 y C-6: la cifra grande en rojo si se pierde, naranja bajo el objetivo; con descuento dice lo que cobrás', () => {
+    const result = code('js/ui/views/quote-result.js');
+    assert.match(result, /k\.profit < -1e-6 \? 'red' : k\.belowTarget \? 'orange' : null/);
+    assert.match(result, /`De lista\. Con tu descuento cobrás \$\{rate\(k\.commercialNetRate, v\.unitLabel\)\}\.`/);
+    // SRV-01 con 10 % de descuento: lista y neta difieren (el caso del revisor).
+    resetIds();
+    const q = service({ id: 'q-c6', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()] });
+    q.pricing = { ...(q.pricing || {}), commercialDiscountPct: 10 };
+    const k = computeQuote(q).kpis;
+    assert.ok(k.commercialNetRate < k.commercialListRate);
+  });
+
+  test('C11: la barra del celular usa el rótulo y la cifra enteros', () => {
+    const editor = code('js/ui/views/quote-editor.js');
+    assert.doesNotMatch(editor, /'Tarifa sugerida': 'Sugerida'/);
+    assert.match(code('css/quote.css'), /\.qe-sum-main \.qe-sum-item \{ display: flex; flex-wrap: wrap; align-items: baseline;/);
+  });
+});

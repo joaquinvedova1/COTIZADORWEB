@@ -767,7 +767,7 @@ export function floorWithoutExtrasText(floor, unitLabel = 'día') {
   const rate = ceilRateText(isFiniteNumber(floor.listRate) ? floor.listRate : floor.netRate, unitLabel);
   return {
     text: `Sin contar adicionales: ${rate}`,
-    tip: `El piso supone que facturás ${formatMoney(floor.otherRevenue)} de adicionales por mes (adicionales, reventa, horas extra o abonos que se cobran aparte). Si no hay adicionales, cobrá al menos ${rate}.`,
+    tip: `La tarifa mínima supone que facturás ${formatMoney(floor.otherRevenue)} de adicionales por mes (adicionales, reventa, horas extra o abonos que se cobran aparte). Si no hay adicionales, cobrá al menos ${rate}.`,
   };
 }
 

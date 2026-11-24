@@ -720,6 +720,12 @@ async function runMode(mode) {
     await go(`#/cotizaciones/${encodeURIComponent(qid)}/modality`, 900);
     const at = await page.evaluate(() => ({ hash: window.location.hash, current: (document.querySelector('.qe-stage.is-current .qe-stage-label') || {}).textContent || '' }));
     check('E2E-26', 'un enlace viejo …/modality abre "El precio"', /\/margin$/.test(at.hash) && at.current.trim() === 'El precio', JSON.stringify(at));
+    // C3 (revisión de la 0.24.0): con "?campo=", el enlace viejo va al paso donde vive el campo hoy.
+    const e29 = byId['E2E-29'].q.id;
+    await go(`#/cotizaciones/${encodeURIComponent(e29)}/modality?campo=overtimeWork.hours50`, 900);
+    const f = await waitFocus('overtimeWork.hours50');
+    const at2 = await page.evaluate(() => window.location.hash);
+    check('E2E-26', 'un enlace viejo …/modality?campo=overtimeWork.hours50 abre "Personal" y enfoca el campo', /\/labor\?campo=overtimeWork\.hours50$/.test(at2) && f.name === 'overtimeWork.hours50', `${at2} · ${JSON.stringify(f)}`);
   }
   {
     const { q, r } = byId['E2E-27'];

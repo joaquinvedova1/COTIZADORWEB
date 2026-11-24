@@ -1046,10 +1046,10 @@ export function floorTaxesText(r) {
 /** Nombre de la tarifa que se cobra, según su origen. */
 function chargedRateLabel(r) {
   switch (r && r.kpis && r.kpis.commercialSource) {
+    // C5 (revisión de la 0.24.0): el precio a mano se llama "Tu precio", como la cifra grande del Resultado.
     case 'known_rate':
-      return 'Tu tarifa';
     case 'offered':
-      return 'Tarifa ofrecida';
+      return 'Tu precio';
     case 'override':
       return 'Tarifa forzada';
     default:
@@ -1076,7 +1076,7 @@ function closedOf(r) {
 function summaryRateLabel(r) {
   const label = chargedRateLabel(r);
   if (!closedOf(r).closed) return label;
-  return { 'Tu tarifa': 'Tu precio', 'Tarifa ofrecida': 'Precio ofrecido', 'Tarifa forzada': 'Precio forzado' }[label] || 'Precio sugerido';
+  return { 'Tu precio': 'Tu precio', 'Tarifa forzada': 'Precio forzado' }[label] || 'Precio sugerido';
 }
 
 function breakEvenText(r, { decimals = 1 } = {}) {
@@ -1183,11 +1183,11 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
     { class: 'qe-sum-list qe-sum-main' },
     item({
       key: 'commercialRate',
+      // C11 (revisión de la 0.24.0): con una sola columna, la barra del celular muestra el rótulo
+      // entero y la cifra completa con su unidad en la misma línea (sin "Sugerida" ni "$ 402 mil").
       label: summaryRateLabel,
-      short: (r) => ({ 'Tarifa sugerida': 'Sugerida', 'Tarifa ofrecida': 'Ofrecida', 'Tarifa forzada': 'Forzada', 'Precio sugerido': 'Sugerido', 'Precio ofrecido': 'Ofrecido', 'Precio forzado': 'Forzado' }[summaryRateLabel(r)] || summaryRateLabel(r)),
       value: (r) => (r.kpis.commercialSource === 'suggested' ? formatMoneyCeil(r.kpis.commercialListRate) : formatMoney(r.kpis.commercialListRate)),
       unit: (r) => `/ ${unitShort(r)}`,
-      compact: (r) => formatMoneyCompact(r.kpis.commercialListRate, { ceil: r.kpis.commercialSource === 'suggested' }),
       hint: rateHint,
       tone: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? resultTone(r) : null),
       trace: commercialRateTrace,
@@ -3178,7 +3178,12 @@ export async function render(root, app, params = {}) {
   if (requested === 'modality' && id && app && typeof app.navigate === 'function') {
     const hash = typeof window !== 'undefined' && window.location ? String(window.location.hash || '') : '';
     const at = hash.indexOf('?');
-    app.navigate(`#/cotizaciones/${encodeURIComponent(id)}/margin${at >= 0 ? hash.slice(at) : ''}`, { replace: true });
+    // C3 (revisión de la 0.24.0): con "?campo=…", el paso donde vive ese campo hoy (horas extra en
+    // Personal, el viaje del personal en Movilización…); sin campo, "El precio".
+    const campo = fieldFromHash(hash);
+    const target = campo ? stepOfPath(campo) : null;
+    const step = target && target !== 'modality' && QUOTE_STEPS.some((s) => s.id === target) ? target : 'margin';
+    app.navigate(`#/cotizaciones/${encodeURIComponent(id)}/${step}${at >= 0 ? hash.slice(at) : ''}`, { replace: true });
     return undefined;
   }
   const validStep = requested !== null && QUOTE_STEPS.some((s) => s.id === requested);

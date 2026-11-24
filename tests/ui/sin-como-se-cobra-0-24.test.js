@@ -96,7 +96,9 @@ describe('sin el paso "Cómo se cobra"', () => {
   test('un enlace viejo …/modality abre "El precio"', () => {
     const editor = code('js/ui/views/quote-editor.js');
     assert.match(editor, /requested === 'modality'/);
-    assert.match(editor, /\/margin\$\{at >= 0 \? hash\.slice\(at\) : ''\}/);
+    // Sin "?campo=", "El precio"; con campo, el paso donde vive (revisión de la 0.24.0, C3).
+    assert.match(editor, /QUOTE_STEPS\.some\(\(s\) => s\.id === target\) \? target : 'margin'/);
+    assert.match(editor, /\/\$\{step\}\$\{at >= 0 \? hash\.slice\(at\) : ''\}/);
   });
 });
 

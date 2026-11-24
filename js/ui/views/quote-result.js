@@ -1166,7 +1166,7 @@ function criticalAlerts(v) {
   if (k.belowFloor) {
     out.push(alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa mínima: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
   } else if (k.belowFloorRate) {
-    out.push(alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v)));
+    out.push(alertLine('info', 'Tarifa por debajo de la mínima.', belowFloorCoveredText(v)));
   } else if (k.belowTarget) {
     out.push(alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
   }
@@ -1710,19 +1710,28 @@ function priceStat(v, { hero = false } = {}) {
   const heroClass = hero ? 'qr-stat qr-stat-price qr-stat-hero' : 'qr-stat qr-stat-price';
   const unit = `/ ${v.unitLabel}`;
   const suggested = hasValue(k.suggestedListRate) && k.suggestedListRate > 0 ? k.suggestedListRate : null;
+  // Revisión de la 0.24.0: la cifra grande es la de lista. Con descuento, la pista dice lo que se
+  // cobra (C-6 de costos); y se pinta como el margen cuando se pierde plata o no llega al objetivo
+  // (C6 de UX, mismo criterio que marginStat).
+  const netLine = hero && hasRate(k) && listDiffers(k.commercialListRate, k.commercialNetRate)
+    ? `De lista. Con tu descuento cobrás ${rate(k.commercialNetRate, v.unitLabel)}.`
+    : null;
+  const heroTone = hero && hasRate(k) && hasValue(k.profit) ? (k.profit < -1e-6 ? 'red' : k.belowTarget ? 'orange' : null) : null;
   if (k.commercialSource === 'suggested' && hasRate(k)) {
     return statItem({
       label: suggestedName,
       value: ceilMoney(k.commercialListRate),
       unit,
-      hint: statHint(targetGoalHint(k.targetMarginPct), rateBelowHourCostText(r) ? h('strong', { class: 'qr-unreliable-note' }, rateBelowHourCostText(r)) : null),
+      hint: statHint(targetGoalHint(k.targetMarginPct), netLine, rateBelowHourCostText(r) ? h('strong', { class: 'qr-unreliable-note' }, rateBelowHourCostText(r)) : null),
       trace: traceSuggested(v),
+      tone: heroTone,
       className: heroClass,
     });
   }
   if (hasRate(k)) {
     let hint;
     if (k.belowTarget && suggested) hint = `${targetGoalPrefix(k.targetMarginPct)}: ${minRate(suggested, v.unitLabel)}.`;
+    else if (hero && (k.commercialSource === 'known_rate' || k.commercialSource === 'offered')) hint = `El precio que cargaste en «${stepLabel('margin')}».`;
     else if (k.commercialSource === 'known_rate') hint = 'La tarifa que vas a ofrecer.';
     else if (k.commercialSource === 'offered') hint = 'La tarifa que ofrecés (cargada a mano).';
     else hint = `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}.`;
@@ -1730,8 +1739,9 @@ function priceStat(v, { hero = false } = {}) {
       label: ownName || (closedOf(v).closed ? 'Tu precio' : 'Tu tarifa'),
       value: rateValue(k.commercialListRate),
       unit,
-      hint: statHint(hint),
+      hint: statHint(hint, netLine),
       trace: traceCommercial(v),
+      tone: heroTone,
       className: heroClass,
     });
   }
@@ -1990,8 +2000,9 @@ function workBlock(v) {
       tone = 'red';
     }
   } else {
-    // "Con la tarifa sugerida ($ 2.259.000 / día)" / "Con tu tarifa ($ 4.000.000 / día)".
-    const subject = `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)})`;
+    // "Con este precio ($ 2.259.000 / día)" / "Con tu precio ($ 4.000.000 / día)": justo debajo de la
+    // cifra grande "Precio sugerido" / "Tu precio" (C5 de la revisión de la 0.24.0).
+    const subject = `Con ${k.commercialSource === 'suggested' ? 'este precio' : 'tu precio'} (${commercialRate(k, v.unitLabel)})`;
     if (be.reachable && hasValue(be.days) && be.days <= 1e-9) {
       content = [breakEvenZeroText(r, { rateText: atRateText(v) }) || `${subject} cubrís todos tus costos desde el inicio.`];
       tone = 'green';
@@ -2814,7 +2825,7 @@ function renderMatrix(v) {
   const ratesColumns = [
     { key: 'activeDays', label: daysHeader(), className: 'qr-sticky-col', render: (row) => daysCell(v, row, traceMatrixRow(v, row, matrixRates(v, row))) },
     { key: 'utilizationPct', label: abbrHeader('Utiliz.', 'Utilización: días de trabajo sobre días disponibles del mes'), align: 'right', render: (row) => pct(row.utilizationPct, 1) },
-    { key: 'floor', label: abbrHeader('Piso neto', 'Tarifa mínima neta (break-even, después de descuentos): no perder plata', 'break-even'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
+    { key: 'floor', label: abbrHeader('Mínima neta', 'Tarifa mínima neta (break-even, después de descuentos): no perder plata', 'break-even'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
     ...margins.map((m, idx) => ({
       key: `m${idx}`,
       label: marginHeader(v, m),
@@ -3032,7 +3043,7 @@ function renderDiscounts(v) {
         { key: 'evaluatedDays', label: abbrHeader('Días eval.', 'Días evaluados: el peor caso del tramo (su primer día)', 'peor caso'), align: 'right', render: (row) => formatDays(row.evaluatedDays) },
         { key: 'discountPct', label: abbrHeader('Desc.', 'Descuento del tramo'), align: 'right', render: (row) => pct(row.discountPct) },
         { key: 'netRate', label: abbrHeader('Neta', 'Tarifa neta: tarifa de lista menos descuentos'), align: 'right', render: (row) => money(row.netRate) },
-        { key: 'floorNetRate', label: abbrHeader('Piso neto', 'Tarifa mínima neta con esos días'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
+        { key: 'floorNetRate', label: abbrHeader('Mínima neta', 'Tarifa mínima neta con esos días'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
         { key: 'targetNetRate', label: abbrHeader('Objetivo neto', 'Precio objetivo neto con esos días'), align: 'right', render: (row) => ceilMoney(row.targetNetRate) },
         { key: 'marginPct', label: abbrHeader('Margen', 'Margen sobre el precio de venta'), align: 'right', render: (row) => pct(row.marginPct) },
         {
