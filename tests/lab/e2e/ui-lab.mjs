@@ -36,6 +36,10 @@ import { perBilledUnitAmount } from '../../../js/ui/result-text.js';
 import { cot0010Quote } from '../../fixtures/cot-0010.js';
 import { service, person, owned, external, material, otherCost, product, ingredient, worker, fixedCost } from '../lib/build.js';
 import { computeProduct } from '../../../js/engines/product-engine.js';
+import { computeEquipmentUnit } from '../../../js/engines/equipment-engine.js';
+import { createDemoState } from '../../../js/domain/demo-data.js';
+import { createBlankQuote, withTimeCostBasis, equipmentLineFromLibrary } from '../../../js/domain/quote-factory.js';
+import { equipmentFullHourRate } from '../../../js/ui/result-text.js';
 import { assertSafeReport } from '../lib/report.js';
 import { createDb, installSupabaseMock, SUPA } from './supabase-mock.mjs';
 
@@ -248,7 +252,11 @@ export const E2E_SCENARIOS = [
 /** Producto financiado (LAB-D3): la financiación se ve en el Resultado del producto con el costo del motor. */
 export const E2E_PRODUCT = () => product({
   id: 'lab-p01', saleUnit: 'unidad', unitsPerBatch: 10, monthlyUnits: 500,
-  materials: [ingredient({ description: 'Componente', per: 'unit', unit: 'u', useUnit: 'u', quantity: 1, unitCost: 5200 })],
+  materials: [
+    ingredient({ description: 'Componente', per: 'unit', unit: 'u', useUnit: 'u', quantity: 1, unitCost: 5200 }),
+    // E2E-35 (0.25.0, R-05): 3,5 kg por tanda de 10 → "= 350 g por unidad que vendés".
+    ingredient({ description: 'Granulado', per: 'batch', unit: 'kg', useUnit: 'kg', quantity: 3.5, unitCost: 1000 }),
+  ],
   labor: [worker({ role: 'Armador', basicMonthly: 1250000, minutesPerBatch: 50 })],
   fixedCosts: [fixedCost({ description: 'Taller', monthlyAmount: 800000, sharePct: 50 })],
   pricing: { targetMarginPct: 20, roundingStep: 10 },
@@ -366,6 +374,17 @@ async function runMode(mode) {
   const prod = E2E_PRODUCT();
   Object.assign(prod, { id: randomUUID(), organizationId: orgId, name: 'E2E producto financiado (LAB-D3)', createdAt: now, updatedAt: now });
   ws.state.products = [...(Array.isArray(ws.state.products) ? ws.state.products : []), prod];
+  // E2E-34 (0.25.0, PR 6): un equipo de Recursos con sus horas por mes y una cotización por hora que lo usa.
+  // Sin consumo, para que el precio del combustible de la Configuración no entre en la cuenta.
+  const labEq = { ...structuredClone(createDemoState(1).resources.equipment.find((e) => /Hidrogrúa/.test(e.name))), id: randomUUID(), name: 'E2E hidrogrúa con horas', fuelLitersPerHour: 0, billableHoursPerMonth: 120 };
+  const resources = ws.state.resources && typeof ws.state.resources === 'object' ? ws.state.resources : {};
+  ws.state.resources = { ...resources, equipment: [...(Array.isArray(resources.equipment) ? resources.equipment : []), labEq] };
+  const eqQuote = withTimeCostBasis(createBlankQuote({ organizationId: orgId, settings: ws.state.settings || {}, now, id: randomUUID() }, { unit: 'hour' }));
+  Object.assign(eqQuote, { code: 'LAB-E34', name: 'E2E-34 valor hora del equipo', offerDate: '2026-10-16' });
+  Object.assign(eqQuote.activity, { activeDaysPerMonth: 10, hoursPerActiveDay: 8 });
+  eqQuote.contract = { ...eqQuote.contract, components: ['labor', 'machinery'], equipment: true };
+  eqQuote.equipment = [equipmentLineFromLibrary(structuredClone(labEq), { id: randomUUID(), now })];
+  ws.state.quotes.push(eqQuote);
   ws.revision += 1;
   await page.reload();
   await page.waitForTimeout(2500);
@@ -817,6 +836,27 @@ async function runMode(mode) {
     await scan('E2E-P01', 'producto');
   }
 
+  // ---- 0.25.0 (PLAN-2026-029, PR 6): el $/hora de Recursos es el valor hora de la cotización.
+  {
+    const dollars = (t) => Number(String(t || '').replace(/[^\d,]/g, '').replace(',', '.'));
+    const card = computeEquipmentUnit(labEq, { fuelPricePerLiter: (ws.state.settings || {}).fuelPricePerLiter, fuelPaidByUs: true });
+    await go('#/recursos/equipos', 1200);
+    const row = await page.evaluate((name) => {
+      const tr = [...document.querySelectorAll('tr')].find((r) => r.innerText.includes(name));
+      const cell = tr && tr.querySelector('td[data-key="perHour"], td:nth-child(3)');
+      return cell ? cell.innerText : (tr ? tr.innerText : '');
+    }, labEq.name);
+    check('E2E-34', 'Recursos › Equipos: "Costo por hora" = motor (con las horas por mes del equipo)', norm(row).includes(norm(formatMoney(card.rates.costPerUsedHour))), `pantalla "${norm(row)}" · motor ${formatMoney(card.rates.costPerUsedHour)}`);
+    const r = computeQuote(structuredClone(eqQuote));
+    const full = equipmentFullHourRate(r.model.equipment[0]);
+    await go(`#/cotizaciones/${encodeURIComponent(eqQuote.id)}/equipment`, 1200);
+    await page.waitForSelector('.qe-person-rates', { timeout: 8000 }).catch(() => {});
+    const shown = await page.evaluate(() => ((document.querySelector('.qe-person-rates') || {}).innerText || ''));
+    check('E2E-34', 'la cotización muestra el valor hora del motor', norm(shown).includes(norm(formatMoney(full))), `pantalla "${norm(shown)}" · motor ${formatMoney(full)}`);
+    check('E2E-34', 'el valor hora de la cotización = el $/hora de Recursos (±$ 1)', Math.abs(full - card.rates.costPerUsedHour) <= 1 && Math.abs(dollars(formatMoney(full)) - dollars(formatMoney(card.rates.costPerUsedHour))) <= 1, `${full} vs ${card.rates.costPerUsedHour}`);
+    await scan('E2E-34', 'equipos');
+  }
+
   // ---- 0.24.0 (PLAN-2026-028, PR 3): datos de la empresa una sola vez, IVA incluido.
   // Al final del modo: E2E-31 deja la Configuración propia (las anteriores usan la de ejemplo).
   {
@@ -828,12 +868,13 @@ async function runMode(mode) {
     check('E2E-31', 'también en "Nuevo servicio"', await card.isVisible().catch(() => false), 'sin la tarjeta');
     const placeholders = await page.evaluate(() => [...document.querySelectorAll('.company-setup input')].filter((i) => !i.closest('.company-setup-vat')).map((i) => ({ value: i.value, placeholder: i.placeholder })));
     // C8 (revisión de la 0.24.0): en "Nuevo servicio", "Empezar en blanco" va antes que la tarjeta.
+    // 0.25.0 (PR 4): "Empezar en blanco" son las tarjetas de la unidad de cobro.
     const order = await page.evaluate(() => {
-      const blank = document.querySelector('.quote-choice-blank');
+      const blank = document.querySelector('.quote-unit-choice');
       const company = document.querySelector('.company-setup');
       return Boolean(blank && company && (blank.compareDocumentPosition(company) & Node.DOCUMENT_POSITION_FOLLOWING));
     });
-    check('E2E-31', '"Empezar en blanco" antes que "Datos de tu empresa"', order, 'la tarjeta va primero');
+    check('E2E-31', 'las tarjetas "¿Cómo le cobrás al cliente?" antes que "Datos de tu empresa"', order, 'la tarjeta va primero');
     check('E2E-31', 'los valores de ejemplo van como texto de muestra, no cargados', placeholders.length === 5 && placeholders.every((x) => x.value === '' && /^Ej\.:/.test(x.placeholder)), JSON.stringify(placeholders));
     const values = { fuelPricePerLiter: '1850', defaultPaymentTermDays: '45', financeMonthlyRatePct: '4', defaultContingencyPct: '3', defaultTargetMarginPct: '15' };
     for (const [key, value] of Object.entries(values)) await page.locator(`[name="company.${key}"]`).fill(value);
@@ -850,7 +891,7 @@ async function runMode(mode) {
     const before = new Set((ws.state.quotes || []).map((q) => q.id));
     await go('#/cotizaciones/nueva', 1200);
     check('E2E-31', 'después de guardar, la tarjeta ya no aparece', !(await page.locator('.company-setup').first().isVisible().catch(() => false)), 'sigue la tarjeta');
-    await tap(page.locator('.quote-choice-blank').first());
+    await tap(page.locator('.quote-unit-choice[data-unit="day"]').first());
     await page.waitForTimeout(3000);
     const fresh = (ws.state.quotes || []).find((q) => !before.has(q.id));
     check('E2E-31', 'la cotización siguiente nace sin "ILUSTRATIVO" (combustible y tasa de la empresa)', Boolean(fresh) && fresh.fuel.illustrative === false && fresh.finance.illustrative === false && fresh.fuel.pricePerLiter === 1850 && fresh.finance.paymentTermDays === 45, fresh ? JSON.stringify({ fuel: fresh.fuel.illustrative, finance: fresh.finance.illustrative, price: fresh.fuel.pricePerLiter }) : 'no se creó');
@@ -865,9 +906,23 @@ async function runMode(mode) {
     // Revisión de la 0.24.0 (C7): la condición y el IVA vienen de la tarjeta de E2E-31, no se siembran.
     const before = new Set((ws.state.quotes || []).map((q) => q.id));
     await go('#/cotizaciones/nueva', 1200);
-    await tap(page.locator('.quote-choice-blank').first());
+    // E2E-33 (0.25.0, PR 4): cuatro tarjetas con la unidad y "Otra unidad…"; "Por hora" crea por hora y a demanda.
+    const units = await page.evaluate(() => [...document.querySelectorAll('.quote-unit-choice')].map((n) => n.dataset.unit));
+    check('E2E-33', '"¿Cómo le cobrás al cliente?": por hora, día, mes, trabajo y "Otra unidad…"', units.join('|') === 'hour|day|month|job|other', units.join(' · '));
+    await tap(page.locator('.quote-unit-choice[data-unit="hour"]').first());
     await page.waitForTimeout(3000);
     const fresh = (ws.state.quotes || []).find((q) => !before.has(q.id));
+    check('E2E-33', '"Por hora" crea la cotización por hora, a demanda', Boolean(fresh) && fresh.unit === 'hour' && fresh.contract && fresh.contract.mode === 'on_demand', fresh ? JSON.stringify({ unit: fresh.unit, mode: fresh.contract && fresh.contract.mode }) : 'no se creó');
+    if (fresh) {
+      await go(`#/cotizaciones/${encodeURIComponent(fresh.id)}/service`, 1200);
+      const unit = page.locator('input[name="unit"]').first();
+      await unit.scrollIntoViewIfNeeded().catch(() => {});
+      await unit.fill('MMBTU').catch(() => {});
+      await page.waitForTimeout(500);
+      const found = await page.evaluate(() => [...document.querySelectorAll('.combo-list:not([hidden]) .combo-option')].map((o) => o.innerText));
+      check('E2E-33', 'la búsqueda de la unidad sigue encontrando MMBTU', found.some((t) => /MMBTU/.test(t)), found.join(' · ').slice(0, 200));
+      await page.keyboard.press('Escape').catch(() => {});
+    }
     check('E2E-32', 'la cotización nueva nace con "¿Facturás con IVA?" = Sí y los valores de la empresa', Boolean(fresh) && fresh.finance.vat && fresh.finance.vat.applies === true && fresh.finance.vat.ratePct === 21 && fresh.finance.vat.payLagDays === 20, fresh ? JSON.stringify(fresh.finance.vat) : 'no se creó');
     if (fresh) {
       await go(`#/cotizaciones/${encodeURIComponent(fresh.id)}/finance`, 1200);
@@ -883,6 +938,16 @@ async function runMode(mode) {
       check('E2E-32', 'el costo de adelantar el IVA es el del motor', same, `motor ${r.kpis.vatFinanceActive} ${r.kpis.vatFinance} · pantalla "${norm(info.sum)}"`);
       await scan('E2E-32', 'Costo financiero');
     }
+  }
+  {
+    // E2E-35 (0.25.0, PR 7): con responsable inscripto (E2E-31), los precios de compra dicen "sin IVA";
+    // cada ingrediente por tanda dice cuánto lleva cada unidad.
+    await go(`#/productos/${encodeURIComponent(prod.id)}/insumos`, 1200);
+    await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
+    const t = norm(await page.evaluate(() => document.body.innerText));
+    check('E2E-35', 'responsable inscripto: el precio de compra dice "(sin IVA)"', /\(sin IVA\)/.test(t), 'sin "(sin IVA)"');
+    check('E2E-35', '3,5 kg por tanda de 10: "= 350 g por unidad que vendés"', t.includes('= 350 g por unidad que vendés'), 'sin la cantidad por unidad');
+    await scan('E2E-35', 'ingredientes');
   }
 
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en
