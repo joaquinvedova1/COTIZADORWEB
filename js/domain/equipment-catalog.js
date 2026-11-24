@@ -154,6 +154,9 @@ export function suggestedMobility(familyId, model = null) {
  * trabaje parado (bombeo, hidrogrúa) es opcional. Hidrogrúa, vactor o
  * atmosférico NO están: su trabajo principal es en la locación.
  */
+/** Familias propias de pozo (0.25.0): fuera de Petróleo y gas se ofrecen al final de la lista. */
+export const WELL_FAMILY_IDS = deepFreeze(['vactor', 'vacuum_truck', 'frac_tank', 'flushby', 'wireline']);
+
 export const VEHICLE_FAMILY_IDS = deepFreeze(['pickup', 'minibus', 'truck', 'tractor', 'tank_truck']);
 
 /** ¿La familia es de un vehículo (se usa para trasladarse)? */
