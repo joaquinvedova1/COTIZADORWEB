@@ -144,6 +144,7 @@ import {
   salaryMonthsAt,
   deductedPct,
   marginLimitText,
+  shownMarginPct,
 } from '../result-text.js';
 
 /**
@@ -527,11 +528,12 @@ function sameNumber(a, b) {
 
 /**
  * Paso del editor donde se corrige un ítem de completitud. La actividad
- * estimada se carga en "Cómo se cobra" (igual criterio que el editor).
+ * estimada se carga en "El servicio" y el precio a mano en "El precio" (0.24.0).
  */
 function stepForItem(item) {
   if (!item) return 'service';
-  if (item.id === 'utilization' || item.id === 'rate') return 'modality';
+  if (item.id === 'utilization') return 'service';
+  if (item.id === 'rate') return 'margin';
   return QUOTE_STEPS.some((st) => st.id === item.step) ? item.step : 'service';
 }
 
@@ -540,7 +542,7 @@ function stepHref(quote, step) {
   return `#/cotizaciones/${id}/${step}`;
 }
 
-/** Nombre del paso del editor: QUOTE_STEPS es la única fuente ("Cómo se cobra", "Margen y precio"…). */
+/** Nombre del paso del editor: QUOTE_STEPS es la única fuente ("El servicio", "El precio"…). */
 function stepLabel(step) {
   return labelOf(QUOTE_STEPS, step, 'Paso');
 }
@@ -1164,7 +1166,7 @@ function criticalAlerts(v) {
   if (k.belowFloor) {
     out.push(alertLine('danger', `Con ${subject} perdés plata.`, `Está debajo de la tarifa mínima: con ${estimateActivity(v)} necesitás cobrar al menos ${floorPhrase(v)} para no perder.`));
   } else if (k.belowFloorRate) {
-    out.push(alertLine('info', 'Tarifa debajo del piso.', belowFloorCoveredText(v)));
+    out.push(alertLine('info', 'Tarifa por debajo de la mínima.', belowFloorCoveredText(v)));
   } else if (k.belowTarget) {
     out.push(alertLine('warning', 'Debajo del margen objetivo.', `${Subject} cubre los costos pero no llega al margen objetivo de ${pct(k.targetMarginPct)}. Margen esperado: ${pct(k.marginPct)}.`));
   }
@@ -1205,7 +1207,7 @@ function criticalAlerts(v) {
   const unitIssues = (Array.isArray(r.issues) ? r.issues : []).filter(unitIssue);
   if (unitIssues.length) {
     out.push(alertLine(unitIssues.some((i) => i.severity === 'error') ? 'danger' : 'warning', 'Revisá cómo cobrás.', unitIssues.map((i) => String(i.message || '')).join(' '),
-      stepLink(v.q, 'modality', `Ir a "${stepLabel('modality')}"`)));
+      stepLink(v.q, 'service', `Ir a "${stepLabel('service')}"`)));
   }
   // Avisos de adicionales (V-09): no reemplazan ningún valor, van en su propia lista.
   const extraIssues = (Array.isArray(r.issues) ? r.issues : []).filter(isExtrasIssue);
@@ -1214,7 +1216,7 @@ function criticalAlerts(v) {
       h('div', {},
         h('strong', {}, 'Adicionales para revisar:'),
         h('ul', {}, ...extraIssues.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
-        stepLink(v.q, 'modality', `Ir a "${stepLabel('modality')}"`))));
+        stepLink(v.q, 'margin', `Ir a "${stepLabel('margin')}"`))));
   }
   const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i) || isExtrasIssue(i);
   const issues = (Array.isArray(r.issues) ? r.issues : []).filter((i) => !alerted(i));
@@ -1265,7 +1267,7 @@ function heroKnownRate(v) {
 
   let sentence;
   if (!rateOk) {
-    sentence = h('p', { class: 'qr-lead' }, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), ' para ver los días mínimos y el resultado.');
+    sentence = h('p', { class: 'qr-lead' }, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'margin', `Cargala en ${stepLabel('margin')}`), ' para ver los días mínimos y el resultado.');
   } else if (isMonth) {
     sentence = h('p', { class: 'qr-lead' },
       `Cotizás una tarifa del mes de ${rate(k.commercialListRate, v.unitLabel)}: la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. `,
@@ -1614,6 +1616,8 @@ function renderResultDetail(v) {
       id: v.ids.decision,
     },
     ...decisionNotes(v),
+    // 0.24.0 (W-01): las cinco tarjetas que antes iban en el resumen.
+    h('dl', { class: 'qr-stats qr-stats-all' }, priceStat(v), costStat(v), profitStat(v), marginStat(v), floorStat(v)),
     mode === 'known_rate' ? heroKnownRate(v) : heroKnownActivity(v),
     kpiGrid(v),
   );
@@ -1635,8 +1639,9 @@ function statHint(...lines) {
  * una lista <dl> (los lectores de pantalla anuncian "Tarifa mínima: $ …").
  * Mismas clases que bigStat() de components.js, para el mismo aspecto.
  */
-function statItem({ label, value, unit = null, hint = null, trace = null, tone = null, className = '' }) {
-  return h('div', { class: ['big-stat', 'big-stat-md', tone ? `big-stat-${tone}` : null, className] },
+function statItem({ label, value, unit = null, hint = null, trace = null, tone = null, className = '', bare = false }) {
+  // bare (0.24.0): un renglón de detalle con el mismo armado, pero sin el tamaño de cifra grande.
+  return h('div', { class: [bare ? null : 'big-stat', bare ? null : 'big-stat-md', tone ? `big-stat-${tone}` : null, className] },
     h('dt', { class: 'big-stat-label' }, label),
     h('dd', { class: 'big-stat-value' }, h('span', { class: 'big-stat-number' }, value ?? EMPTY), unit ? h('span', { class: 'big-stat-unit' }, unit) : null),
     hint ? h('dd', { class: 'big-stat-hint' }, hint) : null,
@@ -1669,7 +1674,7 @@ function costStat(v) {
 }
 
 /** ¿Cuánto tengo que cobrar? (mínimo). La neta y el redondeo van en "Ver cálculo". */
-function floorStat(v) {
+function floorStat(v, { row = false } = {}) {
   const { k } = v;
   const mr = minimumRates(v);
   const costOk = hasValue(k.totalCost) && k.totalCost > 0;
@@ -1682,10 +1687,12 @@ function floorStat(v) {
   else if (!hasValue(value)) hint = statHint(byQty(v) ? `Falta estimar ${unitTextsOf(v.r).los} ${v.r.unitInfo.plural} del mes.` : 'Falta estimar los días de trabajo del mes.');
   else hint = statHint(`${mr.floorNetDiffers ? 'De lista. ' : ''}${floorTaxesNote(k)}`, floorExtrasLine(v));
   return statItem({
-    label: floorRateName(v.r),
+    // 0.24.0 (W-01): en el resumen, un renglón de detalle debajo del precio.
+    label: row ? '¿Hasta cuánto puedo bajar?' : floorRateName(v.r),
+    bare: row,
     value: ceilMoney(value),
     unit: hasValue(value) ? `/ ${v.unitLabel}` : null,
-    hint,
+    hint: row && hint ? h('span', { class: 'qr-stat-lines' }, h('span', { class: 'qr-stat-line' }, `${floorRateName(v.r)}.`), hint) : hint,
     // Sin impuestos sobre la facturación definidos, la "piso" no es piso: se marca.
     tone: hasValue(value) && (!k.billingTaxesDefined || k.billingTaxesInvalid) ? 'orange' : null,
     trace: costOk ? floorSummaryTrace(v) : null,
@@ -1694,56 +1701,71 @@ function floorStat(v) {
 }
 
 /** ¿Cuánto tengo que cobrar? (para ganar) — o la tarifa que ya cotizás. */
-function priceStat(v) {
+function priceStat(v, { hero = false } = {}) {
   const { k, r, q } = v;
+  // 0.24.0 (W-01): la cifra grande del resumen se llama "Precio sugerido" o "Tu precio"; en
+  // "Todos los indicadores" quedan los nombres de siempre (tarifa sugerida ≠ tarifa mínima).
+  const suggestedName = hero ? 'Precio sugerido' : suggestedRateName(r);
+  const ownName = hero ? 'Tu precio' : null;
+  const heroClass = hero ? 'qr-stat qr-stat-price qr-stat-hero' : 'qr-stat qr-stat-price';
   const unit = `/ ${v.unitLabel}`;
   const suggested = hasValue(k.suggestedListRate) && k.suggestedListRate > 0 ? k.suggestedListRate : null;
+  // Revisión de la 0.24.0: la cifra grande es la de lista. Con descuento, la pista dice lo que se
+  // cobra (C-6 de costos); y se pinta como el margen cuando se pierde plata o no llega al objetivo
+  // (C6 de UX, mismo criterio que marginStat).
+  const netLine = hero && hasRate(k) && listDiffers(k.commercialListRate, k.commercialNetRate)
+    ? `De lista. Con tu descuento cobrás ${rate(k.commercialNetRate, v.unitLabel)}.`
+    : null;
+  const heroTone = hero && hasRate(k) && hasValue(k.profit) ? (k.profit < -1e-6 ? 'red' : k.belowTarget ? 'orange' : null) : null;
   if (k.commercialSource === 'suggested' && hasRate(k)) {
     return statItem({
-      label: suggestedRateName(r),
+      label: suggestedName,
       value: ceilMoney(k.commercialListRate),
       unit,
-      hint: statHint(targetGoalHint(k.targetMarginPct), rateBelowHourCostText(r) ? h('strong', { class: 'qr-unreliable-note' }, rateBelowHourCostText(r)) : null),
+      hint: statHint(targetGoalHint(k.targetMarginPct), netLine, rateBelowHourCostText(r) ? h('strong', { class: 'qr-unreliable-note' }, rateBelowHourCostText(r)) : null),
       trace: traceSuggested(v),
-      className: 'qr-stat qr-stat-price',
+      tone: heroTone,
+      className: heroClass,
     });
   }
   if (hasRate(k)) {
     let hint;
     if (k.belowTarget && suggested) hint = `${targetGoalPrefix(k.targetMarginPct)}: ${minRate(suggested, v.unitLabel)}.`;
+    else if (hero && (k.commercialSource === 'known_rate' || k.commercialSource === 'offered')) hint = `El precio que cargaste en «${stepLabel('margin')}».`;
     else if (k.commercialSource === 'known_rate') hint = 'La tarifa que vas a ofrecer.';
     else if (k.commercialSource === 'offered') hint = 'La tarifa que ofrecés (cargada a mano).';
     else hint = `${COMMERCIAL_SOURCE_TEXT[k.commercialSource] || COMMERCIAL_SOURCE_TEXT.none}.`;
     return statItem({
-      label: closedOf(v).closed ? 'Tu precio' : 'Tu tarifa',
+      label: ownName || (closedOf(v).closed ? 'Tu precio' : 'Tu tarifa'),
       value: rateValue(k.commercialListRate),
       unit,
-      hint: statHint(hint),
+      hint: statHint(hint, netLine),
       trace: traceCommercial(v),
-      className: 'qr-stat qr-stat-price',
+      tone: heroTone,
+      className: heroClass,
     });
   }
   if (r.pricingMode === 'known_rate') {
     return statItem({
-      label: 'Tu tarifa',
+      label: ownName || 'Tu tarifa',
       value: EMPTY,
-      hint: statHint(h('span', {}, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), '.')),
-      className: 'qr-stat qr-stat-price',
+      hint: statHint(h('span', {}, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'margin', `Cargala en ${stepLabel('margin')}`), '.')),
+      className: heroClass,
     });
   }
   // V-28: la guardia y los adicionales ya cubren costo y margen: no hace falta una tarifa por unidad.
   if (coveredByOtherRevenue(r)) {
-    return statItem({ label: suggestedRateName(r), value: EMPTY, hint: statHint(coveredRateText(r)), className: 'qr-stat qr-stat-price' });
+    return statItem({ label: suggestedName, value: EMPTY, hint: statHint(coveredRateText(r)), className: heroClass });
   }
   return statItem({
-    label: suggestedRateName(r),
+    label: suggestedName,
     value: EMPTY,
     hint: statHint(k.targetMarginInvalid
       ? (deductedPct(k) > 0
         ? `Sin tarifa sugerida: ${marginLimitText(k, pct)}. Bajalo en "El precio".`
         : 'Sin tarifa sugerida: el margen objetivo no es válido. Corregilo en "El precio".')
       : `${targetGoalPrefix(k.targetMarginPct)}: aparece cuando haya costos y ${byQty(v) ? `${r.unitInfo.plural} por mes` : 'días de trabajo'} cargados.`),
-    className: 'qr-stat qr-stat-price',
+    className: heroClass,
   });
 }
 
@@ -1785,6 +1807,62 @@ function marginStat(v) {
     trace: traceMargin(v),
     className: 'qr-stat qr-stat-margin',
   });
+}
+
+/**
+ * 0.24.0 (PLAN-2026-028, W-01): la línea debajo del precio, "Te cuesta $ X · ganás $ Y (Z %)".
+ * Mismos números que las tarjetas de "Todos los indicadores" (no es otro cálculo). Con el precio
+ * sugerido, Z es el margen que pediste sólo si la diferencia es del redondeo (shownMarginPct); el
+ * real queda en "Ver cálculo". Con impuestos sobre la facturación, la línea los muestra entre el
+ * costo y la ganancia: costo + impuestos + ganancia = lo que se factura.
+ * Lleva la clase qr-stat-margin: con un dato que vuelve no confiable el resultado dice
+ * NO CONFIABLE en vez de la ganancia (ECO-01).
+ */
+function summaryLine(v) {
+  const { k, r } = v;
+  const single = closedOf(v).single;
+  const parts = [];
+  // Costo: en la unidad de cobro cuando se puede; el del mes, entre paréntesis.
+  if (hasValue(k.totalCost) && k.totalCost > 0) {
+    const perUnit = single ? null : perBilledUnitAmount(r, v.q, k.totalCost);
+    const unit = single ? ' en el trabajo' : perUnit !== null ? ` / ${unitNoun(v)}` : ' / mes';
+    parts.push(`Te cuesta ${money(perUnit !== null ? perUnit : k.totalCost)}${unit}${perUnit !== null ? ` (${money(k.totalCost)} en el mes)` : ''}`);
+  } else {
+    parts.push('Te cuesta: aparece cuando cargues los costos');
+  }
+  // Ganancia y margen.
+  const est = r.estimate || {};
+  const covered = coveredByOtherRevenue(r) && hasValue(est.profit) && hasValue(est.marginPct);
+  const profit = covered ? est.profit : k.profit;
+  const marginPct = covered ? est.marginPct : k.marginPct;
+  const ok = covered || (hasRate(k) && hasValue(k.marginPct) && hasValue(profit));
+  const unreliable = ok ? unreliableText(r.completeness, 'este margen') : null;
+  let tone = null;
+  if (!ok) parts.push(hasRate(k) ? 'sin facturación no hay ganancia' : 'sin precio no hay ganancia');
+  else if (unreliable) {
+    parts.push(unreliable);
+    tone = 'red';
+  } else {
+    const losing = profit < -1e-6;
+    const rev = est.revenue || {};
+    const plainRevenue = !(Math.abs(Number(rev.otherRevenue) || 0) > 0.005) && !(Math.abs(Number(rev.guaranteeTopUp) || 0) > 0.005);
+    const perUnit = !single && !covered && plainRevenue ? perBilledUnitAmount(r, v.q, Math.abs(profit)) : null;
+    const per = perUnit !== null ? ` / ${unitNoun(v)}` : single ? ' en el trabajo' : ' / mes';
+    // Revisión de la 0.24.0 (B1 de UX, C-7 de costos): la cuenta cierra a la vista. El motor define
+    // ganancia = facturación − costo − impuestos sobre la facturación; con impuestos, van en la línea
+    // (el monto del motor, en la misma unidad que la ganancia).
+    const taxes = !covered && hasValue(k.billingTaxes) && k.billingTaxes > 0.005 ? k.billingTaxes : null;
+    if (taxes !== null) {
+      const taxPerUnit = perUnit !== null ? perBilledUnitAmount(r, v.q, taxes) : null;
+      parts.push(`impuestos sobre lo que facturás ${money(taxPerUnit !== null ? taxPerUnit : taxes)}${taxPerUnit !== null ? per : single ? ' en el trabajo' : ' / mes'}`);
+    }
+    parts.push(`${losing ? 'perdés' : 'ganás'} ${money(perUnit !== null ? perUnit : Math.abs(profit))}${per} (${pct(shownMarginPct(k, { covered, losing, marginPct, guaranteeTopUp: rev.guaranteeTopUp }))})`);
+    tone = losing ? 'red' : !k.billingTaxesDefined ? 'orange' : 'green';
+  }
+  const trace = ok && !covered ? traceMargin(v) : null;
+  return h('div', { class: ['qr-sum-line', 'qr-stat-margin', tone ? `qr-sum-line-${tone}` : null] },
+    h('p', { class: 'qr-sum-line-text' }, unreliable ? h('strong', { class: 'qr-unreliable-note' }, `${parts.join(' · ')}`) : `${parts.join(' · ')}.`),
+    trace ? h('span', { class: 'qr-stat-trace' }, traceBtn(trace)) : null);
 }
 
 /** "De cada $ 100 que cobrás, te quedan $ 10." (el margen en palabras). */
@@ -1833,7 +1911,7 @@ function noRateContent(v) {
   const { r, k, q } = v;
   const need = byQty(v) ? `${unitTextsOf(r).cuantos} ${r.unitInfo.plural} necesitás facturar` : 'cuántos días necesitás trabajar';
   if (r.pricingMode === 'known_rate') {
-    return ['Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), ` para saber ${need}.`];
+    return ['Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'margin', `Cargala en ${stepLabel('margin')}`), ` para saber ${need}.`];
   }
   if (!(k.activeDays > 0)) {
     return [byQty(v) ? `Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} por mes esperás facturar (y cuánto hacés por día de trabajo). ` : 'Falta saber cuántos días por mes esperás trabajar y facturar. ', stepLink(q, 'service', `Cargalo en ${stepLabel('service')}`), '.'];
@@ -1922,8 +2000,9 @@ function workBlock(v) {
       tone = 'red';
     }
   } else {
-    // "Con la tarifa sugerida ($ 2.259.000 / día)" / "Con tu tarifa ($ 4.000.000 / día)".
-    const subject = `Con ${theRate(k)} (${commercialRate(k, v.unitLabel)})`;
+    // "Con este precio ($ 2.259.000 / día)" / "Con tu precio ($ 4.000.000 / día)": justo debajo de la
+    // cifra grande "Precio sugerido" / "Tu precio" (C5 de la revisión de la 0.24.0).
+    const subject = `Con ${k.commercialSource === 'suggested' ? 'este precio' : 'tu precio'} (${commercialRate(k, v.unitLabel)})`;
     if (be.reachable && hasValue(be.days) && be.days <= 1e-9) {
       content = [breakEvenZeroText(r, { rateText: atRateText(v) }) || `${subject} cubrís todos tus costos desde el inicio.`];
       tone = 'green';
@@ -2047,7 +2126,7 @@ function staffBlock(v) {
   return h('p', { class: 'qr-note qr-staff' }, h('strong', {}, 'Personal: '), `${staffText(total)}${detail}.`);
 }
 
-/** 1. Resultado: las cuatro respuestas, la frase de los días y las alertas críticas. */
+/** 1. Resultado: el precio, lo que cuesta y lo que queda, la mínima, la frase de los días y las alertas críticas. */
 function renderSummary(v) {
   const { q } = v;
   const titleId = uniqueId('qr-summary-title');
@@ -2062,9 +2141,12 @@ function renderSummary(v) {
       h('div', { class: 'qr-summary-badges' }, illustrativeBadge(v))),
     draft,
     capacityBanner(v),
-    // PLAN-2026-026: la carilla. Qué cobro, cuánto me cuesta, cuánto gano (en $ y en %); abajo,
-    // la tarifa mínima. El detalle sigue en "Ver el detalle".
-    h('dl', { class: 'qr-stats' }, priceStat(v), costStat(v), profitStat(v), marginStat(v), floorStat(v)),
+    // 0.24.0 (PLAN-2026-028, W-01): una sola cifra grande, el precio que se cobra; debajo, cuánto
+    // cuesta y cuánto queda, y la mínima en un renglón de detalle. Las cinco tarjetas de antes
+    // (precio, costo, ganancia, margen y mínima) quedan en "Todos los indicadores".
+    h('dl', { class: 'qr-stats qr-stats-hero' }, priceStat(v, { hero: true })),
+    summaryLine(v),
+    h('dl', { class: 'qr-stats qr-stats-floor' }, floorStat(v, { row: true })),
     h('p', { class: 'qr-note qr-tax-note' }, 'Montos sin IVA. La ganancia es antes del impuesto a las Ganancias.'),
     tariffsBlock(v),
     // Precio cerrado: "¿Cuántos trabajos tengo que facturar?" no aplica (un precio por el trabajo).
@@ -2762,7 +2844,7 @@ function renderMatrix(v) {
   const ratesColumns = [
     { key: 'activeDays', label: daysHeader(), className: 'qr-sticky-col', render: (row) => daysCell(v, row, traceMatrixRow(v, row, matrixRates(v, row))) },
     { key: 'utilizationPct', label: abbrHeader('Utiliz.', 'Utilización: días de trabajo sobre días disponibles del mes'), align: 'right', render: (row) => pct(row.utilizationPct, 1) },
-    { key: 'floor', label: abbrHeader('Piso neto', 'Tarifa mínima neta (break-even, después de descuentos): no perder plata', 'break-even'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
+    { key: 'floor', label: abbrHeader('Mínima neta', 'Tarifa mínima neta (break-even, después de descuentos): no perder plata', 'break-even'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
     ...margins.map((m, idx) => ({
       key: `m${idx}`,
       label: marginHeader(v, m),
@@ -2980,7 +3062,7 @@ function renderDiscounts(v) {
         { key: 'evaluatedDays', label: abbrHeader('Días eval.', 'Días evaluados: el peor caso del tramo (su primer día)', 'peor caso'), align: 'right', render: (row) => formatDays(row.evaluatedDays) },
         { key: 'discountPct', label: abbrHeader('Desc.', 'Descuento del tramo'), align: 'right', render: (row) => pct(row.discountPct) },
         { key: 'netRate', label: abbrHeader('Neta', 'Tarifa neta: tarifa de lista menos descuentos'), align: 'right', render: (row) => money(row.netRate) },
-        { key: 'floorNetRate', label: abbrHeader('Piso neto', 'Tarifa mínima neta con esos días'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
+        { key: 'floorNetRate', label: abbrHeader('Mínima neta', 'Tarifa mínima neta con esos días'), align: 'right', render: (row) => ceilMoney(row.floorNetRate) },
         { key: 'targetNetRate', label: abbrHeader('Objetivo neto', 'Precio objetivo neto con esos días'), align: 'right', render: (row) => ceilMoney(row.targetNetRate) },
         { key: 'marginPct', label: abbrHeader('Margen', 'Margen sobre el precio de venta'), align: 'right', render: (row) => pct(row.marginPct) },
         {

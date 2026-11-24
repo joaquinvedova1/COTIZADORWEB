@@ -273,7 +273,7 @@ function equipmentTrace(result, index, source) {
           { label: 'Tenerlo por mes × cantidad (no se carga entero: va por hora)', value: line.fullFixedMonthly, format: 'money' },
           { label: line.time.ownBillableHours ? 'Horas por mes que lo usás o alquilás' : 'Horas por mes (si trabaja todo el mes a este ritmo)', value: line.time.billableHoursPerMonth, format: 'hours' },
           { label: 'Tenerlo por hora (lo de tenerlo en el mes ÷ horas por mes, por unidad)', value: line.time.hourlyCost, format: 'rate' },
-          { label: line.time.ownHours ? 'Horas asignado a esta cotización por día' : 'Horas asignado a esta cotización por día (todo el día de trabajo)', value: line.time.hoursPerDay, format: 'hours' },
+          { label: line.time.ownHours ? 'Horas asignadas a este trabajo por día' : 'Horas asignadas a este trabajo por día (todo el día de trabajo)', value: line.time.hoursPerDay, format: 'hours' },
           { label: 'Tenerlo por día de trabajo × cantidad', value: line.ownershipPerActiveDay, format: 'money' },
         ]
         : line.shared
@@ -524,6 +524,8 @@ export function render(container, ctx) {
   };
   const addBlank = (acquisition = 'owned', { vehicle = false } = {}) => {
     const line = blankEquipmentLine({ acquisition, hoursPerActiveDay: null, currency });
+    // 0.24.0 (P-11): un externo nuevo de una empresa responsable inscripta nace con "Sí, lo recupero".
+    if (line.external) line.external = createExternalTerms(line.external, { settings: ctx.settings });
     if (vehicle) {
       // Vehículo nuevo: sólo viaja (0 h en la locación); el consumo se pide en ruta.
       line.name = 'Nuevo vehículo';
@@ -585,7 +587,7 @@ export function render(container, ctx) {
         line.base = { period: null, currency, source: null, note: '' };
         reset = true;
       }
-      if (line.acquisition !== 'owned') line.external = createExternalTerms(line.external);
+      if (line.acquisition !== 'owned') line.external = createExternalTerms(line.external, line.external && typeof line.external === 'object' ? {} : { settings: ctx.settings });
       if (!line.mobilization) line.mobilization = createMobilization();
     });
     if (reset) ctx.toast(`La fecha base y la moneda de esta línea se reiniciaron (${currency}, sin fecha): cargá las del nuevo valor en "¿De qué mes son estos valores?".`, 'info');
@@ -627,7 +629,7 @@ export function render(container, ctx) {
     kit.out((r) => {
       if (!r.model.fuel.paidByUs) return `El combustible lo provee el cliente: no se suma al costo de uso (se define en "${stepName('logistics')}").`;
       const fuelIllustrative = Boolean(quote.illustrative || (quote.fuel && quote.fuel.illustrative === true));
-      return `Combustible: ${formatValue(r.model.fuel.pricePerLiter, 'rate')} por litro (se edita en "${stepName('logistics')}").${fuelIllustrative ? ' Es un valor ILUSTRATIVO: confirmalo con tu precio actual.' : ''}`;
+      return `Combustible: ${formatValue(r.model.fuel.pricePerLiter, 'rate')} por litro (se cambia en "${stepName('logistics')}").${fuelIllustrative ? ' Es un valor ILUSTRATIVO: confirmalo con tu precio actual.' : ''}`;
     }, { tag: 'p' }),
   );
 
@@ -857,7 +859,7 @@ export function render(container, ctx) {
       if (Number(value) > 0 && run > 0 && dayHours !== null && Math.abs(run - dayHours) < 1e-9) ctx.update(`${p}.hoursPerActiveDay`, null);
     };
     const jobHoursField = () => kit.num(`${p}.assignedHoursPerDay`, {
-      label: 'Horas asignado a esta cotización',
+      label: 'Horas asignadas a este trabajo',
       rule: 'hoursPerDay',
       unit: 'h/día',
       placeholder: dayHours !== null && dayHours > 0 ? `${formatNumber(dayHours, { decimals: 2 })} (todo el día)` : 'Todo el día',
@@ -1196,7 +1198,7 @@ export function render(container, ctx) {
   const setExternalUnit = (index, value) => ctx.mutate((q) => {
     const line = q.equipment[index];
     if (!line) return;
-    if (!line.external || typeof line.external !== 'object') line.external = createExternalTerms({});
+    if (!line.external || typeof line.external !== 'object') line.external = createExternalTerms({}, { settings: ctx.settings });
     if (value === ROUND_TRIP) {
       line.external.unit = 'trip';
       line.external.tripBasis = 'round_trip';

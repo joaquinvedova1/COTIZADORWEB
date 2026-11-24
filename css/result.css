@@ -672,3 +672,16 @@ th.ta-right .qr-th { align-items: flex-end; }
   .qr-client-price-value { font-size: 22pt; font-weight: 700; }
   .qr-client-price-note { font-size: 9pt; }
 }
+
+/* 0.24.0 (PLAN-2026-028, W-01) · Resultado: una sola cifra grande (el precio que se cobra);
+   debajo, "Te cuesta $ X · ganás $ Y (Z %)" y la mínima en un renglón de detalle.
+   Las cinco tarjetas de antes quedan en "Todos los indicadores" (.qr-stats-all). */
+.qr-stats.qr-stats-hero, .qr-stats.qr-stats-floor { grid-template-columns: minmax(0, 1fr); }
+.qr-stats-hero .qr-stat-hero { padding: 0; border: 0; }
+.qr-stats-hero .qr-stat-hero .big-stat-number { font-size: clamp(2rem, 1.4rem + 3cqi, 2.9rem); }
+.qr-stats-hero .qr-stat-hero .big-stat-unit { font-size: 1.05rem; }
+.qr-sum-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; margin-top: 0.6rem; }
+.qr-sum-line-text { margin: 0; font-size: var(--fs-lg); line-height: 1.45; color: var(--ink); max-width: 72ch; }
+.qr-sum-line-red .qr-sum-line-text { color: var(--red-text, #b42318); }
+.qr-sum-line .trace-btn { padding-left: 0; }
+.qr-stats-all { margin-bottom: 1.25rem; }

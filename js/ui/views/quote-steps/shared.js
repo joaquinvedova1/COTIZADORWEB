@@ -17,7 +17,7 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { perUnitSuffix } from '../../unit-text.js';
 
 /**
- * Nombre visible de un paso del editor ("Cómo se cobra", "Viajes"…).
+ * Nombre visible de un paso del editor ("El servicio", "El precio"…).
  * ÚNICA fuente: QUOTE_STEPS. Nunca escribir los nombres a mano.
  */
 export function stepName(stepId) {
@@ -105,7 +105,7 @@ export function confirmRemove({ title, name, extra = 'Esto no modifica la biblio
 /**
  * Campos del mínimo mensual garantizado (tanda B 2026-11, B-3): en $ por mes (como siempre) o en
  * unidades de cobro ("mínimo 20 días por mes"), que el motor valoriza con la tarifa de la
- * cotización. Lo usan "Cómo se cobra" y "Reglas comerciales". Sin cuentas: los montos vienen del motor.
+ * cotización. Lo usa "Reglas comerciales". Sin cuentas: los montos vienen del motor.
  * @returns {{ fields: Node[], note: Node }}
  */
 export function minimumGuaranteeFields(kit, quote, unitInfo, { amountLabel = 'Mínimo mensual', amountPlaceholder = null, amountHint = null } = {}) {

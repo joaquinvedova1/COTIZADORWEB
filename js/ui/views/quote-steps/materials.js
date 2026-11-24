@@ -14,7 +14,7 @@
 
 import { h, mount } from '../../dom.js';
 import { button, card, formGrid, selectField, table, confirmDialog } from '../../components.js';
-import { QUOTE_MATERIAL_BASES, MATERIAL_PROVIDERS, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS, vatIsCost } from '../../../domain/catalogs.js';
+import { QUOTE_MATERIAL_BASES, materialProviderOptions, COST_BEHAVIORS, COST_CATEGORIES, DIRECT_CATEGORY_IDS, MATERIAL_UNIT_PRESETS, vatIsCost } from '../../../domain/catalogs.js';
 import { materialLineFromLibrary, blankMaterialLine, otherCostToMaterialLine } from '../../../domain/quote-factory.js';
 import { formatMoney, formatPercent, formatNumber, EMPTY } from '../../../core/format.js';
 import { workDaysText } from '../../unit-text.js';
@@ -383,7 +383,7 @@ export function render(container, ctx) {
       const ownOutput = String(line.outputUnit || '').trim() !== '' || hasNumber(line.outputPerActiveDay);
       // "Unidad producida" y "Producción por día" sólo a la vista si la cotización no las sabe
       // (abono mensual, por día o por hora) o si la línea ya tiene las suyas. Cobrando por
-      // diagnóstico la producción ya se cargó en "Cómo se cobra": no se vuelve a preguntar.
+      // diagnóstico la producción ya se cargó en "El servicio": no se vuelve a preguntar.
       const outputInMain = perOutput && (ownOutput || !autoOutputKnown(quote) || billsByTime(quote));
       const partialUse = perOutput && hasNumber(line.usagePct) && Math.abs(Number(line.usagePct) - 100) > 1e-9;
       const outputFields = () => formGrid(
@@ -393,7 +393,7 @@ export function render(container, ctx) {
           maxLength: 30,
           placeholder: autoOutputKnown(quote) ? '' : 'Ej.: m², m³, pozo',
           hint: billsByTime(quote)
-            ? 'Escribí qué producís (hectárea, válvula, m²). Si después cobrás en esa unidad, el rendimiento se carga una sola vez, en "Cómo se cobra".'
+            ? 'Escribí qué producís (hectárea, válvula, m²). Si después cobrás en esa unidad, el rendimiento se carga una sola vez, en "El servicio".'
             : autoOutputKnown(quote)
               ? `Lo que producís: m² pintado, m³ tratado, pieza inspeccionada… Vacío = ${billingUnitOf(quote).singular}, la unidad en que cobrás.`
               : 'Lo que producís: m² pintado, m³ tratado, pieza inspeccionada…',
@@ -403,7 +403,7 @@ export function render(container, ctx) {
           rule: 'quantity',
           unit: kit.out(() => outputPerDayUnitLabel(quote.materials[i], quote)),
           hint: autoOutputKnown(quote)
-            ? 'Vacío = lo que cargaste en "Cómo se cobra". Cargalo si esta unidad es otra.'
+            ? 'Vacío = lo que cargaste en "El servicio". Cargalo si esta unidad es otra.'
             : 'Cuántas producís en un día de trabajo: con eso se calcula el consumo del mes.',
         }),
       );
@@ -467,7 +467,7 @@ export function render(container, ctx) {
           kit.num(`${p}.unitCost`, { label: `${component === 'other' ? 'Monto' : 'Costo unitario'} (${vatIsCost(ctx.settings) ? 'con' : 'sin'} IVA)`, hint: vatIsCost(ctx.settings) ? 'Como monotributista o exento, el IVA de lo que comprás es costo: cargá el precio con IVA.' : null, rule: 'money', unit: kit.out(() => `${sym}/${String((quote.materials[i] && quote.materials[i].unit) || '').trim() || 'u.'}`), illustrative }),
           kit.select(`${p}.providedBy`, {
             label: '¿Quién lo provee?',
-            options: MATERIAL_PROVIDERS.map((m) => ({ value: m.id, label: m.label })),
+            options: materialProviderOptions(quote.materials[i] && quote.materials[i].providedBy),
             includeEmpty: true,
             emptyLabel: 'Elegí quién lo provee…',
           }),
@@ -491,7 +491,7 @@ export function render(container, ctx) {
             if (!l) return '';
             if (!l.providedBy) return 'Falta definir quién lo provee.';
             if (l.costForUs === 0 && l.grossCost > 0) return 'Lo provee el cliente: no es costo tuyo.';
-            // Cobrando por cantidad, la producción por día se carga más adelante, en "Cómo se cobra".
+            // Cobrando por cantidad, la producción por día se carga en "El servicio".
             const auto = !ownOutput && autoOutputKnown(quote) && !billsByTime(quote);
             return materialFormulaText(quote.materials[i], l, {
               activeDays: r.activity.activeDaysPerMonth,
@@ -570,7 +570,7 @@ export function render(container, ctx) {
   // ------------------------------------------------- gastos cargados antes (otherCosts[])
   // PLAN-2026-027 (decisión D2): ya no se crean. Los guardados siguen sumando igual, en el renglón
   // que tenían ("Suma en: …", sólo lectura). Los que suman en este renglón se pueden pasar a la lista.
-  // "Por unidad producida" (PLAN-2026-022): las unidades de "Cómo se cobra"; con abono mensual no hay
+  // "Por unidad producida" (PLAN-2026-022): las unidades de "El servicio"; con abono mensual no hay
   // unidades por día y no se ofrece (una línea que ya la tiene la sigue viendo).
   const behaviorOptionsFor = (row) => {
     const show = autoOutputKnown(quote) || normalizeBasisId(row && row.behavior) === 'per_output';

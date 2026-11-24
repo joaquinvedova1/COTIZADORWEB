@@ -54,7 +54,9 @@ describe('franja horaria: horas de guardia por día', () => {
     // Por hora esas horas ya se facturan: el aviso no manda a cobrarlas de nuevo enteras.
     assert.match(item.message, /Ya se facturan como horas normales/);
     assert.match(item.message, /sólo el recargo/);
-    assert.equal(item.focus, 'activity.hoursPerActiveDay');
+    // 0.24.0: la franja vive en "Detalle de la guardia" (El precio): el aviso lleva a sus horas.
+    assert.equal(item.focus, 'activity.availabilityHoursPerDay');
+    assert.equal(item.step, 'margin');
 
     // Por día: el día cubre la franja; el recargo va en la tarifa (regla de un ítem, sin Adicionales).
     const byDay = computeQuote(onCall({ availability: 'window', availabilityHoursPerDay: 8, hoursPerActiveDay: 10 }, 'day')).completeness.items.find((x) => x.id === 'availability_window');

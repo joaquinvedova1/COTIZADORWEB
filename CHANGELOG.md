@@ -12,7 +12,7 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
-## [0.23.1] - 2026-11-24
+## [0.24.1] - 2026-11-24
 
 **Auditoría de la 0.23.0: el mes completo de un recurso se guarda como decisión, no como horas.** Informe en project files `auditoria-0-23-0/INFORME.md` (ingeniería económica, auditor independiente con oráculo propio, prestador y QA en navegador). Sin cambio de esquema. Ninguna cotización guardada cambia sus números: la fórmula nueva sólo se usa donde alguien marca la casilla. Reglas: docs/CALCULATION_RULES.md §36.5.
 
@@ -27,6 +27,39 @@ Reglas para este archivo:
 - Resultado: el aviso de horas del mes sin cobrar se ve arriba, junto al precio, con el monto (antes quedaba dentro de "¿Te falta cargar algo?").
 - "Horas que le cobrás a clientes por mes" pasa a llamarse "Horas que trabaja para clientes por mes, entre todos tus trabajos": se leía como las horas de un cliente y, con 16 cargado, una cotización de 64 h costaba cuatro sueldos.
 - Traslados: la ayuda del desgaste por km ya no pide cargar la amortización si el vehículo también está en Equipos (se contaba dos veces).
+
+## [0.24.0] - 2026-11-24
+
+**Menos preguntas.** Auditoría para cerrar la beta, tanda 4 (project files `auditoria-beta/PLAN-TANDA-4.md`, PLAN-2026-028): PR 1, 2, 3 y 5 del plan. **Esquema 11, sin cambio.** Sin cambio de fórmulas: ninguna cotización ni producto cambia sus números (foto de `computeQuote` antes de tocar el código, `tests/engines/tanda4-sin-cambio.test.js`: KPIs, estructura de costos y completitud de la demo, los fixtures y los escenarios y sondas del Test Lab; de la completitud sólo cambia el paso al que apunta cada pendiente). Reglas: docs/CALCULATION_RULES.md §38.
+
+### Cambiado
+
+- **Sin el paso "Cómo se cobra"** (P-12, P-13, G15): la cotización tiene 10 pasos en 5 etapas (El servicio, Los recursos, Otros gastos, El precio, Resultado). El ritmo de trabajo va en "El servicio", "Horas extra del trabajo" al final de "Personal", "¿Cómo viaja el personal a la locación?" en "Movilización y viajes", y la hora fuera de horario, la guardia y los adicionales cargados antes en "El precio" (bloque "Cargado antes"). Salen "Lo que ya cargaste", "Con tu tarifa" y "Ver tarifas según el margen" (están en el resumen en vivo y en el Resultado). Un enlace viejo `…/modality` abre "El precio". Los pendientes de la completitud llevan al paso donde está el campo.
+- **Un solo campo de precio a mano**: "¿Ya tenés un precio? (opcional, sin IVA)", a la vista debajo del margen. Reemplaza "Tu tarifa" y "Tarifa ofrecida a mano"; con el mismo precio los dos daban los mismos números (INV-33). En una cotización "ya tengo la tarifa", "Borrar mi precio y usar el sugerido" (con confirmación). `pricingMode` sigue en el modelo.
+- **Un solo precio en el Resultado y en el resumen** (W-01): una cifra grande ("Precio sugerido" o "Tu precio") y la línea "Te cuesta $ X · ganás $ Y (Z %)". La tarifa mínima pasa a "¿Hasta cuánto puedo bajar?" con su "Ver cálculo"; las demás tarjetas quedan en "Todos los indicadores". En el resumen en vivo, a la vista sólo el precio.
+- **Datos de la empresa una sola vez** (W-10): mientras la Configuración sea de ejemplo, Inicio y "Nuevo servicio" muestran la tarjeta "Datos de tu empresa" (combustible, plazo de cobro, tasa, imprevistos, margen y condición frente al IVA). "Guardar" los deja como propios y la cotización siguiente nace sin "ILUSTRATIVO". En la cotización, "Guardar como valor de mi empresa" para el combustible y la tasa; en las creadas antes, "Son los valores de mi empresa" en el aviso (el número no cambia).
+- **IVA** (P-11): con una empresa responsable inscripta y los dos valores cargados, la cotización nueva nace con "¿Facturás con IVA?" = Sí y muestra una línea en vez de la pregunta ("Cambiar sólo acá"). Un externo nuevo sigue naciendo con "¿Recuperás ese IVA?" sin definir. Botón "Recupero el IVA de todos (responsable inscripto)" para los externos sin definir, con una confirmación que dice cuánto baja el costo: con el IVA de la cotización aplicado, "Sí" da crédito fiscal y baja el costo financiero (es lo correcto si recuperás el IVA); sin el IVA aplicado, el costo no cambia (INV-34). Es un cambio de números sólo por esa acción de la persona; la regla no cambia sola (D6).
+- **Mismo rótulo en Configuración y en la cotización** (P-19): "Plazo de cobro", "Redondeo", "Imprevistos" y "Precio del combustible".
+- **Campos que no mueven números** (P-14): "Tiempo máximo de respuesta" sale del ritmo y queda en "Detalle de la guardia". "Categoría" del puesto, en la cotización sólo si tiene texto y en Recursos en "Más detalle". "Valor actual", "Velocidad estimada" y "Combustible" del modelo, sólo si ya tienen valor. Interno, modelo, año, dominio y capacidad del equipo, en "Datos de la unidad (opcional)". "¿Quién lo provee?": "Lo pago yo" y "Lo pone el cliente"; "Tercero contratado por nosotros" sólo donde ya estaba elegida. Nada se borra.
+- **"Suba de precios" e "Inflación"** (P-15) se ocultan sólo si están en 0 y el precio ya contempla la inflación.
+- **Textos**: "Aportes del trabajador (% del remunerativo)" (el motor ya los calculaba así); "Viáticos y alojamiento" dice lo mismo que el bloque de viajes (P-10); "Horas asignadas a este trabajo" (P-21); en Productos, "Precio piso" pasa a **"Precio mínimo"** (W-11, D4).
+
+### Corregido (revisión de la 0.24.0)
+
+Project files `auditoria-beta/revision-0-24-0/` (UX.md y COSTOS.md). Ningún número cambia salvo por una acción de la persona (botones con confirmación o "Usar los de mi empresa").
+
+- **IVA de externos** (B-1): un externo nuevo vuelve a nacer con "¿Recuperás ese IVA?" sin definir. Con el IVA de la cotización aplicado, "Sí" baja el costo financiero (crédito fiscal): "Recupero el IVA de todos" pide confirmación y dice cuánto baja el costo.
+- **"Te cuesta · impuestos · ganás"** (B1, C-7): la línea muestra los impuestos sobre lo que facturás del motor y suma el precio facturado.
+- **Margen de "ganás"** (B-2, C4): el pedido sólo si la diferencia es de redondeo; si no, el real del motor (p. ej. 55,4 % con el mínimo garantizado, no 15 %). "El precio" usa el mismo criterio.
+- **Precio a mano** (C-1, C-2, C1): en "ya tengo la tarifa", vaciar el campo hace lo mismo que "Borrar mi precio y usar el sugerido"; sin asterisco; el texto de muestra depende del modo. La confirmación avisa si faltan los días del mes y lleva a ese campo; no dice "$ 0".
+- **Cobro por mes sin "Movilización y viajes"** (C-3): "¿Cómo viaja el personal?" se ve en "El servicio".
+- **Datos de la empresa** (C-4, C-5, C7, C8, C9): el aviso de una cotización creada antes muestra los dos valores y, si difieren, "Usar los de mi empresa" o "Dejar estos". "Precio del combustible (con IVA)" para monotributo y exento. Con responsable inscripto, la tarjeta pide el IVA que facturás y los días hasta pagarlo. En "Nuevo servicio" la tarjeta va después de las opciones y "Ahora no" se recuerda en la sesión. "Margen que querés ganar (sobre el precio)" en los dos lados.
+- **Resultado y resumen** (C-6, C5, C6, C11): con descuento, la pista de la cifra grande dice lo que se cobra; la cifra se pinta en rojo si se pierde y en naranja bajo el objetivo; el precio a mano se llama "Tu precio" en todos lados; la barra del celular muestra el rótulo y la cifra enteros.
+- **Textos y orden** (C2, C3, C10, P2–P6, P10): "Cargado antes" va antes de "Opciones comerciales"; un enlace viejo `…/modality?campo=` va al paso del campo; sin "piso" en textos visibles ("por debajo de la tarifa mínima"); la hora fuera de horario cargada antes se quita con confirmación y dice dónde están las horas extra; "Horas extra del trabajo" antes del total de Personal; "Usar $ X como tu precio"; el pliegue del precio nombra el ejemplo de margen; el plazo de cobro lleva la pregunta "¿A cuántos días te paga el cliente?".
+
+### Test Lab
+
+- Controles estáticos `UX-TERM-STEP` (ningún texto cita "Cómo se cobra") y `UX-TERM-FLOOR` (ningún texto dice "piso", ampliado en la revisión). Invariantes INV-33 (ampliado en la revisión: `kpis` enteros salvo la completitud, EECC, facturación estimada y precio vacío) e INV-34 (corregido en la revisión: con el IVA aplicado, "Sí" ≤ sin definir). Sonda PRB-24. Navegador E2E-26 a E2E-32. La foto `tanda4-sin-cambio` suma `especialista-24h-c2` con mínimo de 20 unidades (sacado con el motor de la 0.23.0).
 
 ## [0.23.0] - 2026-11-23
 

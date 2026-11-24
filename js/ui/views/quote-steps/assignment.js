@@ -33,8 +33,8 @@ export function assignmentSummary(line, kind) {
   if (!line) return '';
   const fixedWord = kind === 'labor' ? 'su costo fijo' : 'sus costos fijos';
   if (!line.shared) {
-    // Sin respuesta todavía: lo mismo que dice "Cómo se cobra" ("Todavía no elegiste").
-    if (!line.assignment) return 'Sin elegir: por ahora paga el 100 % (se elige en "Cómo se cobra").';
+    // Sin respuesta todavía (0.24.0: se elige acá, en la línea).
+    if (!line.assignment) return 'Sin elegir: por ahora paga el 100 % (se elige acá).';
     if (line.assignment === 'hired') return `Contratada específicamente para este servicio: 100 % de ${fixedWord}.`;
     return kind === 'labor' ? `Dedicada a este servicio: 100 % de ${fixedWord}.` : `Reservado para este servicio: 100 % de ${fixedWord}.`;
   }
@@ -125,7 +125,7 @@ export function unitHoursField(kit, { path, kind, basis, unit, ready, where, onV
   const cost = kind === 'labor' ? 'el valor de su hora' : 'su valor hora (amortización, seguro, patente, mantenimiento y combustible)';
   const pending = ready ? '' : ` Falta cargar ${basis === 'job' ? 'los días del trabajo' : `cuántos ${unit.plural || 'unidades'} hacés por día`} en «${where}»: hasta entonces cuenta todo el día.`;
   return kit.num(`${path}.assignedHoursPerUnit`, {
-    label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignado a esta cotización',
+    label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignadas a este trabajo',
     rule: 'hours',
     unit: `h/${unit.short || unit.singular || 'unidad'}`,
     placeholder: 'Todo el día de trabajo',
@@ -178,7 +178,7 @@ export function monthHoursField(kit, ctx, { path, baseHours, kind, serviceHours 
     }
   };
   const field = kit.num(`${path}.assignedHoursPerMonth`, {
-    label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignado a esta cotización',
+    label: kind === 'labor' ? 'Horas efectivas de trabajo' : 'Horas asignadas a este trabajo',
     rule: 'hours',
     unit: 'h/mes',
     placeholder: baseText ? `${baseText} (todo el mes)` : 'Todo el mes',

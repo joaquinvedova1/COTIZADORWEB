@@ -7,6 +7,7 @@
  */
 
 import { contingencyPriceOverlap } from '../../../domain/price-adjustment.js';
+import { riskItemVisible } from '../../optional-fields.js';
 import { h, mount } from '../../dom.js';
 import { card, formGrid, checkboxField } from '../../components.js';
 import { RISK_ITEMS } from '../../../domain/catalogs.js';
@@ -16,6 +17,7 @@ import { createTrace } from '../../../core/trace.js';
 import { nonNegative } from '../../../core/money.js';
 import { contractOf } from '../../../domain/contract.js';
 import { illustrativeTag } from '../../layout.js';
+import { COMPANY_LABELS } from '../../company-defaults.js';
 import { unitAmountText, perQuoteUnit, closedJobsPerMonth, costPlaceLabel } from '../../result-text.js';
 
 const RISK_HINTS = Object.freeze({
@@ -81,6 +83,9 @@ export function render(container, ctx) {
   const rows = RISK_ITEMS.map((item) => {
     const index = quote.risk.items.findIndex((r) => r && r.id === item.id);
     if (index < 0) return null;
+    // 0.24.0 (P-15): con el precio que ya contempla la inflación, "Suba de precios" e "Inflación"
+    // se ocultan si están en 0 (se contarían dos veces). Con un valor cargado se ven siempre.
+    if (!riskItemVisible(quote, quote.risk.items[index])) return null;
     const p = `risk.items.${index}`;
     const row = h(
       'div',
@@ -121,7 +126,7 @@ export function render(container, ctx) {
     {},
     closedNote,
     h('p', { class: 'qe-note' }, 'Para lo que no podés anticipar: clima, roturas, días perdidos. No reemplaza al margen.'),
-    formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: generalHint })),
+    formGrid(2, kit.num('risk.generalPct', { label: COMPANY_LABELS.contingencyPct, rule: 'percent', unit: '%', hint: generalHint })),
     zeroWarning,
     kit.keyline({
       label: (r) => costPlaceLabel(r, quote, 'Imprevistos'),

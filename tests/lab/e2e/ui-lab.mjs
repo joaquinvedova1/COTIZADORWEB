@@ -30,7 +30,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStaticServer } from '../../../scripts/serve.mjs';
 import { computeQuote } from '../../../js/engines/quote-engine.js';
-import { formatMoney, formatMoneyCeil, formatNumber } from '../../../js/core/format.js';
+import { formatMoney, formatMoneyCeil, formatNumber, formatPercent } from '../../../js/core/format.js';
 import { fieldHref } from '../../../js/ui/field-links.js';
 import { perBilledUnitAmount } from '../../../js/ui/result-text.js';
 import { cot0010Quote } from '../../fixtures/cot-0010.js';
@@ -153,7 +153,7 @@ export const E2E_SCENARIOS = [
       equipment: [external({ name: 'Camión' }, { price: 3250, unit: 'km', fuelIncluded: true })], logistics: route({ destinationName: 'Añelo', tripsPerActivation: 2 }) }),
   },
   {
-    id: 'E2E-16', title: 'D8: on-call: la activación se llama "llamado" en "Cómo se cobra"',
+    id: 'E2E-16', title: 'D8: on-call: la activación se llama "llamado" en "El servicio"',
     build: () => service({ id: 'lab-e16', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 5, daysPerActivation: 2 }, labor: [person({ peoplePerPosition: 2 })], logistics: route({ distanceKm: 80, tollsPerActivation: 12000 }) }),
   },
   // ---- ECO-01 (AUD-T1 H-01, H-02, H-03): los avisos nuevos llevan a su campo y las cifras son las del motor.
@@ -217,11 +217,37 @@ export const E2E_SCENARIOS = [
       otherCosts: [otherCost({ description: 'Seguro de vida obligatorio', category: 'labor', behavior: 'fixed_monthly', amount: 90000 })],
     }),
   },
+  // ---- 0.24.0 "Menos preguntas" (PLAN-2026-028, PR 1): sin el paso "Cómo se cobra".
   {
-    id: 'E2E-26', title: 'Técnico de $ 3.200.000 con 16 h por mes: "sólo tiene este trabajo" cobra su mes completo, por recurso y se deshace (0.23.1)',
+    id: 'E2E-26', title: 'Sin "Cómo se cobra": 5 etapas y un enlace viejo …/modality abre "El precio"',
+    build: () => service({ id: 'lab-e26', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()] }),
+  },
+  {
+    id: 'E2E-27', title: 'Un solo campo de precio a mano: cotización "ya tengo la tarifa" sembrada con $ 1.500.000 por día',
+    build: () => service({ id: 'lab-e27', serviceType: 'crew', unit: 'day', pricingMode: 'known_rate', activity: { activeDaysPerMonth: 12 }, labor: [person()], pricing: { knownRate: 1500000 } }),
+  },
+  {
+    id: 'E2E-28', title: 'Guardia en una franja cargada antes: se ve en "El precio" y la franja lleva a sus horas',
+    build: () => service({ id: 'lab-e28', serviceType: 'on_call', unit: 'hour', activity: { activeDaysPerMonth: 8, daysPerActivation: 1, hoursPerActiveDay: 10, availability: 'window', availabilityHoursPerDay: 8, guardType: 'passive' }, labor: [person({ role: 'Técnico de guardia' })] }),
+  },
+  {
+    id: 'E2E-29', title: 'Horas extra del trabajo: el campo se carga al final de "Personal"',
+    build: () => {
+      const q = service({ id: 'lab-e29', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person({ role: 'Soldador' })] });
+      q.overtimeWork = { mode: 'some', hours50: 2, hours100: 0 };
+      return q;
+    },
+  },
+  // ---- 0.24.0 (PLAN-2026-028, PR 2): un solo precio en el Resultado y en el resumen.
+  {
+    id: 'E2E-30', title: 'Un solo precio: una cifra grande en el Resultado; costo y ganancia en una línea; en el resumen, sólo el precio',
+    build: () => service({ id: 'lab-e30', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()] }),
+  },
+  {
+    id: 'E2E-40', title: 'Técnico de $ 3.200.000 con 16 h por mes: "sólo tiene este trabajo" cobra su mes completo, por recurso y se deshace (0.24.1)',
     build: () => ({
       ...service({
-        id: 'lab-e26', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 2, hoursPerActiveDay: 8 },
+        id: 'lab-e40', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 2, hoursPerActiveDay: 8 },
         labor: [person({ role: 'Técnico de campo', basicMonthly: 3200000, normalHoursPerMonth: 160, sacPct: 0, vacationPct: 0, employerContributionsPct: 0, artPct: 0 })],
         equipment: [owned({ name: 'Hidrogrúa de prueba', replacementValue: 96000000, usefulLifeYears: 8 })],
       }),
@@ -382,6 +408,11 @@ async function runMode(mode) {
       if (await toggle.isVisible().catch(() => false)) await tap(toggle);
       await page.waitForTimeout(300);
     }
+    // 0.24.0 (W-01): a la vista queda sólo el precio; el costo está en "Ver más".
+    if (!(await traceBtn.isVisible().catch(() => false))) {
+      await page.evaluate(() => document.querySelectorAll('details.qe-sum-more').forEach((d) => { d.open = true; }));
+      await page.waitForTimeout(250);
+    }
     const traceVisible = await traceBtn.isVisible().catch(() => false);
     // Tanda novatos 2026-11: con costo 0 el resumen queda plegado ("Los números aparecen cuando…").
     const foldedEmpty = await page.locator('.qe-summary.is-empty .qe-sum-empty').first().isVisible().catch(() => false);
@@ -425,9 +456,10 @@ async function runMode(mode) {
     await scan(s.id, 'resultado');
     if (args.shots) await page.screenshot({ path: path.join(outDir, `${mode}-${s.id}-resultado.png`), fullPage: true });
     if (args.shots) {
-      await go(`#/cotizaciones/${encodeURIComponent(q.id)}/modality`, 600);
+      // 0.24.0: sin "Cómo se cobra"; la captura del precio va a "El precio".
+      await go(`#/cotizaciones/${encodeURIComponent(q.id)}/margin`, 600);
       await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
-      await page.screenshot({ path: path.join(outDir, `${mode}-${s.id}-cobro.png`), fullPage: true });
+      await page.screenshot({ path: path.join(outDir, `${mode}-${s.id}-precio.png`), fullPage: true });
     }
 
     // PDF: el Resultado se exporta con "Imprimir / Guardar como PDF" (estilos de impresión).
@@ -690,37 +722,121 @@ async function runMode(mode) {
     const move = await page.evaluate(() => [...document.querySelectorAll('.qe-legacy-costs button')].filter((b) => /Pasar a la lista/.test(b.textContent)).length);
     check('E2E-25', 'un gasto que suma en Personal no se puede "Pasar a la lista"', move === 0, `${move} botones`);
   }
+  // ---- 0.24.0 (PLAN-2026-028, PR 1): "Cómo se cobra" se disolvió.
   {
-    // E2E-26 (0.23.1, auditoría de la 0.23.0): la decisión de mes completo es por recurso, guarda
-    // `fullMonth` (no horas), el sueldo pasa a costo fijo y se deshace destildando.
     const qid = byId['E2E-26'].q.id;
+    await screenText('E2E-26', 'service');
+    const stages = await page.evaluate(() => [...document.querySelectorAll('.qe-stage .qe-stage-label')].map((n) => n.textContent.trim()));
+    check('E2E-26', '5 etapas: El servicio, Los recursos, Otros gastos, El precio, Resultado', stages.join('|') === 'El servicio|Los recursos|Otros gastos|El precio|Resultado', stages.join(' · '));
+    await go(`#/cotizaciones/${encodeURIComponent(qid)}/modality`, 900);
+    const at = await page.evaluate(() => ({ hash: window.location.hash, current: (document.querySelector('.qe-stage.is-current .qe-stage-label') || {}).textContent || '' }));
+    check('E2E-26', 'un enlace viejo …/modality abre "El precio"', /\/margin$/.test(at.hash) && at.current.trim() === 'El precio', JSON.stringify(at));
+    // C3 (revisión de la 0.24.0): con "?campo=", el enlace viejo va al paso donde vive el campo hoy.
+    const e29 = byId['E2E-29'].q.id;
+    await go(`#/cotizaciones/${encodeURIComponent(e29)}/modality?campo=overtimeWork.hours50`, 900);
+    const f = await waitFocus('overtimeWork.hours50');
+    const at2 = await page.evaluate(() => window.location.hash);
+    check('E2E-26', 'un enlace viejo …/modality?campo=overtimeWork.hours50 abre "Personal" y enfoca el campo', /\/labor\?campo=overtimeWork\.hours50$/.test(at2) && f.name === 'overtimeWork.hours50', `${at2} · ${JSON.stringify(f)}`);
+  }
+  {
+    const { q, r } = byId['E2E-27'];
+    let count = 0;
+    const where = [];
+    for (const step of ['service', 'labor', 'equipment', 'materials', 'logistics', 'indirect', 'finance', 'risk', 'margin']) {
+      await screenText('E2E-27', step);
+      const n = await page.evaluate(() => document.querySelectorAll('[name="pricing.knownRate"], [name="pricing.offeredRateOverride"]').length);
+      count += n;
+      if (n) where.push(`${step}: ${n}`);
+    }
+    check('E2E-27', 'un solo campo de precio a mano en toda la cotización (en "El precio")', count === 1 && where[0] === 'margin: 1', where.join(' · ') || 'ninguno');
+    await screenText('E2E-27', 'margin');
+    const field = await page.evaluate(() => {
+      const el = document.querySelector('[name="pricing.knownRate"]');
+      return { value: el ? el.value : null, reset: [...document.querySelectorAll('button')].some((b) => /Borrar mi precio y usar el sugerido/.test(b.textContent)) };
+    });
+    check('E2E-27', 'la cotización "ya tengo la tarifa" muestra su precio en el campo y el botón para usar el sugerido', norm(field.value).replace(/\D/g, '') === String(q.pricing.knownRate) && field.reset, JSON.stringify(field));
+    check('E2E-27', 'el motor usa ese precio', r.kpis.commercialSource === 'known_rate' && r.kpis.commercialListRate === q.pricing.knownRate, `${r.kpis.commercialSource} ${r.kpis.commercialListRate}`);
+  }
+  {
+    const { q } = byId['E2E-28'];
+    const t = await screenText('E2E-28', 'margin');
+    check('E2E-28', 'la guardia cargada antes se ve en "El precio"', t.includes('Guardia (cargada antes)') && t.includes('Detalle de la guardia') && t.includes('Cargado antes'), 'no aparece la guardia');
+    await go(fieldHref(q.id, 'activity.availabilityHoursPerDay').replace(/^.*#/, '#'), 600);
+    const f = await waitFocus('activity.availabilityHoursPerDay');
+    check('E2E-28', '"Ir al campo" de la franja enfoca las horas de guardia por día', f.name === 'activity.availabilityHoursPerDay' && f.inView, JSON.stringify(f));
+  }
+  {
+    const { q } = byId['E2E-29'];
+    const href = fieldHref(q.id, 'overtimeWork.hours50');
+    check('E2E-29', 'el enlace de las horas extra va a "Personal"', /\/labor\?campo=overtimeWork\.hours50$/.test(href), href);
+    await go(href.replace(/^.*#/, '#'), 600);
+    const f = await waitFocus('overtimeWork.hours50');
+    check('E2E-29', 'el foco de overtimeWork.* cae en "Personal"', f.name === 'overtimeWork.hours50' && f.inView, JSON.stringify(f));
+  }
+  {
+    // E2E-30 (W-01): una sola cifra grande, la del motor; costo y ganancia en una línea.
+    const { q, r } = byId['E2E-30'];
+    const k = r.kpis;
+    await go(`#/cotizaciones/${encodeURIComponent(q.id)}/result`, 300);
+    await page.waitForSelector('.qr-summary', { timeout: 8000 }).catch(() => {});
+    const info = await page.evaluate(() => {
+      const sum = document.querySelector('.qr-summary');
+      const bigs = sum ? [...sum.querySelectorAll('.big-stat')] : [];
+      const line = sum && sum.querySelector('.qr-sum-line');
+      return { bigs: bigs.length, price: bigs.length === 1 && bigs[0].classList.contains('qr-stat-price'), text: bigs[0] ? bigs[0].innerText : '', line: line ? line.innerText : '', floor: sum ? (sum.querySelector('.qr-stat-floor') || {}).innerText || '' : '' };
+    });
+    check('E2E-30', 'una sola cifra grande en el resumen del Resultado, la del precio', info.bigs === 1 && info.price, `${info.bigs} cifras`);
+    check('E2E-30', 'la cifra grande = motor y se llama "Precio sugerido"', norm(info.text).includes(norm(formatMoneyCeil(k.commercialListRate))) && /precio sugerido/i.test(info.text), norm(info.text));
+    check('E2E-30', 'costo y ganancia en una línea, con el margen que pediste', /Te cuesta/.test(info.line) && /ganás/.test(info.line) && norm(info.line).includes(norm(formatPercent(k.targetMarginPct, { decimals: 2 }))), norm(info.line));
+    {
+      // Revisión de la 0.24.0 (B1 de UX, C-7 de costos): costo + impuestos + ganancia = precio facturado,
+      // en la unidad de cobro (±2 por el redondeo de cada monto a pesos enteros).
+      const line = norm(info.line);
+      const amount = (re) => { const m = line.match(re); return m ? Number(m[1].replace(/\./g, '').replace(',', '.')) : NaN; };
+      const cost = amount(/Te cuesta \$ ?([\d.,]+)/);
+      const taxes = amount(/impuestos sobre lo que facturás \$ ?([\d.,]+)/);
+      const profit = amount(/ganás \$ ?([\d.,]+)/);
+      const billed = k.commercialNetRate;
+      const sum = cost + taxes + profit;
+      check('E2E-30', 'la línea cierra: costo + impuestos + ganancia = precio facturado', k.billingTaxes > 0 && Number.isFinite(sum) && Math.abs(sum - billed) <= 2, `${cost} + ${taxes} + ${profit} = ${sum} vs ${billed} · ${line}`);
+    }
+    check('E2E-30', '"¿Hasta cuánto puedo bajar?" en un renglón', /¿Hasta cuánto puedo bajar\?/iu.test(info.floor), norm(info.floor));
+    await scan('E2E-30', 'resultado');
+    await go(`#/cotizaciones/${encodeURIComponent(q.id)}/service`, 300);
+    await page.waitForSelector('[data-kpi="commercialRate"]', { timeout: 8000 }).catch(() => {});
+    const keys = await page.evaluate(() => [...document.querySelectorAll('.qe-sum-main [data-kpi]')].map((n) => n.dataset.kpi));
+    check('E2E-30', 'el resumen del editor muestra sólo el precio (el resto en "Ver más")', keys.join('|') === 'commercialRate', keys.join(' · '));
+  }
+  {
+    // E2E-40 (0.24.1, auditoría de la 0.23.0): la decisión de mes completo es por recurso, guarda
+    // `fullMonth` (no horas), el sueldo pasa a costo fijo y se deshace destildando.
+    const qid = byId['E2E-40'].q.id;
     const saved = () => ws.state.quotes.find((x) => x.id === qid);
-    const t0 = await screenText('E2E-26', 'labor');
-    check('E2E-26', 'Personal avisa las horas del mes que la cotización no paga', t0.includes('Horas del mes que esta cotización no paga') && t0.includes('16 de 160 h'), t0.slice(0, 200));
-    check('E2E-26', 'la tarjeta dice cuánto de su mes paga hoy', t0.includes(norm(`paga 16 de sus 160 h del mes: ${formatMoney(320000)} de ${formatMoney(3200000)}`)), 'sin la línea de la tarjeta');
+    const t0 = await screenText('E2E-40', 'labor');
+    check('E2E-40', 'Personal avisa las horas del mes que la cotización no paga', t0.includes('Horas del mes que esta cotización no paga') && t0.includes('16 de 160 h'), t0.slice(0, 200));
+    check('E2E-40', 'la tarjeta dice cuánto de su mes paga hoy', t0.includes(norm(`paga 16 de sus 160 h del mes: ${formatMoney(320000)} de ${formatMoney(3200000)}`)), 'sin la línea de la tarjeta');
     const buttons = await page.evaluate(() => [...document.querySelectorAll('.qe-notices button')].map((b) => b.textContent.trim()).filter((x) => /mes completo/.test(x)));
-    check('E2E-26', 'en Personal hay un botón sólo para el técnico (no para la grúa)', buttons.length === 1 && buttons[0].includes('Técnico de campo'), JSON.stringify(buttons));
+    check('E2E-40', 'en Personal hay un botón sólo para el técnico (no para la grúa)', buttons.length === 1 && buttons[0].includes('Técnico de campo'), JSON.stringify(buttons));
     await tap(page.locator('.qe-notices').getByRole('button', { name: /Técnico de campo.*mes completo/ }).first());
     await page.waitForTimeout(2500);
     const line = saved().labor[0];
-    check('E2E-26', 'guarda la decisión (fullMonth) y no escribe horas del mes', line.fullMonth === true && !(Number(line.billableHoursPerMonth) > 0), JSON.stringify({ fullMonth: line.fullMonth, billable: line.billableHoursPerMonth }));
-    check('E2E-26', 'la grúa no se toca', saved().equipment[0].fullMonth !== true, 'la grúa quedó marcada');
+    check('E2E-40', 'guarda la decisión (fullMonth) y no escribe horas del mes', line.fullMonth === true && !(Number(line.billableHoursPerMonth) > 0), JSON.stringify({ fullMonth: line.fullMonth, billable: line.billableHoursPerMonth }));
+    check('E2E-40', 'la grúa no se toca', saved().equipment[0].fullMonth !== true, 'la grúa quedó marcada');
     const f = await waitFocus('labor.0.fullMonth');
-    check('E2E-26', 'el foco queda en la casilla del técnico, visible', f.name === 'labor.0.fullMonth' && f.inView, JSON.stringify(f));
+    check('E2E-40', 'el foco queda en la casilla del técnico, visible', f.name === 'labor.0.fullMonth' && f.inView, JSON.stringify(f));
     const full = computeQuote(structuredClone(saved()));
-    check('E2E-26', 'motor: el técnico cuesta su mes completo como fijo', Math.abs(full.model.labor.fixedMonthly - 3200000) < 1, String(full.model.labor.fixedMonthly));
+    check('E2E-40', 'motor: el técnico cuesta su mes completo como fijo', Math.abs(full.model.labor.fixedMonthly - 3200000) < 1, String(full.model.labor.fixedMonthly));
     const t1 = norm(await page.evaluate(() => document.body.innerText));
-    check('E2E-26', 'la tarjeta dice que cobra su mes completo', t1.includes(norm(`cobra su mes completo: ${formatMoney(3200000)} por mes`)), 'sin el texto');
-    check('E2E-26', 'el resumen en vivo muestra el costo del motor', t1.includes(norm(summaryCostOf(full, saved()))), `no aparece ${summaryCostOf(full, saved())}`);
+    check('E2E-40', 'la tarjeta dice que cobra su mes completo', t1.includes(norm(`cobra su mes completo: ${formatMoney(3200000)} por mes`)), 'sin el texto');
     // Deshacer: destildar vuelve a cobrar sólo sus horas.
     const box = page.locator('input[name="labor.0.fullMonth"]').first();
     await box.scrollIntoViewIfNeeded().catch(() => {});
     await box.uncheck();
     await page.waitForTimeout(2500);
-    check('E2E-26', 'destildar deshace la decisión', saved().labor[0].fullMonth !== true, 'sigue marcado');
+    check('E2E-40', 'destildar deshace la decisión', saved().labor[0].fullMonth !== true, 'sigue marcado');
     const back = computeQuote(structuredClone(saved()));
-    check('E2E-26', 'al deshacer el costo vuelve al de antes', Math.abs(back.kpis.totalCost - byId['E2E-26'].r.kpis.totalCost) < 1, `${back.kpis.totalCost} ≠ ${byId['E2E-26'].r.kpis.totalCost}`);
-    await scan('E2E-26', 'personal');
+    check('E2E-40', 'al deshacer el costo vuelve al de antes', Math.abs(back.kpis.totalCost - byId['E2E-40'].r.kpis.totalCost) < 1, `${back.kpis.totalCost} ≠ ${byId['E2E-40'].r.kpis.totalCost}`);
+    await scan('E2E-40', 'personal');
   }
   {
     const pr = computeProduct(structuredClone(prod));
@@ -741,6 +857,74 @@ async function runMode(mode) {
     const tp = norm(await page.evaluate(() => document.body.innerText));
     check('E2E-P01', 'D3: "Precio y margen" aclara que la financiación es sobre costos netos (sin IVA de compras)', NET.test(tp), 'sin la aclaración');
     await scan('E2E-P01', 'producto');
+  }
+
+  // ---- 0.24.0 (PLAN-2026-028, PR 3): datos de la empresa una sola vez, IVA incluido.
+  // Al final del modo: E2E-31 deja la Configuración propia (las anteriores usan la de ejemplo).
+  {
+    await go('#/inicio', 1200);
+    const home = await page.evaluate(() => Boolean(document.querySelector('.company-setup')));
+    check('E2E-31', 'con la Configuración de ejemplo, Inicio muestra "Datos de tu empresa"', home, 'sin la tarjeta');
+    await go('#/cotizaciones/nueva', 1200);
+    const card = page.locator('.company-setup').first();
+    check('E2E-31', 'también en "Nuevo servicio"', await card.isVisible().catch(() => false), 'sin la tarjeta');
+    const placeholders = await page.evaluate(() => [...document.querySelectorAll('.company-setup input')].filter((i) => !i.closest('.company-setup-vat')).map((i) => ({ value: i.value, placeholder: i.placeholder })));
+    // C8 (revisión de la 0.24.0): en "Nuevo servicio", "Empezar en blanco" va antes que la tarjeta.
+    const order = await page.evaluate(() => {
+      const blank = document.querySelector('.quote-choice-blank');
+      const company = document.querySelector('.company-setup');
+      return Boolean(blank && company && (blank.compareDocumentPosition(company) & Node.DOCUMENT_POSITION_FOLLOWING));
+    });
+    check('E2E-31', '"Empezar en blanco" antes que "Datos de tu empresa"', order, 'la tarjeta va primero');
+    check('E2E-31', 'los valores de ejemplo van como texto de muestra, no cargados', placeholders.length === 5 && placeholders.every((x) => x.value === '' && /^Ej\.:/.test(x.placeholder)), JSON.stringify(placeholders));
+    const values = { fuelPricePerLiter: '1850', defaultPaymentTermDays: '45', financeMonthlyRatePct: '4', defaultContingencyPct: '3', defaultTargetMarginPct: '15' };
+    for (const [key, value] of Object.entries(values)) await page.locator(`[name="company.${key}"]`).fill(value);
+    await page.locator('[name="company.vatCondition"]').selectOption('registered');
+    // C7 (revisión de la 0.24.0): con responsable inscripto, la tarjeta pide el IVA y los días.
+    const vatVisible = await page.locator('[name="company.vatRatePct"]').isVisible().catch(() => false);
+    check('E2E-31', 'con responsable inscripto, la tarjeta pide el IVA que facturás y los días hasta pagarlo', vatVisible && await page.locator('[name="company.vatPayLagDays"]').isVisible().catch(() => false), 'sin los campos del IVA');
+    await page.locator('[name="company.vatRatePct"]').fill('21');
+    await page.locator('[name="company.vatPayLagDays"]').fill('20');
+    await tap(card.getByRole('button', { name: 'Guardar', exact: true }));
+    await page.waitForTimeout(2500);
+    const saved = ws.state.settings || {};
+    check('E2E-31', '"Guardar" guarda los datos como propios (illustrative: false)', saved.illustrative === false && saved.fuelPricePerLiter === 1850 && saved.defaultPaymentTermDays === 45 && saved.vatCondition === 'registered' && saved.defaultVat && saved.defaultVat.ratePct === 21 && saved.defaultVat.payLagDays === 20, JSON.stringify({ illustrative: saved.illustrative, fuel: saved.fuelPricePerLiter, term: saved.defaultPaymentTermDays, vat: saved.vatCondition, defaultVat: saved.defaultVat }));
+    const before = new Set((ws.state.quotes || []).map((q) => q.id));
+    await go('#/cotizaciones/nueva', 1200);
+    check('E2E-31', 'después de guardar, la tarjeta ya no aparece', !(await page.locator('.company-setup').first().isVisible().catch(() => false)), 'sigue la tarjeta');
+    await tap(page.locator('.quote-choice-blank').first());
+    await page.waitForTimeout(3000);
+    const fresh = (ws.state.quotes || []).find((q) => !before.has(q.id));
+    check('E2E-31', 'la cotización siguiente nace sin "ILUSTRATIVO" (combustible y tasa de la empresa)', Boolean(fresh) && fresh.fuel.illustrative === false && fresh.finance.illustrative === false && fresh.fuel.pricePerLiter === 1850 && fresh.finance.paymentTermDays === 45, fresh ? JSON.stringify({ fuel: fresh.fuel.illustrative, finance: fresh.finance.illustrative, price: fresh.fuel.pricePerLiter }) : 'no se creó');
+    if (fresh) {
+      await go(`#/cotizaciones/${encodeURIComponent(fresh.id)}/result`, 1200);
+      const badge = await page.evaluate(() => (document.querySelector('.qr-summary') || document.body).innerText);
+      check('E2E-31', 'el Resultado de la cotización nueva no dice ILUSTRATIVO', !/ILUSTRATIV/.test(badge), norm(badge).slice(0, 200));
+    }
+  }
+  {
+    // E2E-32 (P-11): responsable inscripto con el IVA completo: la cotización nueva no pregunta.
+    // Revisión de la 0.24.0 (C7): la condición y el IVA vienen de la tarjeta de E2E-31, no se siembran.
+    const before = new Set((ws.state.quotes || []).map((q) => q.id));
+    await go('#/cotizaciones/nueva', 1200);
+    await tap(page.locator('.quote-choice-blank').first());
+    await page.waitForTimeout(3000);
+    const fresh = (ws.state.quotes || []).find((q) => !before.has(q.id));
+    check('E2E-32', 'la cotización nueva nace con "¿Facturás con IVA?" = Sí y los valores de la empresa', Boolean(fresh) && fresh.finance.vat && fresh.finance.vat.applies === true && fresh.finance.vat.ratePct === 21 && fresh.finance.vat.payLagDays === 20, fresh ? JSON.stringify(fresh.finance.vat) : 'no se creó');
+    if (fresh) {
+      await go(`#/cotizaciones/${encodeURIComponent(fresh.id)}/finance`, 1200);
+      await page.waitForSelector('.qe-step-finance', { timeout: 8000 }).catch(() => {});
+      const info = await page.evaluate(() => ({
+        question: document.querySelectorAll('[name="finance.vat.applies"]').length,
+        line: (document.querySelector('.qe-vat-company-line') || {}).innerText || '',
+        sum: (document.querySelector('.qe-vat-company .qe-vat-finance-sum:not([hidden])') || {}).innerText || '',
+      }));
+      check('E2E-32', 'sin la pregunta: una línea "Facturás con IVA 21 % y lo pagás a 20 días (tu empresa)"', info.question === 0 && /Facturás con IVA 21\s%\sy lo pagás a 20 días \(tu empresa\)/.test(norm(info.line)) && /Cambiar sólo acá/.test(info.line), JSON.stringify(info));
+      const r = computeQuote(structuredClone(fresh), { settings: ws.state.settings });
+      const same = r.kpis.vatFinanceActive === true && (!(r.kpis.vatFinancePct > 0) || norm(info.sum).includes(norm(formatMoney(r.kpis.vatFinance))));
+      check('E2E-32', 'el costo de adelantar el IVA es el del motor', same, `motor ${r.kpis.vatFinanceActive} ${r.kpis.vatFinance} · pantalla "${norm(info.sum)}"`);
+      await scan('E2E-32', 'Costo financiero');
+    }
   }
 
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en

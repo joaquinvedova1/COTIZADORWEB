@@ -767,7 +767,7 @@ export function floorWithoutExtrasText(floor, unitLabel = 'día') {
   const rate = ceilRateText(isFiniteNumber(floor.listRate) ? floor.listRate : floor.netRate, unitLabel);
   return {
     text: `Sin contar adicionales: ${rate}`,
-    tip: `El piso supone que facturás ${formatMoney(floor.otherRevenue)} de adicionales por mes (adicionales, reventa, horas extra o abonos que se cobran aparte). Si no hay adicionales, cobrá al menos ${rate}.`,
+    tip: `La tarifa mínima supone que facturás ${formatMoney(floor.otherRevenue)} de adicionales por mes (adicionales, reventa, horas extra o abonos que se cobran aparte). Si no hay adicionales, cobrá al menos ${rate}.`,
   };
 }
 
@@ -1208,4 +1208,19 @@ function jobHoursText(r, hoursPerDay) {
 export function equipmentPerActiveDay(line) {
   if (!line) return 0;
   return (line.variablePerActiveDay || 0) + (line.timeBasis ? line.ownershipPerActiveDay || 0 : 0);
+}
+
+/**
+ * Margen que se muestra junto a la ganancia (revisión de la 0.24.0, B-2 de costos y C4 de UX).
+ * El que pediste sólo si la diferencia con el real es del redondeo: precio sugerido, real ≥ pedido,
+ * menos de 1 punto de diferencia y sin el completo del mínimo garantizado. Si no, el real del motor.
+ * Lo usan el Resultado y "El precio".
+ */
+export function shownMarginPct(k, { covered = false, losing = null, marginPct = null, guaranteeTopUp = 0 } = {}) {
+  const real = isFiniteNumber(marginPct) ? marginPct : k.marginPct;
+  const lose = losing === null ? isFiniteNumber(k.profit) && k.profit < -1e-6 : losing;
+  const asked = k.commercialSource === 'suggested' && !covered && !lose && isFiniteNumber(k.targetMarginPct) && !k.targetMarginInvalid
+    && isFiniteNumber(real) && real >= k.targetMarginPct - 1e-9 && real - k.targetMarginPct < 1
+    && !(Number(guaranteeTopUp) > 0.005);
+  return asked ? k.targetMarginPct : real;
 }

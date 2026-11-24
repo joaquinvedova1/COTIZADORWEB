@@ -17,6 +17,7 @@ import { illustrativeTag } from '../../layout.js';
 import { hasNumber } from './shared.js';
 import { unitAmountText, perQuoteUnit, closedJobsPerMonth } from '../../result-text.js';
 import { companyAllowsVatFinance, companyVatDefaults, hasCompanyVatDefaults, normalizeVatFinance } from '../../../domain/vat-finance.js';
+import { COMPANY_LABELS, saveAsCompanyAction } from '../../company-defaults.js';
 
 function groupsAtEstimate(result) {
   const D = result.activity.activeDaysPerMonth;
@@ -59,11 +60,12 @@ export function render(container, ctx) {
     ? h(
       'span',
       {},
-      `Días desde que presentás la factura hasta que cobrás. Sugerido en Configuración: ${formatNumber(suggested)} días`,
+      `¿A cuántos días te paga el cliente? Desde que presentás la factura hasta que cobrás. Sugerido en Configuración: ${formatNumber(suggested)} días`,
       settingsIllustrative ? illustrativeTag('Valor de la configuración de demostración: confirmalo con tu cliente') : null,
       settingsIllustrative ? ' (confirmalo con tu cliente).' : '.',
     )
-    : 'Días desde que presentás la factura hasta que cobrás.';
+    // P10 (revisión de la 0.24.0): la pregunta de la tarjeta de la empresa, como ayuda del campo.
+    : '¿A cuántos días te paga el cliente? Desde que presentás la factura hasta que cobrás.';
 
   // Un solo aviso para el plazo de pago (UX-1): éste, junto al campo. No se
   // repite como "Para revisar" arriba del formulario y no alarma en rojo
@@ -86,7 +88,7 @@ export function render(container, ctx) {
   );
 
   const rateField = kit.num('finance.monthlyRatePct', {
-    label: 'Tasa de financiamiento mensual',
+    label: COMPANY_LABELS.monthlyRatePct,
     rule: 'percent',
     unit: '% mensual',
     illustrative: rateIllustrative,
@@ -124,7 +126,7 @@ export function render(container, ctx) {
     formGrid(
       2,
       kit.num('finance.paymentTermDays', {
-        label: '¿A cuántos días te paga el cliente?',
+        label: COMPANY_LABELS.paymentTermDays,
         rule: 'paymentDays',
         unit: 'días',
         requiredMark: true,
@@ -165,6 +167,13 @@ export function render(container, ctx) {
         unit: 'días',
         hint: 'Ej.: si facturás a fin de mes, el promedio es ~15 días.',
       }), rateField),
+      // 0.24.0 (W-10): con la Configuración ya propia, la tasa de esta cotización puede pasar a ser la de la empresa.
+      saveAsCompanyAction(ctx, {
+        settingsKey: 'financeMonthlyRatePct',
+        getValue: () => (ctx.quote.finance ? ctx.quote.finance.monthlyRatePct : null),
+        describe: (v) => `una tasa de ${formatPercent(v)} mensual`,
+        focus: 'finance.monthlyRatePct',
+      }),
       kit.group(
         '¿Cuándo pagás vos? (días promedio; 0 = al contado)',
         formGrid(3, ...PAY_GROUPS.map((g) => kit.num(`finance.payDays.${g.id}`, { label: g.label, rule: 'paymentDays', unit: 'días' }))),
@@ -219,6 +228,9 @@ export function render(container, ctx) {
  * los valores de la empresa (Configuración → Parámetros económicos) que falten; si la cotización
  * tiene otros, se ofrecen con "Usar los de mi empresa". La cuenta la hace el motor.
  */
+/** Cotizaciones en las que se tocó "Cambiar sólo acá" (en esta sesión): se ve la pregunta del IVA. */
+const vatEditOpen = new Set();
+
 function renderVatSection(ctx) {
   const { kit, quote, settings } = ctx;
   const vat = normalizeVatFinance(quote.finance && quote.finance.vat);
@@ -236,6 +248,31 @@ function renderVatSection(ctx) {
     }
     q.finance.vat = next;
   }, { focus: value === true && !(company.ratePct !== null && company.payLagDays !== null) ? 'finance.vat.ratePct' : null });
+  // 0.24.0 (P-11): responsable inscripto con los dos valores cargados y la cotización con ellos →
+  // una línea en vez de la pregunta. "Cambiar sólo acá" muestra la pregunta (sólo en esta cotización).
+  const companyLine = settings && settings.vatCondition === 'registered' && hasCompanyVatDefaults(settings)
+    && vat.applies === true && sameAsCompany && !vatEditOpen.has(ctx.quoteId);
+  if (companyLine) {
+    return h('div', { class: 'qe-vat-finance qe-vat-company' },
+      kit.question('IVA'),
+      h('p', { class: 'qe-note qe-vat-company-line' },
+        `Facturás con IVA ${formatPercent(company.ratePct)} y lo pagás a ${formatDays(company.payLagDays)} (tu empresa)`,
+        ctx.readOnly ? '.' : ' · ',
+        ctx.readOnly ? null : kit.action('Cambiar sólo acá', () => {
+          vatEditOpen.add(ctx.quoteId);
+          ctx.rerender();
+          ctx.focusField('finance.vat.applies');
+        }, { variant: 'link', size: 'sm' })),
+      kit.toggle(
+        h('p', { class: 'qe-note qe-vat-finance-sum' },
+          kit.out((r) => (r.kpis.vatFinancePct > 0
+            ? `Adelantar el IVA te cuesta ${formatMoney(r.kpis.vatFinance)} por mes. Ya está en la tarifa sugerida.`
+            : 'Pagás el IVA después de cobrar: no te cuesta adelantarlo.'), { allowEmpty: true }),
+          ' ',
+          kit.trace((r) => r.traces.financialCost, { label: 'Ver cálculo' })),
+        (r) => Boolean(r.kpis.vatFinanceActive),
+      ));
+  }
   return h('div', { class: 'qe-vat-finance' },
     kit.question('IVA'),
     h('p', { class: 'qe-note' }, 'Si pagás el IVA antes de cobrar, adelantás esa plata.'),

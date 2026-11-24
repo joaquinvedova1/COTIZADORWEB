@@ -145,11 +145,18 @@ export const EQUIPMENT_TYPES = deepFreeze([
   { id: 'other', label: 'Otro' },
 ]);
 
+// 0.24.0 (P-14): dos opciones a la vista, "Lo pago yo" y "Lo pone el cliente". "Tercero contratado
+// por nosotros" da el mismo costo que "Lo pago yo": se ve sólo donde ya está elegida (legacy).
 export const MATERIAL_PROVIDERS = deepFreeze([
-  { id: 'contractor', label: 'Nosotros (contratista)', costForUs: true },
-  { id: 'third_party', label: 'Tercero contratado por nosotros', costForUs: true },
-  { id: 'client', label: 'Cliente (no es costo nuestro)', costForUs: false },
+  { id: 'contractor', label: 'Lo pago yo', costForUs: true },
+  { id: 'third_party', label: 'Tercero contratado por nosotros (lo pago yo)', costForUs: true, legacy: true },
+  { id: 'client', label: 'Lo pone el cliente (no es costo tuyo)', costForUs: false },
 ]);
+
+/** Opciones de "¿Quién lo provee?": sin la de antes, salvo que esa línea ya la tenga elegida. */
+export function materialProviderOptions(current = null) {
+  return MATERIAL_PROVIDERS.filter((m) => !m.legacy || m.id === current).map((m) => ({ value: m.id, label: m.label }));
+}
 
 /**
  * Base de una tarifa "trip" (ECO-01, AUD-T1 H-01): por TRAMO (cada ida o cada
@@ -326,12 +333,13 @@ export const CATEGORY_PAY_GROUP = deepFreeze({
  */
 export const QUOTE_STEPS = deepFreeze([
   { id: 'service', label: 'El servicio' },
-  // Primero los recursos, después cómo se cobra (PLAN-2026-025): la tarifa sale de lo que cuestan.
+  // Primero los recursos, después el precio (PLAN-2026-025): la tarifa sale de lo que cuestan.
+  // 0.24.0 (PLAN-2026-028): el paso "Cómo se cobra" se disolvió en El servicio, Personal,
+  // Movilización y viajes y El precio. Una URL vieja ".../modality" abre "El precio".
   { id: 'labor', label: 'Personal' },
   { id: 'equipment', label: 'Equipos' },
   { id: 'materials', label: 'Insumos y materiales' },
   { id: 'logistics', label: 'Movilización y viajes' },
-  { id: 'modality', label: 'Cómo se cobra' },
   { id: 'indirect', label: 'Gastos de estructura' },
   { id: 'finance', label: 'Financiación' },
   { id: 'risk', label: 'Imprevistos' },

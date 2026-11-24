@@ -157,7 +157,7 @@ describe('M4 · el aviso de horas del personal y las horas extra del trabajo', (
   };
   const item = (q) => evaluateCompleteness(q).items.find((i) => i.id === 'labor_hours');
 
-  test('sin horas extra del trabajo: pide elegirlas en "Cómo se cobra", no en el puesto', () => {
+  test('sin horas extra del trabajo: pide elegirlas en "Horas extra del trabajo" (al final de Personal), no en el puesto', () => {
     const it = item(quote({ mode: 'none' }));
     assert.ok(it && it.status !== 'ok');
     assert.doesNotMatch(it.message, /cargá las horas extra/);

@@ -468,6 +468,99 @@ export const QUOTE_INVARIANTS = [
       return fails.length ? fail(fails.join(' | ')) : ok('mismos números');
     },
   },
+  {
+    // PLAN-2026-028 (0.24.0, P-12): un solo campo de precio a mano. Escribe en `pricing.knownRate`
+    // si la cotización es "ya tengo la tarifa" y en `pricing.offeredRateOverride` si no. Las dos
+    // formas tienen que dar los mismos números con el mismo precio X. Revisión de la 0.24.0 (C-8):
+    //  - con X > 0 se compara `kpis` entero salvo commercialSource, completenessPct e incomplete
+    //    (la completitud difiere a propósito: "ya tengo la tarifa" suma el ítem del precio y no
+    //    exige la actividad), más la estructura de costos y la facturación estimada;
+    //  - con el precio vacío: "ya tengo la tarifa" queda sin precio y la otra usa la sugerida.
+    id: 'INV-33', title: 'El mismo precio a mano X como "ya tengo la tarifa" (known_rate) o como precio sobre la tarifa calculada da los mismos números (salvo la completitud, que difiere a propósito); vacío: sin precio contra la sugerida',
+    check(q, r) {
+      const X = num(r.kpis.commercialListRate) > 0 ? r.kpis.commercialListRate : num(r.kpis.suggestedListRate) > 0 ? r.kpis.suggestedListRate : 1000000;
+      const as = (mode, value) => {
+        const c = clone(q);
+        c.pricingMode = mode;
+        c.pricing = mode === 'known_rate'
+          ? { ...(c.pricing || {}), knownRate: value, offeredRateOverride: null }
+          : { ...(c.pricing || {}), knownRate: 0, offeredRateOverride: value };
+        return run(c);
+      };
+      const a = as('known_rate', X);
+      const b = as('known_activity', X);
+      const skip = new Set(['commercialSource', 'completenessPct', 'incomplete']);
+      const same = (x, y) => x === y || (num(x) !== null && num(y) !== null && Math.abs(x - y) <= TOL(x)) || JSON.stringify(x) === JSON.stringify(y);
+      const diffs = [...new Set([...Object.keys(a.kpis), ...Object.keys(b.kpis)])]
+        .filter((k) => !skip.has(k))
+        .map((k) => [k, a.kpis[k], b.kpis[k]])
+        .filter(([, x, y]) => !same(x, y));
+      const be = (res) => (res.breakEven ? [res.breakEven.reachable, res.breakEven.notApplicable] : []);
+      if (JSON.stringify(be(a)) !== JSON.stringify(be(b))) diffs.push(['equilibrio', JSON.stringify(be(a)), JSON.stringify(be(b))]);
+      const rows = (res) => ((res.eecc && res.eecc.rows) || []).map((x) => [x.category, Math.round((Number(x.amount) || 0) * 100) / 100]);
+      if (JSON.stringify(rows(a)) !== JSON.stringify(rows(b))) diffs.push(['eecc', JSON.stringify(rows(a)).slice(0, 80), JSON.stringify(rows(b)).slice(0, 80)]);
+      const rev = (res) => (res.estimate && res.estimate.revenue) || {};
+      for (const k of ['total', 'subtotal', 'listRate', 'netRate', 'billableUnits', 'guaranteeTopUp', 'otherRevenue']) {
+        if (!same(rev(a)[k], rev(b)[k])) diffs.push([`estimate.revenue.${k}`, rev(a)[k], rev(b)[k]]);
+      }
+      // Precio vacío: "ya tengo la tarifa" no tiene precio; la otra usa la sugerida.
+      const ea = as('known_rate', null);
+      const eb = as('known_activity', null);
+      if (ea.kpis.commercialSource !== 'none') diffs.push(['vacío known_rate', ea.kpis.commercialSource, 'none']);
+      if (!['suggested', 'none'].includes(eb.kpis.commercialSource)) diffs.push(['vacío known_activity', eb.kpis.commercialSource, 'suggested']);
+      if (eb.kpis.commercialSource === 'suggested' && !same(eb.kpis.commercialListRate, eb.kpis.suggestedListRate)) diffs.push(['vacío: tarifa = sugerida', eb.kpis.commercialListRate, eb.kpis.suggestedListRate]);
+      return diffs.length ? fail(`X = ${X}: ${diffs.map(([k, x, y]) => `${k} ${x} ≠ ${y}`).join('; ')}`) : ok(`X = ${X}: mismos números; vacío: sin precio / ${eb.kpis.commercialSource}`);
+    },
+  },
+  {
+    // PLAN-2026-028 (0.24.0, P-11; corregido en la revisión de la 0.24.0, B-1): "Sí, lo recupero"
+    // y "sin definir" recuperan la misma parte del IVA (recoverableShare = 1), pero sólo "Sí" da
+    // crédito fiscal conocido al alivio K-03 (external-engine: knownVatCreditFactor). Entonces:
+    //  - sin el IVA de la cotización aplicado, los dos dan el mismo costo, caja y tarifa;
+    //  - con el IVA aplicado, "Sí" nunca cuesta más que "sin definir" (baja el financiero).
+    // Se prueba con el IVA aplicado (21 %, 20 días) y con alícuota 21 % en los externos sin alícuota,
+    // para que el caso del responsable inscripto se pruebe en todos los escenarios con externos.
+    id: 'INV-34', title: 'Un externo con "¿Recuperás ese IVA?" = Sí da el mismo costo que sin definir sin el IVA aplicado, y nunca más con el IVA aplicado',
+    check(q) {
+      const external = (e) => e && (e.acquisition === 'rented' || e.acquisition === 'outsourced');
+      if (!(Array.isArray(q.equipment) && q.equipment.some(external))) return notApplicable;
+      const set = (value, vatOn) => {
+        const c = clone(q);
+        let touched = 0;
+        c.equipment.forEach((e) => {
+          if (!external(e)) return;
+          const fiscal = (e.external && e.external.fiscal) || {};
+          const rec = fiscal.vatRecoverable;
+          if (rec && rec !== 'yes') return; // "No" o "parcial": otra cuenta, no se toca.
+          const vatPct = num(fiscal.vatPct) !== null && fiscal.vatPct > 0 ? fiscal.vatPct : 21;
+          e.external = { ...(e.external || {}), fiscal: { ...fiscal, vatPct, vatRecoverable: value } };
+          touched += 1;
+        });
+        c.finance = { ...(c.finance || {}), vat: vatOn ? { applies: true, ratePct: 21, payLagDays: 20 } : { ...((c.finance && c.finance.vat) || {}), applies: false } };
+        return { c, touched };
+      };
+      if (!set(null, false).touched) return notApplicable;
+      const fails = [];
+      // Sin el IVA aplicado: iguales.
+      const ra = run(set(null, false).c);
+      const rb = run(set('yes', false).c);
+      const keys = ['totalCost', 'financialCost', 'workingCapital', 'suggestedListRate', 'commercialListRate', 'profit', 'marginPct'];
+      const diffs = keys.map((k) => [k, ra.kpis[k], rb.kpis[k]])
+        .filter(([, x, y]) => !(x === y || (num(x) !== null && num(y) !== null && Math.abs(x - y) <= TOL(x))));
+      if (diffs.length) fails.push(`sin IVA: ${diffs.map(([k, x, y]) => `${k} ${x} ≠ ${y}`).join('; ')}`);
+      // Con el IVA aplicado: "Sí" ≤ "sin definir".
+      const va = run(set(null, true).c);
+      const vb = run(set('yes', true).c);
+      for (const k of ['totalCost', 'financialCost', 'floorListRate', 'suggestedListRate']) {
+        const x = num(va.kpis[k]);
+        const y = num(vb.kpis[k]);
+        if (x !== null && y !== null && y > x + TOL(x)) fails.push(`con IVA: ${k} con "Sí" ${y} > sin definir ${x}`);
+      }
+      if (fails.length) return fail(fails.join(' | '));
+      const drop = num(va.kpis.totalCost) !== null && num(vb.kpis.totalCost) !== null ? va.kpis.totalCost - vb.kpis.totalCost : 0;
+      return ok(`${set(null, false).touched} externo(s): iguales sin IVA; con IVA, "Sí" baja el costo ${Math.round(drop)}`);
+    },
+  },
 ];
 
 /** Copia de la cotización con D días de trabajo (o la cantidad que los produce). */

@@ -1,6 +1,6 @@
 /**
  * Viajes y km del mes (PLAN-2026-012) — piezas de UI compartidas por
- * "Cómo se cobra", "Movilización y viajes", "Equipos" y el Resultado.
+ * "El servicio", "Movilización y viajes", "Equipos" y el Resultado.
  *
  * Sólo presentan lo que ya calculó el motor (r.model.transport, de
  * transport-engine): viajes facturables, viajes físicos costeados, días de

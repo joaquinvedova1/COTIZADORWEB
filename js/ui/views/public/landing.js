@@ -115,7 +115,7 @@ function sectionHead({ eyebrow, title, id, text = null, className = '' }) {
 
 const RESULTS = Object.freeze([
   { icon: 'layers', title: 'Sabé cuánto te cuesta.', text: 'Personal, equipos, materiales, viajes y gastos de estructura en un único cálculo, para un servicio o para cada unidad de un producto.' },
-  { icon: 'tag', title: 'Definí cuánto cobrar.', text: 'Conocé tu precio piso y el precio necesario para el margen que buscás (margen sobre el precio, no markup).' },
+  { icon: 'tag', title: 'Definí cuánto cobrar.', text: 'Conocé tu precio mínimo y el precio necesario para el margen que buscás (margen sobre el precio, no markup).' },
   { icon: 'calendar', title: 'Sabé cuánto necesitás vender.', text: 'Cuántos días u horas de servicio, o cuántas unidades por mes, necesitás para no perder plata.' },
 ]);
 
@@ -130,7 +130,7 @@ const PAINS = Object.freeze([
 const STEPS = Object.freeze([
   { n: '01', title: 'Elegí qué querés calcular.', text: 'Un servicio (on-call, cuadrilla, equipo, transporte, llave en mano…) o un producto (por unidad, docena o kilo).' },
   { n: '02', title: 'Cargá los recursos y condiciones.', text: 'Personal, equipos, materiales, viajes y condiciones comerciales.' },
-  { n: '03', title: 'Conocé tu precio.', text: 'Costo, precio piso, margen, punto de equilibrio y escenarios.' },
+  { n: '03', title: 'Conocé tu precio.', text: 'Costo, precio mínimo, margen, punto de equilibrio y escenarios.' },
 ]);
 
 const AUDIENCES = Object.freeze(['Servicios', 'Contratos', 'Productos', 'Producción', 'Comercio', 'Alimentos', 'Talleres', 'Transporte', 'Construcción', 'Energía y minería']);

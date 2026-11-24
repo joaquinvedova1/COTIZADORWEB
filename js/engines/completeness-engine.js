@@ -237,14 +237,14 @@ export function evaluateCompleteness(quoteInput = {}) {
   // 1. Modalidad / tipo de servicio
   const validType = contract.legacy ? SERVICE_TYPES.some((t) => t.id === serviceType) : true;
   const validMode = PRICING_MODES.some((m) => m.id === quote.pricingMode);
-  items.push(rule('modality', 'Cómo se cobra', 'modality', 2,
+  items.push(rule('modality', 'Unidad de cobro', 'service', 2,
     validType && validMode ? 'ok' : 'missing',
-    validType && validMode ? 'Unidad de cobro definida.' : 'Falta definir el contrato o cómo se cobra (ya tengo la tarifa / calcular la tarifa).'));
+    validType && validMode ? 'Unidad de cobro definida.' : 'Falta definir el contrato o la unidad de cobro.'));
 
   // 2. Tarifa o actividad según modalidad
   if (quote.pricingMode === 'known_rate') {
     const ok = nonNegative(pricing.knownRate) > 0;
-    const item = rule('rate', 'Tarifa ingresada', 'modality', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Elegiste "Ya tengo la tarifa" pero falta ingresarla.');
+    const item = rule('rate', 'Tarifa ingresada', 'margin', 2, ok ? 'ok' : 'missing', ok ? 'Tarifa definida.' : 'Falta tu precio en «El precio».');
     if (!ok) item.focus = 'pricing.knownRate';
     items.push(item);
   }
@@ -254,7 +254,7 @@ export function evaluateCompleteness(quoteInput = {}) {
   const unit = billingUnitOf(quote);
   // Cobro por hora: sin horas por día no hay unidades facturables (la tarifa queda "—").
   const hoursMissing = unit.kind === 'hour' && !(Math.min(nonNegative(activity.hoursPerActiveDay), 24) > 0);
-  // Los avisos citan el rótulo del campo tal como se ve en "Cómo se cobra".
+  // Los avisos citan el rótulo del campo tal como se ve en el paso 1 (El servicio).
   const activityHoursLabel = 'Horas por día de trabajo';
   const hoursMessage = `Cobrás por hora y falta "${activityHoursLabel}": sin horas no hay unidades facturables ni tarifa.`;
   // Por tiempo usado (2026-11-18): el personal y los equipos propios cuestan sus HORAS en el trabajo.
@@ -264,7 +264,7 @@ export function evaluateCompleteness(quoteInput = {}) {
     const ownEquipment = objectList(quote.equipment).filter((e) => e.acquisition !== 'rented' && e.acquisition !== 'outsourced' && nonNegative(e.quantity) > 0);
     const working = laborLines.some((l) => nonNegative(l.positions) > 0) || ownEquipment.length > 0;
     if (working && !hoursMissing && !(Math.min(nonNegative(activity.hoursPerActiveDay), 24) > 0)) {
-      const item = rule('time_hours', activityHoursLabel, 'modality', 2, 'missing',
+      const item = rule('time_hours', activityHoursLabel, 'service', 2, 'missing',
         `Falta "${activityHoursLabel}": tu gente y tus equipos se cobran por las horas que les lleva el trabajo. Sin horas, su costo queda en $ 0.`);
       item.focus = 'activity.hoursPerActiveDay';
       items.push(item);
@@ -287,7 +287,7 @@ export function evaluateCompleteness(quoteInput = {}) {
     const eventDaysOk = unit.kind !== 'event' || contractOf(quote).mode === 'monthly' || nonNegative(activity.daysPerActivation) > 0;
     const ok = qOk && yieldOk && eventDaysOk;
     const texts = unitTexts(unit);
-    const item = rule('utilization', `${unit.plural.charAt(0).toUpperCase()}${unit.plural.slice(1)} por mes`, 'modality', 2,
+    const item = rule('utilization', `${unit.plural.charAt(0).toUpperCase()}${unit.plural.slice(1)} por mes`, 'service', 2,
       ok ? 'ok' : 'missing',
       ok ? `Cantidad por mes definida (${unit.plural}).`
         : !qOk ? `${texts.quantityQuestion} Falta ese dato.`
@@ -298,13 +298,13 @@ export function evaluateCompleteness(quoteInput = {}) {
   } else if (isOnCall || quote.pricingMode === 'known_activity') {
     const daysOk = nonNegative(activity.activeDaysPerMonth) > 0;
     const ok = daysOk && !hoursMissing;
-    const item = rule('utilization', isOnCall ? 'Días de trabajo por mes' : 'Actividad estimada', 'modality', 2,
+    const item = rule('utilization', isOnCall ? 'Días de trabajo por mes' : 'Actividad estimada', 'service', 2,
       ok ? 'ok' : 'missing',
       ok ? 'Días de trabajo estimados por mes definidos.' : !daysOk ? '¿Cuántos días del mes esperás que el equipo esté trabajando y facturando? Falta ese dato.' : hoursMessage);
     if (!ok) item.focus = !daysOk ? 'activity.activeDaysPerMonth' : 'activity.hoursPerActiveDay';
     items.push(item);
   } else if (hoursMissing) {
-    const item = rule('utilization', 'Horas por día de trabajo', 'modality', 2, 'missing', hoursMessage);
+    const item = rule('utilization', 'Horas por día de trabajo', 'service', 2, 'missing', hoursMessage);
     item.focus = 'activity.hoursPerActiveDay';
     items.push(item);
   }
@@ -419,8 +419,9 @@ export function evaluateCompleteness(quoteInput = {}) {
   // franja, el excedente es fuera de horario. Sólo avisa: no cambia costo ni facturación.
   const overrun = serviceType === 'on_call' ? outsideWindowHours(quote) : null;
   if (overrun) {
-    const item = rule('availability_window', 'Franja de guardia', 'modality', 1, 'warning', outsideWindowMessage(quote, overrun));
-    item.focus = 'activity.hoursPerActiveDay';
+    const item = rule('availability_window', 'Franja de guardia', 'margin', 1, 'warning', outsideWindowMessage(quote, overrun));
+    // 0.24.0: la franja vive en "Detalle de la guardia" (El precio): el botón lleva a sus horas.
+    item.focus = 'activity.availabilityHoursPerDay';
     items.push(item);
   }
 
@@ -450,7 +451,7 @@ export function evaluateCompleteness(quoteInput = {}) {
   // Con guardia activa el control de relevos ya mide todas las horas de guardia (que incluyen
   // las trabajadas): no se repite el aviso de horas con los días con trabajo.
   // V-04: las horas por día del servicio pueden ser el dato equivocado (nacen en 10), no la gente.
-  const hoursFix = (hours, own) => (own ? '' : ` Si el servicio no pide ${formatNumber(hours, { decimals: Math.abs(hours - Math.round(hours)) < 1e-9 ? 0 : 1 })} h por día, corregilo en "Cómo se cobra".`);
+  const hoursFix = (hours, own) => (own ? '' : ` Si el servicio no pide ${formatNumber(hours, { decimals: Math.abs(hours - Math.round(hours)) < 1e-9 ? 0 : 1 })} h por día, corregilo en "El servicio".`);
   // Horas extra del trabajo (M4, 2026-11-18): con "todo el trabajo" las horas que faltan ya se pagan
   // como hora extra (no hay aviso); con "algunas horas", esas horas también cubren.
   const ow = overtimeWorkOf(quote, { contractMode: contract.mode });
@@ -486,8 +487,8 @@ export function evaluateCompleteness(quoteInput = {}) {
       const others = short.length > 1 ? ` También: ${short.slice(1, 4).map((x) => `"${(typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal'}"`).join(', ')}.` : '';
       const simple = !hasPayrollHeadcount(first.l) && Math.abs(first.ppp - 1) < 1e-9;
       const item = rule('labor_hours', 'Horas del personal', 'labor', 1, 'warning', simple
-        ? `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h por persona en el mes; cada persona cubre ${fmt(first.covered)} h (${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''})${span}. Faltan ${fmt(first.required - first.covered)} h por persona: si son horas extra, elegilas en "Horas extra del trabajo" (en "Cómo se cobra"); si no, revisá las horas normales del puesto. Sumar personas sólo ayuda si se turnan: en ese caso bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`
-        : `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), elegí "Horas extra del trabajo" (en "Cómo se cobra") o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`);
+        ? `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h por persona en el mes; cada persona cubre ${fmt(first.covered)} h (${fmt(first.normal)} h normales por mes${months}${first.extra > 0 ? ` + ${fmt(first.extra)} h extra` : ''})${span}. Faltan ${fmt(first.required - first.covered)} h por persona: si son horas extra, elegilas en "Horas extra del trabajo" (al final de "Personal"); si no, revisá las horas normales del puesto. Sumar personas sólo ayuda si se turnan: en ese caso bajá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`
+        : `${LABOR_COVERAGE_MESSAGE} "${name}": ${fmt(D)} días × ${fmt(first.hours)} h${own} = ${fmt(first.required)} h de cobertura por posición en el mes; lo cargado cubre ${fmt(first.covered)} h (${people})${span}. Faltan ${fmt(first.required - first.covered)} h por posición: sumá personas por posición (turnos o relevos) o sumá posiciones (turno día / turno noche), elegí "Horas extra del trabajo" (al final de "Personal") o revisá las horas normales del puesto. Si el puesto cubre sólo una parte del día, cargá sus "Horas por día de cada persona". RATEOS no las agrega solo.${others}${hoursFix(first.hours, first.own)}`);
       item.focus = `labor.${first.index}.${hasPayrollHeadcount(first.l) ? 'payrollHeadcount' : simple ? 'coverageHoursPerDay' : 'peoplePerPosition'}`;
       item.targets = short.map((x) => ({ list: 'labor', index: x.index, name: (typeof x.l.role === 'string' && x.l.role.trim()) || 'Personal' }));
       items.push(item);
@@ -722,10 +723,10 @@ export function evaluateCompleteness(quoteInput = {}) {
       && nonNegative(m.unitCost) > 0 && nonNegative(m.quantity) > 0 && !(outputPerActiveDayOf(m, autoOut, unit) > 0));
     if (noOutput.length) {
       const first = noOutput[0];
-      // V-07: si la línea produce en la unidad de cobro, el rendimiento se carga una sola vez, en "Cómo se cobra".
+      // V-07: si la línea produce en la unidad de cobro, el rendimiento se carga una sola vez, en el paso 1.
       const followsBilling = unit.kind === 'quantity' && outputMatchesBilling(first.m, unit);
       const out = rule('materials_output', 'Producción por día', 'materials', 2, 'missing',
-        `"${(typeof first.m.description === 'string' && first.m.description.trim()) || 'Material'}" se consume por unidad producida y falta cuántas se producen por día de trabajo: ${followsBilling ? 'cargalo en "Cómo se cobra".' : 'hasta cargarlo no suma costo.'}`);
+        `"${(typeof first.m.description === 'string' && first.m.description.trim()) || 'Material'}" se consume por unidad producida y falta cuántas se producen por día de trabajo: ${followsBilling ? 'cargalo en "El servicio".' : 'hasta cargarlo no suma costo.'}`);
       out.focus = followsBilling ? 'activity.unitsPerActiveDay' : `materials.${first.index}.outputPerActiveDay`;
       out.targets = noOutput.map(({ m, index }) => ({ list: 'materials', index, name: m.description || 'Material' }));
       items.push(out);
@@ -743,7 +744,7 @@ export function evaluateCompleteness(quoteInput = {}) {
     if (mismatch.length) {
       const first = mismatch[0];
       const item = rule('materials_output_mismatch', 'Producción por día', 'materials', 1, 'warning',
-        `"${nameOf(first.m)}" usa ${fmtOut(nonNegative(first.m.outputPerActiveDay))} ${unit.plural} por día y en "Cómo se cobra" cargaste ${fmtOut(billedPerDay)}. Dejá un solo número: borrá el de acá para que siga al otro.`);
+        `"${nameOf(first.m)}" usa ${fmtOut(nonNegative(first.m.outputPerActiveDay))} ${unit.plural} por día y en "El servicio" cargaste ${fmtOut(billedPerDay)}. Dejá un solo número: borrá el de acá para que siga al otro.`);
       item.focus = `materials.${first.index}.outputPerActiveDay`;
       item.targets = mismatch.map(({ m, index }) => ({ list: 'materials', index, name: m.description || 'Material' }));
       items.push(item);
@@ -882,7 +883,7 @@ export function evaluateCompleteness(quoteInput = {}) {
         : !(oneWayKm > 0)
           ? 'logistics.distanceKm'
           : route.derived ? 'activity.unitsPerActiveDay' : 'logistics.tripsPerActivation';
-      const item = rule('external_route', 'Ruta del proveedor', routeFocus.startsWith('activity.') ? 'modality' : 'logistics', 2, 'missing',
+      const item = rule('external_route', 'Ruta del proveedor', routeFocus.startsWith('activity.') ? 'service' : 'logistics', 2, 'missing',
         `Falta definir la ruta/distancia para calcular este proveedor: ${names(routeless)} (tarifa por ${extOf(routeless[0]).unit === 'km' ? 'km' : 'viaje'}). ${logistics.notApplicable ? 'Marcaste "Sin traslados".' : !(oneWayKm > 0) ? 'Cargá la distancia de ida en "Movilización y viajes".' : 'No hay viajes en la cotización.'} Hasta entonces no suma costo.`);
       item.focus = routeFocus;
       item.targets = routeless.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
@@ -954,8 +955,8 @@ export function evaluateCompleteness(quoteInput = {}) {
     const first = hourless[0];
     const inherits = isBlank(first.hoursPerActiveDay);
     const names = hourless.slice(0, 3).map((x) => `"${lineName(x, 'Externo')}"`).join(', ');
-    const item = rule('external_hours', 'Horas del proveedor', inherits ? 'modality' : 'equipment', 2, 'missing',
-      `Falta cuántas horas por día trabaja ${names} (tarifa por hora): sin horas no suma costo. ${inherits ? `Cargá "${activityHoursLabel}" en "Cómo se cobra" o sus "Horas de uso por día de trabajo" en "Equipos".` : 'Cargá sus "Horas de uso por día de trabajo" en "Equipos".'}`);
+    const item = rule('external_hours', 'Horas del proveedor', inherits ? 'service' : 'equipment', 2, 'missing',
+      `Falta cuántas horas por día trabaja ${names} (tarifa por hora): sin horas no suma costo. ${inherits ? `Cargá "${activityHoursLabel}" en "El servicio" o sus "Horas de uso por día de trabajo" en "Equipos".` : 'Cargá sus "Horas de uso por día de trabajo" en "Equipos".'}`);
     item.focus = inherits ? 'activity.hoursPerActiveDay' : `equipment.${equipment.indexOf(first)}.hoursPerActiveDay`;
     item.targets = hourless.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Externo') }));
     items.push(item);
@@ -985,7 +986,8 @@ export function evaluateCompleteness(quoteInput = {}) {
   if (contract.mode !== 'monthly' && !usesTimeBasis(quote)) {
     const stale = staleDedicationOf(quote, { activeDaysPerMonth: D, hoursPerActiveDay: H });
     if (stale) {
-      const item = rule('dedication_stale', 'Dedicación de tu gente y tus equipos', 'modality', 1, 'warning', staleDedicationMessage(stale));
+      // 0.24.0: el % se cambia en cada línea (Personal o Equipos), no en una tarjeta general.
+      const item = rule('dedication_stale', 'Dedicación de tu gente y tus equipos', stale.kind === 'equipment' ? 'equipment' : 'labor', 1, 'warning', staleDedicationMessage(stale));
       item.focus = `${stale.kind}.${stale.index}.fixedCostSharePct`;
       items.push(item);
     }
@@ -1007,7 +1009,7 @@ export function evaluateCompleteness(quoteInput = {}) {
     });
     if (idle.length) {
       const names = idle.slice(0, 3).map((x) => `"${lineName(x, 'Equipo')}"`).join(', ');
-      const item = rule('equipment_hours', 'Horas de trabajo por día', 'modality', 1, 'missing',
+      const item = rule('equipment_hours', 'Horas de trabajo por día', 'service', 1, 'missing',
         `Faltan las horas de trabajo por día: sin ese dato no se suma el uso de ${names}.`);
       item.focus = 'activity.hoursPerActiveDay';
       item.targets = idle.map((e) => ({ list: 'equipment', index: equipment.indexOf(e), name: lineName(e, 'Equipo') }));
@@ -1317,7 +1319,7 @@ export function evaluateCompleteness(quoteInput = {}) {
   if (extras.lines.some((x) => x.quantity > 0)) {
     const missingPrice = extras.lines.filter((x) => !x.derived && x.quantity > 0 && x.price === null).length;
     const ok = extrasIncomplete.length === 0 && missingPrice === 0;
-    const item = rule('extras', 'Adicionales', 'modality', 1, ok ? 'ok' : 'warning',
+    const item = rule('extras', 'Adicionales', 'margin', 1, ok ? 'ok' : 'warning',
       ok
         ? 'Adicionales con costo y precio.'
         : `Hay adicionales sin costo por unidad${missingPrice ? ' o sin precio' : ''}: ${extrasIncomplete.slice(0, 3).map(({ x }) => `"${x.label}"`).join(', ') || 'revisalos'}. Sin el costo, RATEOS no puede sugerir el precio ni saber si ganás con ellos.`);
@@ -1633,7 +1635,7 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
     label: 'Costos fijos del mes en el precio',
     message: byTime
       ? `${why}: este precio cobra el mes completo (${formatMoney(amount)}: ${parts}) de ${targets.map((t) => `"${t.name}"`).join(', ')}, porque marcaste que sólo tienen este trabajo. Es un costo fijo: si el cliente usa menos de lo estimado, no lo recuperás (conviene pactar un mínimo). Si también hacen otros trabajos, desmarcá "Sólo tiene este trabajo" en su tarjeta.`
-      : `${why}: este precio absorbe ${formatMoney(amount)} de costos fijos ${period} (${parts}) del personal y los equipos asignados al 100 %. Si también hacen otros trabajos, elegí "No, también hacen otros trabajos" en "Cómo se cobra".`,
+      : `${why}: este precio absorbe ${formatMoney(amount)} de costos fijos ${period} (${parts}) del personal y los equipos asignados al 100 %. Si también hacen otros trabajos, elegí "Una parte de su mes" en la persona (o «Compartido» en el equipo).`,
     focus: `${targets[0].list}.${targets[0].index}.${byTime ? 'fullMonth' : 'assignment'}`,
     targets,
     amount,
@@ -1775,7 +1777,7 @@ export function activationRoundingNotice(quote, rounding, preview) {
   const n = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 1e-9 ? 0 : 2 });
   return {
     id: 'activations_below_one',
-    step: 'modality',
+    step: 'service',
     severity: 'info',
     label: `Menos de ${T.a} ${T.one} por mes`,
     message: `${T.Many} promedio por mes: ${n(A)} · ${T.many} ${T.g('costeadas', 'costeados')}: ${n(A)} (promedio): los costos por ${T.one} (movilización, peajes, viáticos y cargos por ${T.one}) se cuentan en proporción. Si ${T.each} se paga ${T.whole}, marcá "${activationFieldLabels(T).fullActivations}": se costearía${preview.wholeActivations === 1 ? '' : 'n'} ${n(preview.wholeActivations)} (efecto del redondeo: +${formatMoney(preview.total)} por mes).`,

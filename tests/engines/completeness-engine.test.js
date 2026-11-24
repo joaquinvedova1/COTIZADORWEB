@@ -336,7 +336,7 @@ describe('V-04 · Horas de trabajo por día y equipos por hora (equipment_hours)
       const i = found(quoteWith(hours, [owned({ name: 'Camión', fuelLitersPerHour: 12, maintenancePerHour: 3000 })]));
       assert.ok(i, `horas ${JSON.stringify(hours)}`);
       assert.equal(i.status, 'missing');
-      assert.equal(i.step, 'modality');
+      assert.equal(i.step, 'service');
       assert.equal(i.focus, 'activity.hoursPerActiveDay');
       assert.equal(i.message, 'Faltan las horas de trabajo por día: sin ese dato no se suma el uso de "Camión".');
     }
@@ -384,12 +384,12 @@ describe('V-04 · Horas de trabajo por día y equipos por hora (equipment_hours)
     const q = service({ unit: 'day', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10 }, labor: [person({ positions: 1, coverageHoursPerDay: 8 })] });
     const gap = evaluateCompleteness(q).items.find((i) => i.id === 'labor_day_gap');
     assert.ok(gap);
-    assert.match(gap.message, /Si el servicio no pide 10 h por día, corregilo en "Cómo se cobra"\.$/);
+    assert.match(gap.message, /Si el servicio no pide 10 h por día, corregilo en "El servicio"\.$/);
     resetIds();
     const q2 = service({ unit: 'day', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10 }, labor: [person({ positions: 1 })] });
     const hours = evaluateCompleteness(q2).items.find((i) => i.id === 'labor_hours');
     assert.ok(hours);
-    assert.match(hours.message, /Si el servicio no pide 10 h por día, corregilo en "Cómo se cobra"\.$/);
+    assert.match(hours.message, /Si el servicio no pide 10 h por día, corregilo en "El servicio"\.$/);
   });
 });
 
@@ -406,7 +406,7 @@ describe('V-11 · % de dedicación que quedó viejo (dedication_stale)', () => {
     const i = found(sharedQuote(22, 8, 71.6));
     assert.ok(i);
     assert.equal(i.status, 'warning');
-    assert.equal(i.step, 'modality');
+    assert.equal(i.step, 'labor');
     assert.equal(i.focus, 'labor.0.fixedCostSharePct');
     assert.equal(i.message, 'El % cargado (71,6 %) ya no coincide con los días y horas de ahora (100 %).');
   });
@@ -474,13 +474,13 @@ describe('V-07 · Insumos "por unidad producida" (materials_output_mismatch, mat
   };
   const find = (q, id) => evaluateCompleteness(q).items.find((i) => i.id === id);
 
-  test('4 hectáreas por día en la línea y 6 en "Cómo se cobra": avisa y lleva al campo de la línea', () => {
+  test('4 hectáreas por día en la línea y 6 en "El servicio": avisa y lleva al campo de la línea', () => {
     const i = find(byHectare(6, herbicide({ outputPerActiveDay: 4 })), 'materials_output_mismatch');
     assert.ok(i);
     assert.equal(i.status, 'warning');
     assert.equal(i.step, 'materials');
     assert.equal(i.focus, 'materials.0.outputPerActiveDay');
-    assert.equal(i.message, '"Herbicida" usa 4 hectáreas por día y en "Cómo se cobra" cargaste 6. Dejá un solo número: borrá el de acá para que siga al otro.');
+    assert.equal(i.message, '"Herbicida" usa 4 hectáreas por día y en "El servicio" cargaste 6. Dejá un solo número: borrá el de acá para que siga al otro.');
   });
 
   test('no avisa con la línea vacía, con el mismo número ni con otra unidad producida', () => {
@@ -507,11 +507,11 @@ describe('V-07 · Insumos "por unidad producida" (materials_output_mismatch, mat
     assert.equal(find(byTime('day', herbicide({ providedBy: 'client' })), 'materials_output_unit'), undefined);
   });
 
-  test('falta la producción y la línea sigue a la unidad de cobro: el pendiente lleva a "Cómo se cobra"', () => {
+  test('falta la producción y la línea sigue a la unidad de cobro: el pendiente lleva a "El servicio"', () => {
     const i = find(byHectare(null, herbicide()), 'materials_output');
     assert.ok(i);
     assert.equal(i.focus, 'activity.unitsPerActiveDay');
-    assert.match(i.message, /cargalo en "Cómo se cobra"\.$/);
+    assert.match(i.message, /cargalo en "El servicio"\.$/);
     const other = find(byHectare(6, herbicide({ outputUnit: 'm²' })), 'materials_output');
     assert.equal(other.focus, 'materials.0.outputPerActiveDay');
     assert.match(other.message, /hasta cargarlo no suma costo\.$/);

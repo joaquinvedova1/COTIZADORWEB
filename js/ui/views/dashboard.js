@@ -22,6 +22,7 @@ import { DEMO_IDS } from '../../domain/demo-data.js';
 import { COMPLETENESS_RISK_THRESHOLD } from '../../engines/completeness-engine.js';
 import { priceFromMargin, priceFromMarkup, markupToMargin, marginToMarkup, traceMarginVsMarkup } from '../../engines/pricing-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
+import { companySetupCard } from '../company-defaults.js';
 import { NEW_PRODUCT_HREF, NEW_SERVICE_HREF } from './new-calc.js';
 import { productHref, unitMoney } from './products.js';
 import {
@@ -138,18 +139,18 @@ function belowFloorTrace(active, scope) {
   const below = active.filter(({ summary }) => summary.belowFloor);
   return createTrace({
     id: 'dashboard_below_floor',
-    title: 'Servicios bajo piso',
-    formula: 'Bajo piso = tarifa neta ofrecida < tarifa mínima neta (la que iguala el costo, margen 0 %) y resultado esperado negativo',
+    title: 'Servicios por debajo de la tarifa mínima',
+    formula: 'Por debajo de la tarifa mínima = tarifa neta ofrecida < tarifa mínima neta (la que iguala el costo, margen 0 %) y resultado esperado negativo',
     inputs: below.flatMap(({ quote, summary }) => [
       { label: `${quoteLabel(quote)}: tarifa neta`, value: summary.commercialNetRate, format: 'money' },
       { label: `${quoteLabel(quote)}: tarifa mínima neta`, value: summary.floorNetRate, format: 'moneyCeil' },
       { label: `${quoteLabel(quote)}: resultado esperado`, value: summary.profit, format: 'money' },
     ]),
-    result: { label: 'Cotizaciones activas bajo piso', value: below.length, format: 'number' },
+    result: { label: 'Cotizaciones activas por debajo de la tarifa mínima', value: below.length, format: 'number' },
     notes: [
-      'Cotizar bajo piso significa perder plata con la actividad estimada.',
+      'Cotizar por debajo de la tarifa mínima significa perder plata con la actividad estimada.',
       'Si un mínimo garantizado cubre la diferencia y el mes no da pérdida, la cotización no se cuenta acá.',
-      'La tarifa mínima se muestra redondeada hacia arriba: cobrar esa cifra nunca deja debajo del piso.',
+      'La tarifa mínima se muestra redondeada hacia arriba: cobrar esa cifra nunca deja por debajo de la mínima.',
       scopeNote(scope),
     ],
   });
@@ -256,7 +257,7 @@ function indicatorsSection(stats, settings, scope) {
   const avg = stats.averageMarginPct;
 
   const more = disclosure(
-    { summary: 'Ver más indicadores', hint: 'Valor total cotizado, servicios bajo piso y total de cotizaciones.', className: 'disclosure-plain' },
+    { summary: 'Ver más indicadores', hint: 'Valor total cotizado, servicios por debajo de la tarifa mínima y total de cotizaciones.', className: 'disclosure-plain' },
     h(
       'div',
       { class: 'stat-row stat-row-secondary' },
@@ -268,7 +269,7 @@ function indicatorsSection(stats, settings, scope) {
         trace: totalQuotedTrace(active, stats.totalQuotedMonthly, scope),
       }),
       bigStat({
-        label: 'Servicios bajo piso',
+        label: 'Servicios por debajo de la tarifa mínima',
         value: formatNumber(stats.belowFloorCount),
         hint: 'La tarifa no cubre el costo y el mes da pérdida.',
         tone: stats.belowFloorCount > 0 ? 'red' : null,
@@ -470,7 +471,7 @@ const CONCEPTS = [
   },
   { key: 'floor', name: 'Tarifa mínima', text: 'El precio mínimo para no perder plata: con esa tarifa el resultado es cero (margen 0 %).' },
   { key: 'target', name: 'Precio objetivo', text: 'El precio necesario para lograr el margen que buscás con la actividad que estimás.' },
-  { key: 'commercial', name: 'Precio comercial', text: 'El precio que finalmente le ofrecés al cliente, con redondeos y descuentos. Lo comparamos contra el piso y el objetivo.' },
+  { key: 'commercial', name: 'Precio comercial', text: 'El precio que finalmente le ofrecés al cliente, con redondeos y descuentos. Lo comparamos contra la tarifa mínima y el objetivo.' },
 ];
 
 function learnSection() {
@@ -580,6 +581,8 @@ export async function render(root, app) {
       'div',
       { class: 'home' },
       heroSection({ hasQuotes: hasQuotes || products.length > 0, name: greetingName(ctx.account && ctx.account.user ? ctx.account.user.fullName : '') }),
+      // 0.24.0 (W-10): mientras la Configuración sea de ejemplo, los datos de la empresa se piden una vez acá.
+      companySetupCard({ app, settings, readOnly: Boolean(ctx.init && ctx.init.readOnly) }),
       hasQuotes ? continueSection(draft) : null,
       hasQuotes ? indicatorsSection(indicators, settings, scope) : null,
       // Sin cotizaciones, el saludo ya es el estado vacío (sin botones repetidos).

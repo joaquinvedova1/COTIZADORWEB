@@ -37,7 +37,7 @@
  * inventan plazos).
  *
  * Precio (mismas reglas que las cotizaciones; margen ≠ markup, AGENTS.md §9):
- *   precio piso         = costo / (1 − t)                       (t: impuestos sobre lo que vendés)
+ *   precio mínimo       = costo / (1 − t)                       (t: impuestos sobre lo que vendés)
  *   precio con margen   = costo / (1 − margen − t)              (margen sobre el precio)
  *   precio sugerido     = redondeo comercial hacia arriba
  *   precio al público   = precio × (1 + IVA %)                  (sólo si la empresa carga el IVA)
@@ -627,14 +627,14 @@ function productTraces(r, p) {
   });
   traces.floor = createTrace({
     id: 'product_floor',
-    title: 'Precio piso',
-    formula: 'Precio piso = Costo por unidad ÷ (1 − impuestos sobre la venta)',
+    title: 'Precio mínimo',
+    formula: 'Precio mínimo = Costo por unidad ÷ (1 − impuestos sobre la venta)',
     inputs: [
       { label: `Costo ${per}`, value: r.unitCost, format: 'money' },
       { label: 'Impuestos sobre lo que vendés (t)', value: r.pricing.taxPct, format: 'percent' },
     ],
-    result: { label: 'Precio piso (sin ganar ni perder)', value: r.pricing.floorPrice, format: 'money' },
-    notes: [!r.taxInfo.defined && !r.taxInfo.notApplicable ? 'Impuestos sobre la venta sin definir: el precio piso no los incluye.' : null],
+    result: { label: 'Precio mínimo (sin ganar ni perder)', value: r.pricing.floorPrice, format: 'money' },
+    notes: [!r.taxInfo.defined && !r.taxInfo.notApplicable ? 'Impuestos sobre la venta sin definir: el precio mínimo no los incluye.' : null],
   });
   traces.target = createTrace({
     id: 'product_target',
