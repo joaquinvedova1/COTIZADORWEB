@@ -13,7 +13,8 @@ import { vatFinanceForNewQuote } from './vat-finance.js';
 import { emptyBase, normalizeBase, isValidDayDate, isKnownCurrency, dayFromDate } from './economic-base.js';
 import { familyIdOf } from './equipment-catalog.js';
 import { createSnapshot } from './resource-snapshot.js';
-import { contractWithComponents, serviceTypeForContract, LINE_COMPONENT_IDS } from './contract.js';
+import { contractWithComponents, serviceTypeForContract, modeForUnit, LINE_COMPONENT_IDS } from './contract.js';
+import { BILLING_UNIT_IDS } from './billing-units.js';
 import { resourceMaterialType } from './material-types.js';
 import { COST_BASIS_TIME } from './cost-basis.js';
 
@@ -607,11 +608,20 @@ export function createExtra({ id = createId(), label = 'Adicional', unitName = '
  *     junto a los días. No mueve ningún número (sólo el aviso de relevos, que pide 24/7).
  * Las cotizaciones guardadas sin contrato siguen leyéndose como antes (legacy).
  */
-export function createBlankQuote(options = {}) {
+export function createBlankQuote(options = {}, { unit = null } = {}) {
   const quote = createEmptyQuote(options);
-  quote.contract = contractWithComponents({ mode: 'on_demand' }, ['labor']);
+  // 0.25.0 (PR 4, W-12): la unidad de cobro se elige antes de crear la cotización. Da lo mismo que
+  // crear en blanco y elegir la unidad en el paso 1 (applyQuoteUnit, que no se muda al dominio
+  // porque usa un motor): el modo del contrato sale de la unidad y por trabajo arranca en 1 trabajo
+  // por mes. Sin unidad (o una que no está en el catálogo), como siempre: por día.
+  const chosen = typeof unit === 'string' && BILLING_UNIT_IDS.includes(unit) && unit !== 'custom' ? unit : null;
+  if (chosen) quote.unit = chosen;
+  quote.contract = contractWithComponents({ mode: modeForUnit(quote.unit) }, ['labor']);
   quote.serviceType = serviceTypeForContract(quote.contract);
   quote.activity.availability = null;
+  if (chosen === 'job' && (quote.activity.billableQuantityPerMonth === null || quote.activity.billableQuantityPerMonth === undefined)) {
+    quote.activity.billableQuantityPerMonth = 1;
+  }
   return quote;
 }
 

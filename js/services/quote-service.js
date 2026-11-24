@@ -106,12 +106,13 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       return repository.getQuotes();
     },
 
-    /** Crea una cotización vacía o desde una plantilla de servicio. */
-    async createQuote({ templateId = null } = {}) {
+    /** Crea una cotización vacía (con la unidad de cobro elegida, si la hay) o desde una plantilla de servicio. */
+    async createQuote({ templateId = null, unit = null } = {}) {
       const [org, s, services] = await Promise.all([repository.getOrganization(), settings(), repository.getServices()]);
       const template = templateId ? services.find((t) => t.id === templateId) || null : null;
       const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await reserveCode(), baseName: org.baseLocation };
-      const quote = withTimeCostBasis(template ? createQuoteFromTemplate(template, options) : createBlankQuote(options));
+      // 0.25.0 (PR 4): en blanco, con la unidad de cobro elegida antes de crear (null = por día).
+      const quote = withTimeCostBasis(template ? createQuoteFromTemplate(template, options) : createBlankQuote(options, { unit }));
       const saved = await repository.saveQuote(quote);
       track('quote_created', { serviceType: eventServiceType(saved.serviceType), source: template ? 'template' : 'blank' });
       return saved;

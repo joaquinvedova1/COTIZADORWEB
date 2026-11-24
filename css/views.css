@@ -740,3 +740,16 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 }
 /* Asignación de personal (0.16.0): select y % con aire entre sí. */
 .qe-dedication-field { display: grid; gap: 0.6rem; min-width: 0; }
+
+/* 0.25.0 (PR 4): "¿Cómo le cobrás al cliente?" antes de crear la cotización. */
+.quote-unit-start { display: grid; gap: 0.6rem; }
+.quote-unit-start > p { margin: 0; }
+.quote-unit-start-title { font-size: 1.1rem; margin: 0; }
+.quote-unit-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.quote-unit-grid .quote-choice { min-height: 0; }
+@media (max-width: 760px) {
+  .quote-unit-grid { grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+  .quote-unit-grid .quote-choice-title { padding-right: 0; }
+  .quote-unit-grid .quote-choice { padding: 0.9rem 0.9rem 0.8rem; }
+  .quote-unit-grid .quote-choice-go { display: none; }
+}

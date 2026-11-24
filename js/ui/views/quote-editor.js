@@ -80,6 +80,7 @@ import * as financeStep from './quote-steps/finance.js';
 import * as riskStep from './quote-steps/risk.js';
 import * as marginStep from './quote-steps/margin.js';
 import { createDraftStore, isFreshQuote, onSessionReset } from '../session-memory.js';
+import { industryOf } from '../../domain/industry-catalog.js';
 
 const STEP_MODULES = Object.freeze({
   service: serviceStep,
@@ -502,6 +503,17 @@ function decorateFieldIssues(container, issues) {
     field.classList.add('qe-has-issue');
     field.appendChild(h('div', { class: ['qe-issue-note', `qe-issue-${issue.severity === 'error' ? 'error' : 'warning'}`] }, issue.message));
   });
+}
+
+/** Sector de la empresa (organization.industry) o null; nunca impide abrir la cotización. */
+async function loadSector(app) {
+  try {
+    const org = app.ctx.settings && typeof app.ctx.settings.getOrganization === 'function' ? await app.ctx.settings.getOrganization() : null;
+    return industryOf(org || {}).sector;
+  } catch (error) {
+    logger.warn('No se pudo leer el sector de la empresa', { message: error && error.message });
+    return null;
+  }
 }
 
 async function loadResources(app) {
@@ -1889,7 +1901,7 @@ function resultFallback(result, error) {
 
 // ------------------------------------------------------------------ editor
 
-function createEditor(root, app, { quote, settings, resources, stepId, restoredDraft = false, revealStep = false, focusPath = null }) {
+function createEditor(root, app, { quote, settings, resources, stepId, restoredDraft = false, revealStep = false, focusPath = null, sector = null }) {
   const quoteId = quote.id;
   const readOnly = Boolean(app.ctx && app.ctx.init && app.ctx.init.readOnly);
   // Sin almacenamiento persistente (modo memoria) no hay que decir "Guardado".
@@ -2762,6 +2774,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     quoteId,
     stepId,
     resources,
+    // Sector de la empresa (0.25.0, PR 4): qué unidades se ven sin escribir en el buscador.
+    sector,
     update: (path, value) => update(path, value),
     rerender: () => rerenderStep(),
     mutate: (fn, options) => mutate(fn, options),
@@ -3215,8 +3229,9 @@ export async function render(root, app, params = {}) {
   let quote;
   let settings;
   let resources;
+  let sector = null;
   try {
-    [quote, settings, resources] = await Promise.all([app.ctx.quotes.getQuote(id), app.getSettings(), loadResources(app)]);
+    [quote, settings, resources, sector] = await Promise.all([app.ctx.quotes.getQuote(id), app.getSettings(), loadResources(app), loadSector(app)]);
   } catch (error) {
     if (token !== renderSequence) return undefined;
     logger.error('No se pudo abrir la cotización', { message: error && error.message });
@@ -3239,7 +3254,7 @@ export async function render(root, app, params = {}) {
 
   // Cambios que no se pudieron guardar antes (p. ej. almacenamiento lleno).
   const draft = unsavedDrafts.get(app.ctx, id);
-  const editor = createEditor(root, app, { quote: draft ? deepClone(draft) : quote, settings, resources, stepId, restoredDraft: Boolean(draft), revealStep, focusPath });
+  const editor = createEditor(root, app, { quote: draft ? deepClone(draft) : quote, settings, resources, stepId, restoredDraft: Boolean(draft), revealStep, focusPath, sector });
   activeEditor = editor;
   editor.mount();
   return () => {

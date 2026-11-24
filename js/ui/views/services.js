@@ -12,7 +12,8 @@ import { markFreshQuote } from '../session-memory.js';
 import { h, mount } from '../dom.js';
 import { badge, button, confirmDialog, emptyState, linkButton, openDialog, pageIntro, textField } from '../components.js';
 import { sanitizeText } from '../../core/validation.js';
-import { QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { QUOTE_STEPS, labelOf } from '../../domain/catalogs.js';
+import { billingUnitPhrase } from '../../domain/contract.js';
 import { isPlainObject } from '../../core/object.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 
@@ -31,6 +32,15 @@ const TEMPLATE_CONDITIONS = Object.freeze([
   { key: 'pricing', step: 'margin' },
   { key: 'rules', step: 'margin' },
 ]);
+
+/**
+ * W-13 (0.25.0, PR 4): una plantilla se presenta por su unidad de cobro ("Por hora"), no por el tipo
+ * de servicio interno ("Servicio on-call"). null si la plantilla no trae unidad.
+ */
+export function templateUnitLabel(service) {
+  const defaults = service && service.defaults && typeof service.defaults === 'object' ? service.defaults : null;
+  return defaults && typeof defaults.unit === 'string' && defaults.unit ? billingUnitPhrase(defaults) : null;
+}
 
 /**
  * Resumen legible del contenido precargado de una plantilla: qué líneas trae
@@ -80,7 +90,7 @@ export function serviceTemplateCard(service, actions = []) {
       'div',
       { class: 'template-card-head' },
       h('h3', { class: 'template-card-title' }, service.name || 'Plantilla sin nombre'),
-      h('div', { class: 'row template-card-tags' }, badge(labelOf(SERVICE_TYPES, service.serviceType, 'Servicio configurable'), 'navy'), service.illustrative ? illustrativeTag('Plantilla de demostración con valores ilustrativos') : null),
+      h('div', { class: 'row template-card-tags' }, templateUnitLabel(service) ? badge(templateUnitLabel(service), 'navy') : null, service.illustrative ? illustrativeTag('Plantilla de demostración con valores ilustrativos') : null),
     ),
     service.description ? h('p', { class: 'template-card-desc' }, service.description) : null,
     h('ul', { class: 'template-card-meta' }, h('li', {}, contents.resources), contents.conditions ? h('li', {}, contents.conditions) : null, contents.activity ? h('li', {}, contents.activity) : null),
