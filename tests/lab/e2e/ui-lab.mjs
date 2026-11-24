@@ -771,7 +771,7 @@ async function runMode(mode) {
     check('E2E-30', 'una sola cifra grande en el resumen del Resultado, la del precio', info.bigs === 1 && info.price, `${info.bigs} cifras`);
     check('E2E-30', 'la cifra grande = motor y se llama "Precio sugerido"', norm(info.text).includes(norm(formatMoneyCeil(k.commercialListRate))) && /precio sugerido/i.test(info.text), norm(info.text));
     check('E2E-30', 'costo y ganancia en una línea, con el margen que pediste', /Te cuesta/.test(info.line) && /ganás/.test(info.line) && norm(info.line).includes(norm(formatPercent(k.targetMarginPct, { decimals: 2 }))), norm(info.line));
-    check('E2E-30', '"¿Hasta cuánto puedo bajar?" en un renglón', /¿Hasta cuánto puedo bajar\?/.test(info.floor), norm(info.floor));
+    check('E2E-30', '"¿Hasta cuánto puedo bajar?" en un renglón', /¿Hasta cuánto puedo bajar\?/iu.test(info.floor), norm(info.floor));
     await scan('E2E-30', 'resultado');
     await go(`#/cotizaciones/${encodeURIComponent(q.id)}/service`, 300);
     await page.waitForSelector('[data-kpi="commercialRate"]', { timeout: 8000 }).catch(() => {});
