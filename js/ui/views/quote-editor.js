@@ -1173,10 +1173,11 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
     const floor = floorDisplay(r).value;
     return isFiniteNumber(cost) && isFiniteNumber(floor) && Math.abs(Math.ceil(floor) - cost) <= 1;
   };
+  // 0.24.0 (PLAN-2026-028, W-01): a la vista, sólo el precio. Costo, mínimo, equilibrio, resultado y
+  // margen van en "Ver más" (mismos data-kpi: el Test Lab en navegador los lee).
   const main = h(
     'div',
     { class: 'qe-sum-list qe-sum-main' },
-    // 0.17.0: el precio primero (como los cotizadores del mercado); debajo, costo y mínimo.
     item({
       key: 'commercialRate',
       label: summaryRateLabel,
@@ -1188,6 +1189,11 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
       tone: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? resultTone(r) : null),
       trace: commercialRateTrace,
     }),
+  );
+
+  const more = h(
+    'div',
+    { class: 'qe-sum-list qe-sum-more-list' },
     item({
       key: 'totalCost',
       // Precio cerrado (Joaco 2026-11-18): lo del trabajo (lo del mes ÷ trabajos por mes), como las tarjetas.
@@ -1248,11 +1254,6 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
       // Tampoco por tiempo usado sin costos fijos (2026-11-18): sería siempre "desde el primer día".
       hidden: (r) => closedOf(r).closed || Boolean(r.breakEven && r.breakEven.notApplicable) || timeBasisWithoutFixed(r),
     }),
-  );
-
-  const more = h(
-    'div',
-    { class: 'qe-sum-list qe-sum-more-list' },
     item({
       key: 'targetRate',
       label: (r) => (r.kpis.targetMarginInvalid ? 'Precio objetivo' : `Precio para tu margen de ${formatPercent(r.kpis.targetMarginPct)}`),
@@ -1449,8 +1450,8 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
       const critical = pending.filter((p) => p.severity === 'critical').length;
       // En la etapa 1 no se cuentan pendientes: todavía no se cargó nada.
       moreHint.textContent = pending.length === 0 || stepId === 'service'
-        ? 'Precio para tu margen, resultado y margen esperados.'
-        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · resultado y margen esperados.`;
+        ? 'Costo, precio mínimo, resultado y margen esperados.'
+        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · costo, resultado y margen.`;
       if (pending.length === 0) {
         mount(pendingEl, h('li', { class: 'qe-pending-ok' }, h('span', { class: 'dot dot-green', 'aria-hidden': 'true' }), 'No hay pendientes de costos.'));
       } else {

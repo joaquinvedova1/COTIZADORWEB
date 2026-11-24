@@ -554,7 +554,7 @@
   .qe-stage-label { font-size: 0.86rem; }
 }
 
-/* < 1180 px: el resumen pasa a una barra compacta fija abajo (4 números) que
+/* < 1180 px: el resumen pasa a una barra compacta fija abajo (el precio, 0.24.0) que
    se expande con "Ver detalle". */
 @media (max-width: 1180px) {
   .qe, .qe.qe-no-summary { display: flex; flex-direction: column; align-items: stretch; gap: 1rem; }
@@ -567,7 +567,7 @@
   .qe-summary-sub { display: none; }
   .qe-summary-title { font-size: 0.7rem; }
   .qe-sum-toggle { display: inline-flex; }
-  .qe-sum-main { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .qe-sum-main { display: grid; grid-template-columns: minmax(0, 1fr); }
   .qe-sum-main .qe-sum-item { border-top: 0; padding: 0.3rem 1rem 0.65rem; }
   .qe-sum-main .qe-sum-item[data-kpi="commercialRate"] { background: transparent; }
   .qe-sum-main .qe-sum-item::before { top: 6px; bottom: 10px; }
@@ -576,7 +576,7 @@
   .qe-summary-inner:not(.is-expanded) .qe-sum-hint,
   .qe-summary-inner:not(.is-expanded) .trace-btn,
   .qe-summary-inner:not(.is-expanded) .qe-sum-more { display: none !important; }
-  .qe-summary-inner.is-expanded .qe-sum-main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qe-summary-inner.is-expanded .qe-sum-main { grid-template-columns: minmax(0, 1fr); }
   .qe-summary-inner.is-expanded .qe-sum-main .qe-sum-item { border-top: 1px solid var(--line-2); padding-top: 0.6rem; }
   .qe-summary-inner.is-expanded .qe-sum-more-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 }

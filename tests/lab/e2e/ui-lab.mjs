@@ -30,7 +30,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStaticServer } from '../../../scripts/serve.mjs';
 import { computeQuote } from '../../../js/engines/quote-engine.js';
-import { formatMoney, formatMoneyCeil, formatNumber } from '../../../js/core/format.js';
+import { formatMoney, formatMoneyCeil, formatNumber, formatPercent } from '../../../js/core/format.js';
 import { fieldHref } from '../../../js/ui/field-links.js';
 import { perBilledUnitAmount } from '../../../js/ui/result-text.js';
 import { cot0010Quote } from '../../fixtures/cot-0010.js';
@@ -238,6 +238,11 @@ export const E2E_SCENARIOS = [
       return q;
     },
   },
+  // ---- 0.24.0 (PLAN-2026-028, PR 2): un solo precio en el Resultado y en el resumen.
+  {
+    id: 'E2E-30', title: 'Un solo precio: una cifra grande en el Resultado; costo y ganancia en una línea; en el resumen, sólo el precio',
+    build: () => service({ id: 'lab-e30', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()] }),
+  },
 ];
 
 /** Producto financiado (LAB-D3): la financiación se ve en el Resultado del producto con el costo del motor. */
@@ -391,6 +396,11 @@ async function runMode(mode) {
       const toggle = page.locator('.qe-sum-toggle').first();
       if (await toggle.isVisible().catch(() => false)) await tap(toggle);
       await page.waitForTimeout(300);
+    }
+    // 0.24.0 (W-01): a la vista queda sólo el precio; el costo está en "Ver más".
+    if (!(await traceBtn.isVisible().catch(() => false))) {
+      await page.evaluate(() => document.querySelectorAll('details.qe-sum-more').forEach((d) => { d.open = true; }));
+      await page.waitForTimeout(250);
     }
     const traceVisible = await traceBtn.isVisible().catch(() => false);
     // Tanda novatos 2026-11: con costo 0 el resumen queda plegado ("Los números aparecen cuando…").
@@ -745,6 +755,28 @@ async function runMode(mode) {
     await go(href.replace(/^.*#/, '#'), 600);
     const f = await waitFocus('overtimeWork.hours50');
     check('E2E-29', 'el foco de overtimeWork.* cae en "Personal"', f.name === 'overtimeWork.hours50' && f.inView, JSON.stringify(f));
+  }
+  {
+    // E2E-30 (W-01): una sola cifra grande, la del motor; costo y ganancia en una línea.
+    const { q, r } = byId['E2E-30'];
+    const k = r.kpis;
+    await go(`#/cotizaciones/${encodeURIComponent(q.id)}/result`, 300);
+    await page.waitForSelector('.qr-summary', { timeout: 8000 }).catch(() => {});
+    const info = await page.evaluate(() => {
+      const sum = document.querySelector('.qr-summary');
+      const bigs = sum ? [...sum.querySelectorAll('.big-stat')] : [];
+      const line = sum && sum.querySelector('.qr-sum-line');
+      return { bigs: bigs.length, price: bigs.length === 1 && bigs[0].classList.contains('qr-stat-price'), text: bigs[0] ? bigs[0].innerText : '', line: line ? line.innerText : '', floor: sum ? (sum.querySelector('.qr-stat-floor') || {}).innerText || '' : '' };
+    });
+    check('E2E-30', 'una sola cifra grande en el resumen del Resultado, la del precio', info.bigs === 1 && info.price, `${info.bigs} cifras`);
+    check('E2E-30', 'la cifra grande = motor y se llama "Precio sugerido"', norm(info.text).includes(norm(formatMoneyCeil(k.commercialListRate))) && /precio sugerido/i.test(info.text), norm(info.text));
+    check('E2E-30', 'costo y ganancia en una línea, con el margen que pediste', /Te cuesta/.test(info.line) && /ganás/.test(info.line) && norm(info.line).includes(norm(formatPercent(k.targetMarginPct, { decimals: 2 }))), norm(info.line));
+    check('E2E-30', '"¿Hasta cuánto puedo bajar?" en un renglón', /¿Hasta cuánto puedo bajar\?/.test(info.floor), norm(info.floor));
+    await scan('E2E-30', 'resultado');
+    await go(`#/cotizaciones/${encodeURIComponent(q.id)}/service`, 300);
+    await page.waitForSelector('[data-kpi="commercialRate"]', { timeout: 8000 }).catch(() => {});
+    const keys = await page.evaluate(() => [...document.querySelectorAll('.qe-sum-main [data-kpi]')].map((n) => n.dataset.kpi));
+    check('E2E-30', 'el resumen del editor muestra sólo el precio (el resto en "Ver más")', keys.join('|') === 'commercialRate', keys.join(' · '));
   }
   {
     const pr = computeProduct(structuredClone(prod));
