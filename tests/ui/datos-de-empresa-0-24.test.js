@@ -15,7 +15,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { COMPANY_LABELS, COMPANY_SETUP_FIELDS, companySetupPatch, companyIsExample } from '../../js/ui/company-defaults.js';
-import { undefinedVatRecoveryRows } from '../../js/ui/views/quote-editor.js';
+import { undefinedVatRecoveryRows, recoverAllVatConfirm } from '../../js/ui/views/quote-editor.js';
+import { resetIds, service, external } from '../lab/lib/build.js';
 import { defaultSettings, createEmptyQuote } from '../../js/domain/quote-factory.js';
 
 const code = (rel) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
@@ -92,6 +93,26 @@ describe('IVA (P-11)', () => {
     };
     assert.deepEqual(undefinedVatRecoveryRows(q), [1, 3]);
     assert.match(code('js/ui/views/quote-editor.js'), /'Recupero el IVA de todos \(responsable inscripto\)'/);
+  });
+
+  test('la confirmación dice cuánto baja el costo, con el motor antes y después (B-1)', () => {
+    resetIds();
+    const mk = (vatOn) => {
+      const q = service({ id: 'q-k03', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 15, daysPerActivation: 5, hoursPerActiveDay: 8 },
+        equipment: [external({ name: 'Grúa', acquisition: 'rented' }, { price: 500000, unit: 'day', fiscal: { vatPct: 21, vatRecoverable: null } })] });
+      if (vatOn) q.finance.vat = { applies: true, ratePct: 21, payLagDays: 20 };
+      return q;
+    };
+    const apply = (q) => { q.equipment[0].external.fiscal.vatRecoverable = 'yes'; };
+    const on = mk(true);
+    const c = recoverAllVatConfirm(on, null, apply, 1);
+    assert.equal(on.equipment[0].external.fiscal.vatRecoverable, null, 'no toca la cotización');
+    assert.ok(c.drop > 0 && Math.abs(c.before - c.after - c.drop) < 0.01);
+    assert.match(c.message, /El costo del mes baja \$/);
+    assert.match(c.message, /correcto contablemente si recuperás el IVA/);
+    const off = recoverAllVatConfirm(mk(false), null, apply, 1);
+    assert.equal(off.drop, 0);
+    assert.match(off.message, /el costo no cambia/);
   });
 });
 

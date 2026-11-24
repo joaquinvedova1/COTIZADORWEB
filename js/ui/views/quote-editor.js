@@ -48,6 +48,7 @@ import {
   disclosure,
   badge,
   infoTip,
+  confirmDialog,
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
 import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES, vatIsCost } from '../../domain/catalogs.js';
@@ -1795,7 +1796,8 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
   /**
    * Externos guardados con "¿Recuperás ese IVA?" sin definir (0.24.0, P-11, decisión D6): un botón
    * explícito los pasa a "Sí". Lo hace la persona; RATEOS nunca cambia solo las líneas guardadas.
-   * Mismo costo que "sin definir" (external-engine: recoverableShare = 1).
+   * Sin el IVA de la cotización aplicado da el mismo costo; con el IVA aplicado (K-03) lo baja, y
+   * la confirmación dice cuánto (revisión de la 0.24.0, B-1).
    */
   const recoverAllVatAction = (item, quote) => {
     if (item.id !== 'external_terms' || typeof onRecoverAllVat !== 'function') return null;
@@ -2306,15 +2308,21 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         if (isPlainObject(line) && row.used > 0) line.billableHoursPerMonth = Math.round(row.used * 100) / 100;
       });
     }),
-    // D6: sólo si la empresa puede recuperar el IVA (no monotributo ni exento).
-    onRecoverAllVat: readOnly || vatIsCost(settings) ? null : (indexes) => mutate((q) => {
-      indexes.forEach((i) => {
-        const line = Array.isArray(q.equipment) ? q.equipment[i] : null;
-        if (!isPlainObject(line)) return;
-        line.external = createExternalTerms(line.external);
-        line.external.fiscal.vatRecoverable = 'yes';
-      });
-    }),
+    // D6: sólo si la empresa puede recuperar el IVA (no monotributo ni exento). Revisión de la
+    // 0.24.0 (B-1): con el IVA de la cotización aplicado, "Sí" baja el costo financiero. Antes de
+    // cambiar, una confirmación dice cuánto, con el motor antes y después (sin cuentas acá).
+    onRecoverAllVat: readOnly || vatIsCost(settings) ? null : async (indexes) => {
+      const apply = (q) => {
+        indexes.forEach((i) => {
+          const line = Array.isArray(q.equipment) ? q.equipment[i] : null;
+          if (!isPlainObject(line)) return;
+          line.external = createExternalTerms(line.external);
+          line.external.fiscal.vatRecoverable = 'yes';
+        });
+      };
+      const ok = await confirmDialog(recoverAllVatConfirm(state.quote, state.settings, apply, indexes.length));
+      if (ok) mutate(apply);
+    },
     hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
     stepHref,
     didactic: state.quote.illustrative === true,
@@ -3211,3 +3219,29 @@ export async function render(root, app, params = {}) {
   };
 }
 
+/**
+ * Confirmación de "Recupero el IVA de todos" (revisión de la 0.24.0, B-1). Corre el motor con la
+ * cotización como está y con los externos en "Sí", y dice cuánto baja el costo del mes.
+ */
+export function recoverAllVatConfirm(quote, settings, apply, count) {
+  const opts = settings ? { settings } : {};
+  const before = computeQuote(quote, opts);
+  const changed = deepClone(quote);
+  apply(changed);
+  const after = computeQuote(changed, opts);
+  const kb = (before && before.kpis) || {};
+  const ka = (after && after.kpis) || {};
+  const drop = isFiniteNumber(kb.totalCost) && isFiniteNumber(ka.totalCost) ? kb.totalCost - ka.totalCost : 0;
+  const lines = count === 1 ? 'El externo pasa' : `Los ${count} externos pasan`;
+  const correct = 'Es lo correcto contablemente si recuperás el IVA: como responsable inscripto, el IVA que te facturan es crédito fiscal.';
+  let message;
+  if (drop > 0.5) {
+    const rate = isFiniteNumber(kb.suggestedListRate) && isFiniteNumber(ka.suggestedListRate) && Math.abs(kb.suggestedListRate - ka.suggestedListRate) > 0.5
+      ? ` La tarifa sugerida pasa de ${formatMoney(kb.suggestedListRate)} a ${formatMoney(ka.suggestedListRate)}.`
+      : '';
+    message = `${lines} a «Sí, lo recupero». El costo del mes baja ${formatMoney(drop)} (de ${formatMoney(kb.totalCost)} a ${formatMoney(ka.totalCost)}), porque ese IVA te descuenta el que tenés que adelantar.${rate} ${correct}`;
+  } else {
+    message = `${lines} a «Sí, lo recupero». En esta cotización el costo no cambia (${formatMoney(kb.totalCost || 0)} por mes). ${correct}`;
+  }
+  return { title: '¿Recuperás el IVA de todos los externos?', message, confirmLabel: 'Sí, lo recupero', cancelLabel: 'Cancelar', drop, before: kb.totalCost, after: ka.totalCost };
+}

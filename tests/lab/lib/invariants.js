@@ -492,33 +492,52 @@ export const QUOTE_INVARIANTS = [
     },
   },
   {
-    // PLAN-2026-028 (0.24.0, P-11): un externo nuevo de una empresa responsable inscripta nace con
-    // "Sí, lo recupero" y el botón "Recupero el IVA de todos" pasa los guardados a "Sí". Tiene que
-    // dar el mismo costo y la misma caja que "sin definir" (recoverableShare = 1 en los dos).
-    id: 'INV-34', title: 'Un externo con "¿Recuperás ese IVA?" = Sí da el mismo costo, la misma caja y la misma tarifa que sin definir',
+    // PLAN-2026-028 (0.24.0, P-11; corregido en la revisión de la 0.24.0, B-1): "Sí, lo recupero"
+    // y "sin definir" recuperan la misma parte del IVA (recoverableShare = 1), pero sólo "Sí" da
+    // crédito fiscal conocido al alivio K-03 (external-engine: knownVatCreditFactor). Entonces:
+    //  - sin el IVA de la cotización aplicado, los dos dan el mismo costo, caja y tarifa;
+    //  - con el IVA aplicado, "Sí" nunca cuesta más que "sin definir" (baja el financiero).
+    // Se prueba con el IVA aplicado (21 %, 20 días) y con alícuota 21 % en los externos sin alícuota,
+    // para que el caso del responsable inscripto se pruebe en todos los escenarios con externos.
+    id: 'INV-34', title: 'Un externo con "¿Recuperás ese IVA?" = Sí da el mismo costo que sin definir sin el IVA aplicado, y nunca más con el IVA aplicado',
     check(q) {
       const external = (e) => e && (e.acquisition === 'rented' || e.acquisition === 'outsourced');
       if (!(Array.isArray(q.equipment) && q.equipment.some(external))) return notApplicable;
-      const set = (value) => {
+      const set = (value, vatOn) => {
         const c = clone(q);
         let touched = 0;
         c.equipment.forEach((e) => {
           if (!external(e)) return;
-          const rec = e.external && e.external.fiscal ? e.external.fiscal.vatRecoverable : null;
+          const fiscal = (e.external && e.external.fiscal) || {};
+          const rec = fiscal.vatRecoverable;
           if (rec && rec !== 'yes') return; // "No" o "parcial": otra cuenta, no se toca.
-          e.external = { ...(e.external || {}), fiscal: { ...((e.external && e.external.fiscal) || {}), vatRecoverable: value } };
+          const vatPct = num(fiscal.vatPct) !== null && fiscal.vatPct > 0 ? fiscal.vatPct : 21;
+          e.external = { ...(e.external || {}), fiscal: { ...fiscal, vatPct, vatRecoverable: value } };
           touched += 1;
         });
+        c.finance = { ...(c.finance || {}), vat: vatOn ? { applies: true, ratePct: 21, payLagDays: 20 } : { ...((c.finance && c.finance.vat) || {}), applies: false } };
         return { c, touched };
       };
-      const a = set(null);
-      if (!a.touched) return notApplicable;
-      const ra = run(a.c);
-      const rb = run(set('yes').c);
+      if (!set(null, false).touched) return notApplicable;
+      const fails = [];
+      // Sin el IVA aplicado: iguales.
+      const ra = run(set(null, false).c);
+      const rb = run(set('yes', false).c);
       const keys = ['totalCost', 'financialCost', 'workingCapital', 'suggestedListRate', 'commercialListRate', 'profit', 'marginPct'];
       const diffs = keys.map((k) => [k, ra.kpis[k], rb.kpis[k]])
         .filter(([, x, y]) => !(x === y || (num(x) !== null && num(y) !== null && Math.abs(x - y) <= TOL(x))));
-      return diffs.length ? fail(diffs.map(([k, x, y]) => `${k} ${x} ≠ ${y}`).join('; ')) : ok(`${a.touched} externo(s): mismos números`);
+      if (diffs.length) fails.push(`sin IVA: ${diffs.map(([k, x, y]) => `${k} ${x} ≠ ${y}`).join('; ')}`);
+      // Con el IVA aplicado: "Sí" ≤ "sin definir".
+      const va = run(set(null, true).c);
+      const vb = run(set('yes', true).c);
+      for (const k of ['totalCost', 'financialCost', 'floorListRate', 'suggestedListRate']) {
+        const x = num(va.kpis[k]);
+        const y = num(vb.kpis[k]);
+        if (x !== null && y !== null && y > x + TOL(x)) fails.push(`con IVA: ${k} con "Sí" ${y} > sin definir ${x}`);
+      }
+      if (fails.length) return fail(fails.join(' | '));
+      const drop = num(va.kpis.totalCost) !== null && num(vb.kpis.totalCost) !== null ? va.kpis.totalCost - vb.kpis.totalCost : 0;
+      return ok(`${set(null, false).touched} externo(s): iguales sin IVA; con IVA, "Sí" baja el costo ${Math.round(drop)}`);
     },
   },
 ];

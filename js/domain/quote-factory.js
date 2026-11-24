@@ -88,9 +88,9 @@ export function isExternal(item = {}) {
 export function createExternalTerms(src = {}, { settings = null } = {}) {
   const s = isPlainObject(src) ? src : {};
   const f = isPlainObject(s.fiscal) ? s.fiscal : {};
-  // 0.24.0 (P-11): una línea NUEVA de una empresa responsable inscripta nace con "Sí, lo recupero".
-  // Da el mismo costo que "sin definir" (external-engine: recoverableShare = 1); sólo se pasa
-  // `settings` al crear una línea, nunca al normalizar una guardada (decisión D6).
+  // Revisión de la 0.24.0 (B-1): una línea nueva nace "sin definir" también en responsable
+  // inscripto. "Sí, lo recupero" no da el mismo costo con el IVA de la cotización aplicado (K-03:
+  // el crédito conocido baja el financiero), así que pasar a "Sí" es una acción de la persona.
   const vatRecoverable = VAT_RECOVERY_IDS.includes(f.vatRecoverable) ? f.vatRecoverable : newExternalVatRecoverable(settings);
   const opt = (v) => finiteOr(v, null);
   return {
@@ -122,9 +122,13 @@ export function createExternalTerms(src = {}, { settings = null } = {}) {
   };
 }
 
-/** ¿Con qué "¿Recuperás ese IVA?" nace un externo nuevo? 'yes' en una empresa responsable inscripta; si no, sin definir. */
+/**
+ * ¿Con qué "¿Recuperás ese IVA?" nace un externo nuevo? Siempre sin definir (revisión de la 0.24.0,
+ * B-1): con el IVA aplicado, "Sí" baja el costo, y ningún número cambia sin una acción explícita.
+ * Se deja la firma con `settings` porque la usan las pantallas que crean líneas.
+ */
 export function newExternalVatRecoverable(settings) {
-  return isPlainObject(settings) && settings.vatCondition === 'registered' ? 'yes' : null;
+  return null;
 }
 
 /**
