@@ -285,7 +285,8 @@ export function render(container, ctx) {
   // Revisión de la 0.24.0 (C-1, C-2 de costos; C1 de UX): en "ya tengo la tarifa", vaciar el campo
   // hace lo mismo que "Borrar mi precio y usar el sugerido" (con la misma confirmación). Si faltan
   // los días (o la cantidad) del mes, la confirmación lo dice y después se va a ese campo.
-  const knownBefore = Number(quote.pricing && quote.pricing.knownRate);
+  // El último precio que tuvo el campo (para el mensaje y para "Cancelar" después de vaciarlo).
+  let knownBefore = Number(quote.pricing && quote.pricing.knownRate);
   const useSuggested = async ({ fromEmpty = false } = {}) => {
     const plan = useSuggestedPlan(ctx.quote || quote, { closed, known: fromEmpty ? knownBefore : undefined });
     const ok = await confirmDialog({
@@ -310,24 +311,32 @@ export function render(container, ctx) {
     }, { focus: plan.missingPath ? null : 'pricing.offeredRateOverride' });
     if (plan.missingPath && typeof window !== 'undefined' && window.location) window.location.hash = fieldHref(quote.id, plan.missingPath);
   };
+  // Vaciar el campo (al confirmarlo, no mientras se escribe) = "Borrar mi precio y usar el sugerido".
+  const ownPriceField = kit.num(priceField, {
+    // Opcional en los dos modos: vacío = el precio sugerido (sin asterisco).
+    label: '¿Ya tenés un precio? (opcional, sin IVA)',
+    rule: 'money',
+    unit: unit.label,
+    placeholder: isModeB ? 'Usar el sugerido' : 'Escribí tu precio',
+    blankZero: !isModeB,
+    hint: isModeB
+      ? `Vacío = RATEOS te sugiere el precio con tu margen. De lista (${unit.label}), antes de descuentos.`
+      : `Es tu precio (de lista, ${unit.label}, antes de descuentos): RATEOS calcula cuánto ganás con él. Si lo borrás, usa el que sugiere con tu margen.`,
+    onValue: isModeB ? null : (value) => {
+      if (Number(value) > 0) knownBefore = Number(value);
+    },
+  });
+  const ownPriceInput = !isModeB && !kit.readOnly && ownPriceField ? ownPriceField.querySelector('input') : null;
+  if (ownPriceInput) {
+    ownPriceInput.addEventListener('change', () => {
+      if (!(Number(kit.get('pricing.knownRate')) > 0) && knownBefore > 0) useSuggested({ fromEmpty: true });
+    });
+  }
   const ownPriceCard = card(
     { className: 'qe-own-price' },
     formGrid(
       2,
-      kit.num(priceField, {
-        // Opcional en los dos modos: vacío = el precio sugerido (sin asterisco).
-        label: '¿Ya tenés un precio? (opcional, sin IVA)',
-        rule: 'money',
-        unit: unit.label,
-        placeholder: isModeB ? 'Usar el sugerido' : 'Escribí tu precio',
-        blankZero: !isModeB,
-        hint: isModeB
-          ? `Vacío = RATEOS te sugiere el precio con tu margen. De lista (${unit.label}), antes de descuentos.`
-          : `Es tu precio (de lista, ${unit.label}, antes de descuentos): RATEOS calcula cuánto ganás con él. Si lo borrás, usa el que sugiere con tu margen.`,
-        onValue: isModeB ? null : (value) => {
-          if (!(Number(value) > 0)) useSuggested({ fromEmpty: true });
-        },
-      }),
+      ownPriceField,
     ),
     !isModeB && !kit.readOnly
       ? h('div', { class: 'qe-toolbar' }, kit.action('Borrar mi precio y usar el sugerido', () => useSuggested(), { variant: 'secondary' }))

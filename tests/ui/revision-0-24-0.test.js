@@ -82,7 +82,8 @@ describe('C-1 / C-2 de costos, C1 de UX: el campo de precio en "ya tengo la tari
   });
 
   test('vaciar el campo hace lo mismo que el botón', () => {
-    assert.match(margin, /onValue: isModeB \? null : \(value\) => \{\n\s+if \(!\(Number\(value\) > 0\)\) useSuggested\(\{ fromEmpty: true \}\);/);
+    // Al confirmar el campo (change), no mientras se escribe.
+    assert.match(margin, /ownPriceInput\.addEventListener\('change', \(\) => \{\n\s+if \(!\(Number\(kit\.get\('pricing\.knownRate'\)\) > 0\) && knownBefore > 0\) useSuggested\(\{ fromEmpty: true \}\);/);
   });
 
   test('la confirmación avisa si faltan los días y lleva a ese campo; sin "$ 0"', () => {
