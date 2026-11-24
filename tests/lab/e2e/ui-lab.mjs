@@ -771,6 +771,18 @@ async function runMode(mode) {
     check('E2E-30', 'una sola cifra grande en el resumen del Resultado, la del precio', info.bigs === 1 && info.price, `${info.bigs} cifras`);
     check('E2E-30', 'la cifra grande = motor y se llama "Precio sugerido"', norm(info.text).includes(norm(formatMoneyCeil(k.commercialListRate))) && /precio sugerido/i.test(info.text), norm(info.text));
     check('E2E-30', 'costo y ganancia en una línea, con el margen que pediste', /Te cuesta/.test(info.line) && /ganás/.test(info.line) && norm(info.line).includes(norm(formatPercent(k.targetMarginPct, { decimals: 2 }))), norm(info.line));
+    {
+      // Revisión de la 0.24.0 (B1 de UX, C-7 de costos): costo + impuestos + ganancia = precio facturado,
+      // en la unidad de cobro (±2 por el redondeo de cada monto a pesos enteros).
+      const line = norm(info.line);
+      const amount = (re) => { const m = line.match(re); return m ? Number(m[1].replace(/\./g, '').replace(',', '.')) : NaN; };
+      const cost = amount(/Te cuesta \$ ?([\d.,]+)/);
+      const taxes = amount(/impuestos sobre lo que facturás \$ ?([\d.,]+)/);
+      const profit = amount(/ganás \$ ?([\d.,]+)/);
+      const billed = k.commercialNetRate;
+      const sum = cost + taxes + profit;
+      check('E2E-30', 'la línea cierra: costo + impuestos + ganancia = precio facturado', k.billingTaxes > 0 && Number.isFinite(sum) && Math.abs(sum - billed) <= 2, `${cost} + ${taxes} + ${profit} = ${sum} vs ${billed} · ${line}`);
+    }
     check('E2E-30', '"¿Hasta cuánto puedo bajar?" en un renglón', /¿Hasta cuánto puedo bajar\?/iu.test(info.floor), norm(info.floor));
     await scan('E2E-30', 'resultado');
     await go(`#/cotizaciones/${encodeURIComponent(q.id)}/service`, 300);

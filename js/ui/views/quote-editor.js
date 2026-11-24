@@ -569,13 +569,15 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
      * - onValue(value, el): efecto adicional después de guardar el valor en la
      *   cotización (p. ej. quitar la marca ILUSTRATIVO al editar un precio).
      */
-    num(path, { structural = false, requiredMark = false, echo = true, disabled = false, onValue = null, ...opts } = {}) {
+    num(path, { structural = false, requiredMark = false, echo = true, disabled = false, onValue = null, blankZero = false, ...opts } = {}) {
       let el = null;
+      const current = kit.get(path);
       el = numberField({
         rule: 'money',
         ...opts,
         name: path,
-        value: inputNumber(kit.get(path)),
+        // blankZero: un 0 guardado se ve vacío (con su texto de muestra), p. ej. "Tu precio" en 0.
+        value: blankZero && Number(current) === 0 ? '' : inputNumber(current),
         disabled: readOnly || Boolean(disabled),
         onChange: (value) => {
           update(path, value);

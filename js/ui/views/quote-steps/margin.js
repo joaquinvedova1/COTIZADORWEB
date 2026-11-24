@@ -28,7 +28,7 @@ import { isFiniteNumber } from '../../../core/money.js';
 import { createId } from '../../../core/ids.js';
 import { isPlainObject } from '../../../core/object.js';
 import { perUnitCeil, perUnitMoney, netRateHint, confirmRemove, hasNumber, stepName, plural, minimumGuaranteeFields, guaranteeLoaded } from './shared.js';
-import { minActivityNotice, suggestedRateTrace, suggestedRateName, isClosedPrice, deductedPct, marginLimitText } from '../../result-text.js';
+import { minActivityNotice, suggestedRateTrace, suggestedRateName, isClosedPrice, deductedPct, marginLimitText, shownMarginPct } from '../../result-text.js';
 import { billingTaxesFields, billingTaxesHelp, describeBillingTaxes, shortBillingTaxes, sameBillingTaxes, invalidTaxesText } from '../../billing-taxes-form.js';
 import { userErrorMessage } from '../../layout.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
@@ -281,38 +281,55 @@ export function render(container, ctx) {
   // tarifa" (known_rate) y en `pricing.offeredRateOverride` en las demás. Los dos dan los mismos
   // números con el mismo precio (INV-33 del Test Lab). La pantalla ya no ofrece elegir el modo.
   const priceField = isModeB ? 'pricing.offeredRateOverride' : 'pricing.knownRate';
-  const useSuggested = async () => {
+  // Revisión de la 0.24.0 (C-1, C-2 de costos; C1 de UX): en "ya tengo la tarifa", vaciar el campo
+  // hace lo mismo que "Borrar mi precio y usar el sugerido" (con la misma confirmación). Si faltan
+  // los días (o la cantidad) del mes, la confirmación lo dice y después se va a ese campo.
+  const knownBefore = Number(quote.pricing && quote.pricing.knownRate);
+  const useSuggested = async ({ fromEmpty = false } = {}) => {
+    const plan = useSuggestedPlan(ctx.quote || quote, { closed, known: fromEmpty ? knownBefore : undefined });
     const ok = await confirmDialog({
       title: closed ? 'Usar el precio sugerido' : 'Usar la tarifa sugerida',
-      message: `Se borra tu precio de esta cotización (${formatMoney(Number(quote.pricing && quote.pricing.knownRate) || 0)}) y se usa el que sugiere RATEOS con tu margen. Podés volver a escribir un precio cuando quieras.`,
+      message: plan.message,
       confirmLabel: 'Usar el sugerido',
     });
-    if (!ok) return;
+    if (!ok) {
+      // Vaciado y después "Cancelar": vuelve el precio que tenía.
+      if (fromEmpty) ctx.mutate((q) => {
+        if (!isPlainObject(q.pricing)) q.pricing = {};
+        q.pricing.knownRate = Number.isFinite(knownBefore) ? knownBefore : 0;
+      }, { focus: 'pricing.knownRate' });
+      return;
+    }
     ctx.mutate((q) => {
       if (!isPlainObject(q.pricing)) q.pricing = {};
       q.pricingMode = 'known_activity';
       q.pricing.knownRate = 0;
       // "Usar el sugerido" es eso: si había un precio a mano escondido de antes, también se va.
       q.pricing.offeredRateOverride = null;
-    }, { focus: 'pricing.offeredRateOverride' });
+    }, { focus: plan.missingPath ? null : 'pricing.offeredRateOverride' });
+    if (plan.missingPath && typeof window !== 'undefined' && window.location) window.location.hash = fieldHref(quote.id, plan.missingPath);
   };
   const ownPriceCard = card(
     { className: 'qe-own-price' },
     formGrid(
       2,
       kit.num(priceField, {
+        // Opcional en los dos modos: vacío = el precio sugerido (sin asterisco).
         label: '¿Ya tenés un precio? (opcional, sin IVA)',
         rule: 'money',
         unit: unit.label,
-        placeholder: 'Usar el sugerido',
-        requiredMark: !isModeB,
+        placeholder: isModeB ? 'Usar el sugerido' : 'Escribí tu precio',
+        blankZero: !isModeB,
         hint: isModeB
           ? `Vacío = RATEOS te sugiere el precio con tu margen. De lista (${unit.label}), antes de descuentos.`
-          : `Es tu precio (de lista, ${unit.label}, antes de descuentos): RATEOS calcula cuánto ganás con él. Vacío = sin precio.`,
+          : `Es tu precio (de lista, ${unit.label}, antes de descuentos): RATEOS calcula cuánto ganás con él. Si lo borrás, usa el que sugiere con tu margen.`,
+        onValue: isModeB ? null : (value) => {
+          if (!(Number(value) > 0)) useSuggested({ fromEmpty: true });
+        },
       }),
     ),
     !isModeB && !kit.readOnly
-      ? h('div', { class: 'qe-toolbar' }, kit.action('Borrar mi precio y usar el sugerido', useSuggested, { variant: 'secondary' }))
+      ? h('div', { class: 'qe-toolbar' }, kit.action('Borrar mi precio y usar el sugerido', () => useSuggested(), { variant: 'secondary' }))
       : null,
   );
 
@@ -396,10 +413,16 @@ export function render(container, ctx) {
         }),
         (r) => r.kpis.commercialSource !== 'suggested' && r.kpis.commercialSource !== 'none',
       ),
-      kit.stat('Margen esperado', (r) => (isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(r.kpis.marginPct) : EMPTY), {
+      // Revisión de la 0.24.0 (C4 de UX): el mismo margen que el Resultado (shownMarginPct): el que
+      // pediste si la diferencia es del redondeo; el real, en la pista.
+      kit.stat('Margen esperado', (r) => (isFiniteNumber(r.kpis.commercialListRate) && isFiniteNumber(r.kpis.marginPct) ? formatPercent(shownMarginPct(r.kpis, { guaranteeTopUp: r.estimate && r.estimate.revenue ? r.estimate.revenue.guaranteeTopUp : 0 })) : EMPTY), {
         // Con la tarifa sugerida el markup equivalente está en el (i) del margen
         // (COPY-8): acá sólo cuando la tarifa es la tuya u ofrecida.
-        hint: (r) => (r.kpis.commercialSource !== 'suggested' && isFiniteNumber(r.kpis.markupPct) ? `Markup sobre el costo: ${formatPercent(r.kpis.markupPct)}` : ''),
+        hint: (r) => {
+          if (r.kpis.commercialSource !== 'suggested') return isFiniteNumber(r.kpis.markupPct) ? `Markup sobre el costo: ${formatPercent(r.kpis.markupPct)}` : '';
+          const shown = isFiniteNumber(r.kpis.marginPct) ? shownMarginPct(r.kpis, { guaranteeTopUp: r.estimate && r.estimate.revenue ? r.estimate.revenue.guaranteeTopUp : 0 }) : null;
+          return shown !== null && Math.abs(shown - r.kpis.marginPct) > 1e-9 ? `${formatPercent(r.kpis.marginPct)} con el redondeo.` : '';
+        },
         tone: (r) => (!isFiniteNumber(r.kpis.commercialListRate) ? 'gray' : r.kpis.profit < 0 ? 'red' : r.kpis.belowTarget ? 'orange' : 'green'),
         trace: (r) => r.traces.expectedResult,
       }),
@@ -865,4 +888,27 @@ export function render(container, ctx) {
     legacyShown ? legacySlot : null,
   );
   return { update() {} };
+}
+
+/**
+ * Qué dice "Borrar mi precio y usar el sugerido" y adónde lleva (revisión de la 0.24.0, C-2).
+ * Al pasar a calcular la tarifa, la completitud pide la actividad del mes: si falta, se avisa y
+ * después se enfoca ese campo (en «El servicio»). Sin "$ 0" cuando no había precio.
+ */
+export function useSuggestedPlan(quote, { closed = false, known: knownArg } = {}) {
+  const info = billingUnitOf(quote);
+  const activity = (quote && quote.activity) || {};
+  const byQuantity = info.kind === 'quantity' || info.kind === 'event';
+  const missingPath = byQuantity
+    ? (Number(activity.billableQuantityPerMonth) > 0 ? null : 'activity.billableQuantityPerMonth')
+    : (Number(activity.activeDaysPerMonth) > 0 ? null : 'activity.activeDaysPerMonth');
+  const known = Number(knownArg !== undefined ? knownArg : quote && quote.pricing && quote.pricing.knownRate);
+  const what = closed ? 'el precio' : 'la tarifa';
+  const first = known > 0
+    ? `Se borra tu precio de esta cotización (${formatMoney(known)}) y se usa ${what} que sugiere RATEOS con tu margen.`
+    : `Esta cotización no tiene precio cargado: se usa ${what} que sugiere RATEOS con tu margen.`;
+  const missing = missingPath
+    ? ` Para sugerirte un precio falta ${byQuantity ? `cuántos ${info.plural} hacés por mes` : 'cuántos días por mes trabajás'} (en «El servicio»): te llevamos a ese campo.`
+    : '';
+  return { message: `${first}${missing} Podés volver a escribir un precio cuando quieras.`, missingPath };
 }

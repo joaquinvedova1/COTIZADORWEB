@@ -38,7 +38,8 @@ describe('un solo precio en el Resultado', () => {
     const line = between(src, 'function summaryLine(v)', '\n}\n');
     assert.match(line, /`Te cuesta \$\{money/);
     assert.match(line, /losing \? 'perdés' : 'ganás'/);
-    assert.match(line, /const shownPct = asked \? k\.targetMarginPct : marginPct;/);
+    // Revisión de la 0.24.0 (B-2): el pedido sólo si la diferencia es del redondeo (shownMarginPct).
+    assert.match(line, /shownMarginPct\(k, \{ covered, losing, marginPct/);
     assert.match(line, /unreliableText\(r\.completeness, 'este margen'\)/);
     // ECO-01 lee la primera .qr-stat-margin de la página: es esta línea.
     assert.match(line, /'qr-stat-margin'/);

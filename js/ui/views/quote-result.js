@@ -144,6 +144,7 @@ import {
   salaryMonthsAt,
   deductedPct,
   marginLimitText,
+  shownMarginPct,
 } from '../result-text.js';
 
 /**
@@ -1801,7 +1802,9 @@ function marginStat(v) {
 /**
  * 0.24.0 (PLAN-2026-028, W-01): la línea debajo del precio, "Te cuesta $ X · ganás $ Y (Z %)".
  * Mismos números que las tarjetas de "Todos los indicadores" (no es otro cálculo). Con el precio
- * sugerido, Z es el margen que pediste; el real (con el redondeo) queda en "Ver cálculo".
+ * sugerido, Z es el margen que pediste sólo si la diferencia es del redondeo (shownMarginPct); el
+ * real queda en "Ver cálculo". Con impuestos sobre la facturación, la línea los muestra entre el
+ * costo y la ganancia: costo + impuestos + ganancia = lo que se factura.
  * Lleva la clase qr-stat-margin: con un dato que vuelve no confiable el resultado dice
  * NO CONFIABLE en vez de la ganancia (ECO-01).
  */
@@ -1835,9 +1838,15 @@ function summaryLine(v) {
     const plainRevenue = !(Math.abs(Number(rev.otherRevenue) || 0) > 0.005) && !(Math.abs(Number(rev.guaranteeTopUp) || 0) > 0.005);
     const perUnit = !single && !covered && plainRevenue ? perBilledUnitAmount(r, v.q, Math.abs(profit)) : null;
     const per = perUnit !== null ? ` / ${unitNoun(v)}` : single ? ' en el trabajo' : ' / mes';
-    const asked = k.commercialSource === 'suggested' && !covered && !losing && hasValue(k.targetMarginPct) && !k.targetMarginInvalid;
-    const shownPct = asked ? k.targetMarginPct : marginPct;
-    parts.push(`${losing ? 'perdés' : 'ganás'} ${money(perUnit !== null ? perUnit : Math.abs(profit))}${per} (${pct(shownPct)})`);
+    // Revisión de la 0.24.0 (B1 de UX, C-7 de costos): la cuenta cierra a la vista. El motor define
+    // ganancia = facturación − costo − impuestos sobre la facturación; con impuestos, van en la línea
+    // (el monto del motor, en la misma unidad que la ganancia).
+    const taxes = !covered && hasValue(k.billingTaxes) && k.billingTaxes > 0.005 ? k.billingTaxes : null;
+    if (taxes !== null) {
+      const taxPerUnit = perUnit !== null ? perBilledUnitAmount(r, v.q, taxes) : null;
+      parts.push(`impuestos sobre lo que facturás ${money(taxPerUnit !== null ? taxPerUnit : taxes)}${taxPerUnit !== null ? per : single ? ' en el trabajo' : ' / mes'}`);
+    }
+    parts.push(`${losing ? 'perdés' : 'ganás'} ${money(perUnit !== null ? perUnit : Math.abs(profit))}${per} (${pct(shownMarginPct(k, { covered, losing, marginPct, guaranteeTopUp: rev.guaranteeTopUp }))})`);
     tone = losing ? 'red' : !k.billingTaxesDefined ? 'orange' : 'green';
   }
   const trace = ok && !covered ? traceMargin(v) : null;
