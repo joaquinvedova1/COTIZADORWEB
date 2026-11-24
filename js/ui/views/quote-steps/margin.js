@@ -4,10 +4,12 @@
  * Básico: margen objetivo (sobre el precio; el markup equivalente va en el (i)
  * del campo), impuestos sobre lo que facturás (un % total o detalle; RATEOS no
  * trae alícuotas) y UNA cifra de precio: la tarifa sugerida (el precio objetivo
- * sin redondear queda en su "Ver cálculo") con el margen esperado. Opcional:
- * "Más detalle" (margen personalizado, descuento, redondeo, tarifa a mano y el
- * ejemplo margen vs markup) y "Opciones comerciales" (reglas comerciales y,
- * salvo en precio cerrado, descuentos por cantidad de días).
+ * sin redondear queda en su "Ver cálculo") con el margen esperado. Debajo del
+ * margen, UN campo de precio a mano (0.24.0, P-12): "¿Ya tenés un precio?".
+ * Opcional: "Más detalle" (margen personalizado, descuento, redondeo y el
+ * ejemplo margen vs markup), "Opciones comerciales" (reglas comerciales y,
+ * salvo en precio cerrado, descuentos por cantidad de días) y "Cargado antes"
+ * (hora fuera de horario, guardia y adicionales de cotizaciones anteriores).
  *
  * MARGEN (sobre precio) y MARKUP (sobre costo) NO son sinónimos:
  *   costo 100, margen 10 % → precio 111,11 · costo 100, markup 10 % → precio 110
@@ -32,6 +34,7 @@ import { userErrorMessage } from '../../layout.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 import { contractOf } from '../../../domain/contract.js';
 import { normalizePriceAdjustment, priceAdjustmentApplies } from '../../../domain/price-adjustment.js';
+import { render as renderCharge } from './modality.js';
 
 const DISCOUNT_STATUS = Object.freeze({
   green: ['Mantiene el margen', 'green'],
@@ -272,6 +275,46 @@ export function render(container, ctx) {
     ),
   );
 
+  // ------------------------------------------- precio a mano (P-12, 0.24.0)
+  // UN solo campo (PLAN-2026-028): escribe en `pricing.knownRate` si la cotización es "Ya tengo la
+  // tarifa" (known_rate) y en `pricing.offeredRateOverride` en las demás. Los dos dan los mismos
+  // números con el mismo precio (INV-33 del Test Lab). La pantalla ya no ofrece elegir el modo.
+  const priceField = isModeB ? 'pricing.offeredRateOverride' : 'pricing.knownRate';
+  const useSuggested = async () => {
+    const ok = await confirmDialog({
+      title: closed ? 'Usar el precio sugerido' : 'Usar la tarifa sugerida',
+      message: `Se borra tu precio de esta cotización (${formatMoney(Number(quote.pricing && quote.pricing.knownRate) || 0)}) y se usa el que sugiere RATEOS con tu margen. Podés volver a escribir un precio cuando quieras.`,
+      confirmLabel: 'Usar el sugerido',
+    });
+    if (!ok) return;
+    ctx.mutate((q) => {
+      if (!isPlainObject(q.pricing)) q.pricing = {};
+      q.pricingMode = 'known_activity';
+      q.pricing.knownRate = 0;
+      // "Usar el sugerido" es eso: si había un precio a mano escondido de antes, también se va.
+      q.pricing.offeredRateOverride = null;
+    }, { focus: 'pricing.offeredRateOverride' });
+  };
+  const ownPriceCard = card(
+    { className: 'qe-own-price' },
+    formGrid(
+      2,
+      kit.num(priceField, {
+        label: '¿Ya tenés un precio? (opcional, sin IVA)',
+        rule: 'money',
+        unit: unit.label,
+        placeholder: 'Usar el sugerido',
+        requiredMark: !isModeB,
+        hint: isModeB
+          ? `Vacío = RATEOS te sugiere el precio con tu margen. De lista (${unit.label}), antes de descuentos.`
+          : `Es tu precio (de lista, ${unit.label}, antes de descuentos): RATEOS calcula cuánto ganás con él. Vacío = sin precio.`,
+      }),
+    ),
+    !isModeB && !kit.readOnly
+      ? h('div', { class: 'qe-toolbar' }, kit.action('Borrar mi precio y usar el sugerido', useSuggested, { variant: 'secondary' }))
+      : null,
+  );
+
   // ------------------------------------ impuestos sobre lo que facturás
   const taxesCard = card(
     { title: '¿Qué parte de lo que facturás se va en impuestos?', level: 3, className: 'qe-taxes' },
@@ -451,7 +494,7 @@ export function render(container, ctx) {
   const pricingOptions = kit.advanced(
     {
       key: 'margin-pricing',
-      title: closed ? 'Más detalle (opcional): descuento, redondeo y precio a mano' : 'Más detalle (opcional): descuento, redondeo y tarifa a mano',
+      title: 'Más detalle (opcional): descuento y redondeo',
       boxed: true,
       summary: () => {
         const pr = quote.pricing || {};
@@ -459,9 +502,6 @@ export function render(container, ctx) {
           hasNumber(pr.customMarginPct) ? `margen personalizado ${formatPercent(Number(pr.customMarginPct))}` : 'sin margen personalizado',
           `descuento comercial ${hasNumber(pr.commercialDiscountPct) ? formatPercent(Number(pr.commercialDiscountPct)) : '0 %'}`,
           hasNumber(pr.roundingStep) && Number(pr.roundingStep) > 0 ? `redondeo hacia arriba a ${formatMoney(Number(pr.roundingStep))}` : 'sin redondeo',
-          isModeB
-            ? (hasNumber(pr.offeredRateOverride) && Number(pr.offeredRateOverride) > 0 ? `${closed ? 'precio ofrecido' : 'tarifa ofrecida'} a mano ${formatMoney(Number(pr.offeredRateOverride))}` : closed ? 'se ofrece el precio sugerido' : 'se ofrece la tarifa sugerida')
-            : `tu tarifa (en "${stepName('modality')}")`,
         ];
         const text = parts.join(' · ');
         return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
@@ -487,14 +527,6 @@ export function render(container, ctx) {
         unit: '$',
         hint: 'La tarifa sugerida se redondea HACIA ARRIBA a múltiplos de este valor (nunca baja el margen). Si el paso es más del 1 % de la tarifa (p. ej. $ 1.000 sobre 100 $/kg), se usa un paso menor. 0 = sin redondeo.',
       }),
-      isModeB
-        ? kit.num('pricing.offeredRateOverride', {
-          label: `${closed ? 'Precio ofrecido' : 'Tarifa ofrecida'} a mano (opcional, de lista, ${unit.label}, sin IVA)`,
-          rule: 'money',
-          unit: unit.label,
-          hint: closed ? 'Precio de lista, sin IVA, antes de descuentos. Si lo dejás vacío, se ofrece el precio sugerido.' : 'Tarifa de lista, sin IVA, antes de descuentos. Si la dejás vacía, se ofrece la tarifa sugerida.',
-        })
-        : kit.staticField(`Tu tarifa (${unit.label})`, isFiniteNumber(Number(quote.pricing.knownRate)) && Number(quote.pricing.knownRate) > 0 ? formatMoney(Number(quote.pricing.knownRate)) : 'Sin cargar', `Elegiste "Sí, ya tengo la tarifa": se edita en "${stepName('modality')}".`),
     ),
     kit.stat((r) => `${r.kpis.commercialSource === 'suggested' || r.kpis.commercialSource === 'none' ? suggestedRateName(r) : commercialLabel(r).replace(' (de lista)', '')} (de lista)`, (r) => (r.kpis.commercialSource === 'suggested' ? perUnitCeil(r.kpis.commercialListRate, r) : perUnitMoney(r.kpis.commercialListRate, r)), {
       emphasis: true,
@@ -546,7 +578,7 @@ export function render(container, ctx) {
   const showMinimumCall = Number(quote.rules && quote.rules.minimumCallUnits) > 0;
   const showGuarantee = guaranteeLoaded(quote);
   const hadGuardPlus = legacy.guardPlus;
-  // "Quitar" de un cobro aparte cargado antes (mismo patrón que la guardia de "Cómo se cobra").
+  // "Quitar" de un cobro aparte cargado antes (mismo patrón que "Quitar la guardia").
   const removeCharge = (name, keys) => (kit.readOnly ? null : kit.action('Quitar', async () => {
     const ok = await confirmDialog({
       title: `Quitar ${name}`,
@@ -812,6 +844,24 @@ export function render(container, ctx) {
   // Precio cerrado (revisión UX tanda novatos): sin reglas cargadas no se monta (abonos, km y
   // mínimos por mes no hacen a un precio por trabajo). Con alguna regla guardada, se ve como siempre.
   const showCommercial = !closed || rulesApplied().length > 0;
-  mount(container, marginCard, taxesCard, priceCard, adjustmentQuestion, adjustmentCard, kit.question('¿Querés ajustar cómo se cobra?', `Descuentos, redondeo y mínimos. Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }), pricingOptions, showCommercial ? commercialCard : null);
+  // Lo cargado antes que ya no se ofrece (0.24.0, antes en "Cómo se cobra"): hora fuera de horario,
+  // guardia y adicionales. Sólo en las cotizaciones que lo tienen.
+  const legacySlot = h('div', { class: 'qe-legacy-slot' });
+  renderCharge(legacySlot, { ...ctx, part: 'legacy' });
+  const legacyShown = legacySlot.dataset.empty !== 'true';
+  mount(
+    container,
+    marginCard,
+    ownPriceCard,
+    taxesCard,
+    priceCard,
+    adjustmentQuestion,
+    adjustmentCard,
+    kit.question('¿Querés ajustar descuentos o redondeo?', `Si no los usás, dejalos como están: no cambian ${closed ? 'el precio sugerido' : 'la tarifa sugerida'}.`, { level: 3 }),
+    pricingOptions,
+    showCommercial ? commercialCard : null,
+    legacyShown ? kit.question('Cargado antes', 'Esta cotización ya tenía estos cobros: se siguen cobrando igual. Las cotizaciones nuevas no los ofrecen.', { level: 3 }) : null,
+    legacyShown ? legacySlot : null,
+  );
   return { update() {} };
 }

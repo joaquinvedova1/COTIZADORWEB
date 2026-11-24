@@ -590,7 +590,7 @@ export function createExtra({ id = createId(), label = 'Adicional', unitName = '
  *     y se leía como "personal y equipos" (aparecía "Equipo o maquinaria" marcado y
  *     faltaban $/viaje y $/km al sumar un vehículo). Al sumar Vehículo o Equipo en
  *     "¿Qué incluye?" aparecen sus unidades.
- *   - Disponibilidad sin definir (no 24/7 escondida): se elige en "Cómo se cobra",
+ *   - Disponibilidad sin definir (no 24/7 escondida): se elegía en "Cómo se cobra" (hasta 0.23.0),
  *     junto a los días. No mueve ningún número (sólo el aviso de relevos, que pide 24/7).
  * Las cotizaciones guardadas sin contrato siguen leyéndose como antes (legacy).
  */

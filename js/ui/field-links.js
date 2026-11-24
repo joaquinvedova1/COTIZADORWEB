@@ -38,17 +38,25 @@ const GUARD_FIELDS = new Set(['availability', 'availabilityHoursPerDay', 'availa
 export function stepOfPath(path) {
   const p = String(path || '');
   const head = p.split('.')[0];
-  if (p === 'pricing.knownRate') return 'modality';
-  // 0.20.0: el ritmo de trabajo se carga en el paso 1, con la unidad; la guardia, en "Cómo se cobra".
-  if (head === 'activity') return GUARD_FIELDS.has(p.split('.')[1]) ? 'modality' : 'service';
+  // 0.24.0: "Cómo se cobra" se disolvió. El ritmo de trabajo y la unidad, en el paso 1; la guardia
+  // cargada antes, en "El precio".
+  if (head === 'activity') {
+    const key = p.split('.')[1];
+    if (GUARD_FIELDS.has(key)) return 'margin';
+    // ¿Cómo viaja el personal a la locación? (cobro por mes): en "Movilización y viajes".
+    if (key === 'travelPattern') return 'logistics';
+    return 'service';
+  }
   switch (head) {
-    case 'pricingMode':
     case 'unit':
-    // Adicionales y horas fuera de horario se cargan en "Cómo se cobra" (V-09).
-    case 'extras':
-    // Horas extra del trabajo (2026-11-18): se eligen en "Cómo se cobra".
+      return 'service';
+    // Horas extra del trabajo: al final de "Personal".
     case 'overtimeWork':
-      return 'modality';
+      return 'labor';
+    // Precio a mano, modo guardado y adicionales cargados antes: en "El precio".
+    case 'pricingMode':
+    case 'extras':
+      return 'margin';
     case 'labor':
     // Personal tercerizado (0.15.0): se carga en el paso de Personal.
     case 'contractedStaff':

@@ -62,10 +62,10 @@ test('por tiempo usado: un vehículo agregado desde Recursos queda con las horas
   assert.equal(parked.variablePerActiveDay, 0);
 });
 
-test('el ritmo se carga en el paso 1; la guardia sigue en "Cómo se cobra"', () => {
+test('el ritmo se carga en el paso 1; la guardia cargada antes y el precio a mano, en "El precio" (0.24.0)', () => {
   ['activeDaysPerMonth', 'billableQuantityPerMonth', 'unitsPerActiveDay', 'hoursPerActiveDay', 'daysPerActivation'].forEach((k) => assert.equal(stepOfPath(`activity.${k}`), 'service', k));
-  ['availability', 'availabilityHoursPerDay', 'guardType'].forEach((k) => assert.equal(stepOfPath(`activity.${k}`), 'modality', k));
-  assert.equal(stepOfPath('pricing.knownRate'), 'modality');
+  ['availability', 'availabilityHoursPerDay', 'guardType'].forEach((k) => assert.equal(stepOfPath(`activity.${k}`), 'margin', k));
+  assert.equal(stepOfPath('pricing.knownRate'), 'margin');
 });
 
 test('una cifra del mes se dice primero en la unidad de cobro', () => {

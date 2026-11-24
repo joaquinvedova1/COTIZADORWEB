@@ -15,6 +15,7 @@ import {
 import { BILLING_UNITS } from '../../../js/domain/billing-units.js';
 import { MATERIAL_TYPE_IDS } from '../../../js/domain/material-types.js';
 import { LABOR_ASSIGNMENTS, EQUIPMENT_ASSIGNMENTS } from '../../../js/domain/assignment.js';
+import { QUOTE_STEPS } from '../../../js/domain/catalogs.js';
 
 const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
 const isExt = (e) => e.acquisition === 'rented' || e.acquisition === 'outsourced';
@@ -189,4 +190,21 @@ export function computeCoverage(scenarios) {
     groups.set(key, g);
   }
   return { ok: missing.length === 0, rows, missing, summary: [...groups.values()] };
+}
+
+/**
+ * Pasos de la completitud (PLAN-2026-028, 0.24.0): todo ítem y todo aviso apunta a uno de los 10
+ * pasos de QUOTE_STEPS ("Cómo se cobra" ya no existe). Devuelve los que no.
+ * @param {{ id: string, result: object }[]} runs
+ */
+export function itemStepsOutside(runs) {
+  const steps = new Set(QUOTE_STEPS.map((s) => s.id));
+  const out = [];
+  for (const { id, result } of runs) {
+    const comp = (result && result.completeness) || {};
+    [...(comp.items || []), ...(comp.notices || [])].forEach((i) => {
+      if (i && i.step !== undefined && !steps.has(i.step)) out.push(`${id}: ${i.id} → ${i.step}`);
+    });
+  }
+  return out;
 }

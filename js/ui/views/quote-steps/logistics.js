@@ -36,6 +36,7 @@ import { billingUnitOf } from '../../../domain/billing-units.js';
 import { transportOf, providerActivityList, routeText, tripsText } from './transport.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 import { closedJobsPerMonth, unitAmountText, costPlaceLabel } from '../../result-text.js';
+import { render as renderCharge } from './modality.js';
 
 /**
  * Texto que va EN LUGAR del campo "Consumo en ruta" de un equipo que llega por
@@ -482,7 +483,7 @@ export function render(container, ctx) {
         kit.num('logistics.distanceKm', { label: 'Distancia (una vía)', rule: 'distance', unit: 'km' }),
       ),
       kit.out((r) => routeText(transportOf(r)), { tag: 'p', className: 'small muted qe-route-line', allowEmpty: true }),
-      // "Viajes y km del mes" no va acá: los viajes se cargan en "Cómo se cobra" (etapa 3) y en
+      // "Viajes y km del mes" no va acá: los viajes se cargan en "El servicio" y en
       // esta etapa se veían en 0. Los km y litros siguen en "Ver detalle de kilómetros y litros".
     );
 
@@ -855,6 +856,9 @@ export function render(container, ctx) {
       h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, 'En la estructura de costos, el combustible de la movilización y de los viajes se informa en "Combustible" y el resto (desgaste, peajes, viáticos) en "Logística". Cada costo está en un solo lugar.')),
     );
 
-  mount(container, toggleCard, routeCard, mobilizationCard, vehiclesCard, lodgingCard, fuelCard, advancedCard, keyline, resultsDetail);
+  // 0.24.0 (PLAN-2026-028): "¿Cómo viaja el personal a la locación?" (cobro por mes), antes en "Cómo se cobra".
+  const travelSlot = h('div', { class: 'qe-travel-slot' });
+  renderCharge(travelSlot, { ...ctx, part: 'travel' });
+  mount(container, toggleCard, routeCard, travelSlot.dataset.empty === 'true' ? null : travelSlot, mobilizationCard, vehiclesCard, lodgingCard, fuelCard, advancedCard, keyline, resultsDetail);
   return { update() {} };
 }

@@ -311,7 +311,7 @@ describe('V-01 — dedicación: "Sí" sólo si alguien lo eligió', () => {
     const n = absorbed(12);
     assert.ok(n);
     assert.match(n.message, /^Trabajás 12 de 30 días disponibles/);
-    assert.match(n.message, /elegí "No, también hacen otros trabajos" en "Cómo se cobra"\.$/);
+    assert.match(n.message, /elegí "Una parte de su mes" en la persona \(o «Compartido» en el equipo\)\.$/);
     assert.ok(n.amount > 0);
   });
 
@@ -327,9 +327,10 @@ describe('V-01 — dedicación: "Sí" sólo si alguien lo eligió', () => {
 });
 
 describe('PLAN-2026-025 — orden de pasos', () => {
-  test('los recursos van antes que "Cómo se cobra"', () => {
+  test('los recursos van antes que el precio (0.24.0: sin "Cómo se cobra")', () => {
     const ids = QUOTE_STEPS.map((s) => s.id);
-    assert.deepEqual(ids.slice(0, 6), ['service', 'labor', 'equipment', 'materials', 'logistics', 'modality']);
+    assert.deepEqual(ids.slice(0, 6), ['service', 'labor', 'equipment', 'materials', 'logistics', 'indirect']);
+    assert.ok(!ids.includes('modality'));
     assert.equal(ids[ids.length - 1], 'result');
   });
 });

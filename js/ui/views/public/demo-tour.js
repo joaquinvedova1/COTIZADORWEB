@@ -235,7 +235,7 @@ export async function render(root, app) {
     const lg = quote.logistics || {};
     const route = lg.baseName && lg.destinationName ? `${lg.baseName} → ${lg.destinationName}${isFiniteNumber(lg.distanceKm) && lg.distanceKm > 0 ? ` · ${formatNumber(lg.distanceKm)} km` : ''}` : EMPTY;
     const facts = [
-      ['Cómo se cobra', chargeText(result.unit)],
+      ['Unidad de cobro', chargeText(result.unit)],
       ['Disponibilidad', a.availability === '24/7' ? '24 horas, todos los días' : 'Todo el mes'],
       ['Horas por día', isFiniteNumber(a.hoursPerActiveDay) && a.hoursPerActiveDay > 0 ? `${formatNumber(a.hoursPerActiveDay)} h por día de trabajo` : EMPTY],
       ['Horas extra', overtimeFact(quote, a)],

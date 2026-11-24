@@ -44,10 +44,11 @@ describe('describeLocation', () => {
 });
 
 describe('¿En qué paso fue?', () => {
-  test('ofrece los 11 pasos y dos opciones generales; sugiere el paso actual', () => {
+  test('ofrece los 10 pasos y dos opciones generales; sugiere el paso actual', () => {
     const opts = stepOptions();
-    assert.equal(opts.length, 13);
-    assert.equal(opts[1].value, 'Personal'); // los recursos van antes que "Cómo se cobra" (PLAN-2026-025)
+    // 0.24.0 (PLAN-2026-028): sin "Cómo se cobra"; la lista sale de QUOTE_STEPS.
+    assert.equal(opts.length, 12);
+    assert.equal(opts[1].value, 'Personal'); // los recursos van antes que el precio (PLAN-2026-025)
     assert.equal(defaultStep(describeLocation(matchRoute('#/cotizaciones/q_1/labor'))), 'Personal');
     assert.equal(defaultStep(describeLocation(matchRoute('#/configuracion/convenios'))), STEP_OTHER);
     assert.equal(defaultStep(describeLocation(matchRoute('#/'))), STEP_GENERAL);

@@ -176,7 +176,8 @@ describe('U8–U12 · textos', () => {
     const m = code('js/ui/views/quote-steps/modality.js');
     assert.match(m, /¿Qué cubre la tarifa del mes\?/);
     assert.match(m, /Cobrás una tarifa por mes: un solo precio\./);
-    assert.match(code('js/ui/views/quotes-list.js'), /'Horario normal, cuánto esperás trabajar y si lleva horas extra\.'/);
+    // 0.24.0: sin etapa "Cómo se cobra"; el ritmo se dice en "El servicio".
+    assert.match(code('js/ui/views/quotes-list.js'), /'Qué servicio vas a prestar, en qué unidad le cobrás al cliente y cuánto esperás trabajar\.'/);
   });
 
   test('U12: resumen de "Insumos y materiales" con un renglón por tipo con monto', () => {

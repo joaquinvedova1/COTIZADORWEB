@@ -284,6 +284,9 @@ export function auditTerminology() {
   for (const hit of retiredMaterialLabels()) {
     findings.push(finding('UX-TERM-MATERIALS', 'P1', 'P1 UX', 'Rótulo retirado de "Insumos y materiales"', `${hit.file}: ${hit.text} — desde 0.22.0 la sección es "Insumos y materiales", los otros costos guardados son "Gastos cargados antes" y no hay "Va a" (o agregarlo a MATERIAL_LABELS_ALLOWED con su motivo).`, hit));
   }
+  for (const hit of retiredStepNames()) {
+    findings.push(finding('UX-TERM-STEP', 'P1', 'P1 UX', 'Texto que cita el paso retirado "Cómo se cobra"', `${hit.file}: ${hit.text} — desde 0.24.0 no hay paso "Cómo se cobra": el ritmo está en "El servicio", las horas extra en "Personal" y el precio a mano en "El precio" (o agregarlo a STEP_NAMES_ALLOWED con su motivo).`, hit));
+  }
   for (const hit of jornadaWords()) {
     findings.push(finding('UX-TERM-JORNADA', 'P1', 'P1 UX', 'Texto que habla de "jornada" sin un dato de jornada diaria', `${hit.file}: ${hit.text} — el control de horas del personal es de cobertura mensual: "horas de cobertura" / "horas cargadas para este puesto".`, hit));
   }
@@ -364,6 +367,27 @@ export const MATERIAL_LABELS_ALLOWED = Object.freeze({
   // Otro hilo (modalidad y alcance) trabaja este archivo: PLAN-2026-027, riesgo 7.
   'ui/views/quote-steps/modality.js': ["'Materiales'"],
 });
+
+/**
+ * Paso retirado (PLAN-2026-028, 0.24.0): "Cómo se cobra" se disolvió en El servicio, Personal,
+ * Movilización y viajes y El precio. Ningún literal de js/ (sin comentarios) lo nombra, salvo los
+ * de STEP_NAMES_ALLOWED (archivo → textos exactos), cada uno con su motivo.
+ */
+const RETIRED_STEP_NAME = /c[oó]mo se cobra/i;
+export const STEP_NAMES_ALLOWED = Object.freeze({});
+
+/** Literales de js/ que citan "Cómo se cobra" fuera de la lista permitida. */
+export function retiredStepNames() {
+  const hits = [];
+  for (const { rel, literals } of jsLiterals()) {
+    const allowed = STEP_NAMES_ALLOWED[rel] || [];
+    for (const lit of literals) {
+      if (!RETIRED_STEP_NAME.test(lit) || allowed.includes(lit)) continue;
+      hits.push({ file: rel, text: lit.slice(0, 140) });
+    }
+  }
+  return hits;
+}
 
 /** Literales de la interfaz (js/ui y catálogos) con un rótulo retirado de "Insumos y materiales". */
 export function retiredMaterialLabels() {

@@ -32,8 +32,8 @@ export function assignmentSummary(line, kind) {
   if (!line) return '';
   const fixedWord = kind === 'labor' ? 'su costo fijo' : 'sus costos fijos';
   if (!line.shared) {
-    // Sin respuesta todavía: lo mismo que dice "Cómo se cobra" ("Todavía no elegiste").
-    if (!line.assignment) return 'Sin elegir: por ahora paga el 100 % (se elige en "Cómo se cobra").';
+    // Sin respuesta todavía (0.24.0: se elige acá, en la línea).
+    if (!line.assignment) return 'Sin elegir: por ahora paga el 100 % (se elige acá).';
     if (line.assignment === 'hired') return `Contratada específicamente para este servicio: 100 % de ${fixedWord}.`;
     return kind === 'labor' ? `Dedicada a este servicio: 100 % de ${fixedWord}.` : `Reservado para este servicio: 100 % de ${fixedWord}.`;
   }

@@ -70,7 +70,6 @@ import { logger } from '../../core/logger.js';
 import { netRateHint, floorDisplay, floorRateTrace, targetRateTrace, unitShortOf, stepName } from './quote-steps/shared.js';
 
 import * as serviceStep from './quote-steps/service.js';
-import * as modalityStep from './quote-steps/modality.js';
 import * as laborStep from './quote-steps/labor.js';
 import * as equipmentStep from './quote-steps/equipment.js';
 import * as materialsStep from './quote-steps/materials.js';
@@ -83,7 +82,6 @@ import { createDraftStore, isFreshQuote, onSessionReset } from '../session-memor
 
 const STEP_MODULES = Object.freeze({
   service: serviceStep,
-  modality: modalityStep,
   labor: laborStep,
   equipment: equipmentStep,
   materials: materialsStep,
@@ -120,8 +118,8 @@ function defineStage(id, label, short, stepIds) {
 export const STAGES = Object.freeze([
   defineStage('service', 'El servicio', 'Servicio', ['service']),
   defineStage('resources', 'Los recursos', 'Recursos', ['labor', 'equipment', 'materials', 'logistics']),
-  // Cómo se cobra va DESPUÉS de los recursos (PLAN-2026-025): primero cuánto cuestan, después la tarifa.
-  defineStage('charge', 'Cómo se cobra', 'Cobro', ['modality']),
+  // 0.24.0 (PLAN-2026-028): "Cómo se cobra" se disolvió. El ritmo va en El servicio, las horas extra
+  // en Personal, los viajes del personal en Movilización y viajes y el precio a mano en El precio.
   defineStage('conditions', 'Otros gastos', 'Gastos', ['indirect', 'finance', 'risk']),
   defineStage('price', 'El precio', 'Precio', ['margin']),
   defineStage('result', 'Resultado', 'Resultado', ['result']),
@@ -162,10 +160,6 @@ export function stepShortLabel(stepId) {
 export const STEP_COPY = Object.freeze({
   service: {
     question: '¿Qué servicio vas a cotizar?',
-    why: '',
-  },
-  modality: {
-    question: '¿Cómo lo vas a cobrar?',
     why: '',
   },
   labor: {
@@ -316,8 +310,7 @@ export function stepStatus(stepId, result) {
     if (counts.warning > 0) return 'orange';
     return items.length ? 'green' : 'gray';
   }
-  // El ítem "modality" también valida el tipo de servicio: cuenta en ambos pasos.
-  const own = items.filter((i) => stepOfItem(i) === stepId || (stepId === 'service' && i.id === 'modality'));
+  const own = items.filter((i) => stepOfItem(i) === stepId);
   const issues = (result.issues || []).filter((i) => stepOfPath(i.path) === stepId);
   if (own.some((i) => i.status === 'missing') || issues.some((i) => i.severity === 'error')) return 'red';
   if (own.some((i) => i.status === 'warning') || issues.length > 0) return 'orange';
@@ -991,7 +984,7 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
 function commercialRateTrace(r) {
   const k = r.kpis;
   const sourceLabel = {
-    known_rate: `Tu tarifa (la cargaste en "${stepName('modality')}")`,
+    known_rate: `Tu tarifa (la cargaste en "${stepName('margin')}")`,
     offered: `Tarifa ofrecida a mano (en "${stepName('margin')}")`,
     suggested: 'Sugerida: precio objetivo redondeado hacia arriba',
     override: 'Tarifa forzada',
@@ -1102,7 +1095,7 @@ function rateHint(r) {
   let text;
   switch (k.commercialSource) {
     case 'known_rate':
-      text = `La ingresaste en "${stepName('modality')}".`;
+      text = `La ingresaste en "${stepName('margin')}".`;
       break;
     case 'offered':
       text = `La cargaste a mano en "${stepName('margin')}".`;
@@ -1114,7 +1107,7 @@ function rateHint(r) {
       text = `Para ganar ${formatPercent(r.kpis.targetMarginPct)} de margen, redondeada hacia arriba.`;
       break;
     default:
-      if (r.pricingMode === 'known_rate') text = `Falta ingresar tu tarifa en "${stepName('modality')}".`;
+      if (r.pricingMode === 'known_rate') text = `Falta ingresar tu precio en "${stepName('margin')}".`;
       else if (k.targetMarginInvalid) {
         text = deductedPct(k) > 0
           ? `Sin tarifa sugerida: ${marginLimitText(k)}. Bajalo en "El precio".`
@@ -1734,8 +1727,8 @@ export function pendingFieldPath(item, quote) {
  * @param {{ getQuote?: Function, onReveal?: Function, onFocusField?: Function, hasField?: Function, stepHref?: Function, didactic?: boolean }} options
  */
 /**
- * ¿"Cómo se cobra" tiene datos distintos de los con que nace la cotización? (revisión UX tanda
- * novatos). Precio cerrado nace con 1 trabajo de 1 día: eso solo no cuenta como cargado.
+ * ¿El ritmo de trabajo (paso 1) tiene datos distintos de los con que nace la cotización? (revisión
+ * UX tanda novatos). Precio cerrado nace con 1 trabajo de 1 día: eso solo no cuenta como cargado.
  */
 function chargeLoaded(quote) {
   const a = isPlainObject(quote) && isPlainObject(quote.activity) ? quote.activity : {};
@@ -1802,7 +1795,7 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
       const issues = (result.issues || []).filter((i) => stepOfPath(i.path) === stepId);
       // Avisos informativos de la tanda A 2026-11 (A-15): no restan puntaje, pero cambian
       // la decisión de precio; se ven en su paso (y en el Resultado), en azul.
-      // "Costos fijos del mes en el precio" en Personal / Equipos: sólo cuando "Cómo se cobra" ya
+      // "Costos fijos del mes en el precio" en Personal / Equipos: sólo cuando el ritmo de trabajo ya
       // tiene datos de la persona (revisión UX): antes salía con los valores con que nace la cotización.
       const early = (n) => n.id === 'fixed_costs_absorbed' && (stepId === 'labor' || stepId === 'equipment') && !chargeReady(quote);
       const infos = ((result.completeness && result.completeness.notices) || []).filter((n) => STEP_NOTICE_IDS.has(n.id) && (n.step === stepId || (Array.isArray(n.targets) && n.targets.some((t) => t && t.list === stepId))) && !early(n));
@@ -2272,8 +2265,6 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   let copy = stepId === 'labor' && noLaborProfiles ? { ...baseCopy, why: LABOR_WHY_EMPTY } : baseCopy;
   // Precio cerrado: en "El precio" se calcula tu precio, no una tarifa.
   if (stepId === 'margin' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: copy.why.replace('tarifa', 'precio') };
-  // Precio cerrado en "Cómo se cobra": cuánto lleva el trabajo y "tu precio" (revisión UX tanda novatos).
-  if (stepId === 'modality' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: '' };
 
   markVisited(quoteId, stepId);
   const stageBar = buildStageBar({ currentStep: stepId, stepHref, quoteId, isHidden: (id) => isStepHidden(id, state.quote) });
@@ -2296,7 +2287,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
     stepHref,
     didactic: state.quote.illustrative === true,
-    chargeReady: (q) => wasVisited(quoteId, 'modality') || chargeLoaded(q),
+    chargeReady: (q) => chargeLoaded(q),
   });
   const calcErrorBanner = banner('No se pudieron recalcular los resultados con los datos actuales. Revisá los valores ingresados.', 'danger', { title: 'Error de cálculo.' });
   calcErrorBanner.hidden = true;
@@ -3104,6 +3095,14 @@ export async function render(root, app, params = {}) {
   const token = ++renderSequence;
   const id = params && typeof params.id === 'string' ? params.id : '';
   const requested = params && typeof params.step === 'string' && params.step !== '' ? params.step : null;
+  // 0.24.0 (PLAN-2026-028): el paso "Cómo se cobra" (…/modality) ya no existe. Un enlace guardado
+  // abre "El precio" (con su "?campo=…", si lo tenía).
+  if (requested === 'modality' && id && app && typeof app.navigate === 'function') {
+    const hash = typeof window !== 'undefined' && window.location ? String(window.location.hash || '') : '';
+    const at = hash.indexOf('?');
+    app.navigate(`#/cotizaciones/${encodeURIComponent(id)}/margin${at >= 0 ? hash.slice(at) : ''}`, { replace: true });
+    return undefined;
+  }
   const validStep = requested !== null && QUOTE_STEPS.some((s) => s.id === requested);
 
   // Paso inexistente en la URL (p. ej. …/foo): se corrige la URL al primer

@@ -68,11 +68,10 @@ describe('paso 1: primero la unidad', () => {
     assert.doesNotMatch(unitChoice, /Otra unidad…|choiceGroup|'Por unidad'/);
     assert.match(unitChoice, /searchSelectField/);
     [service, unitChoice].forEach((s) => assert.doesNotMatch(s, /Fijo mensual|on call|Por servicio prestado|Precio cerrado/));
-    // "Cómo se cobra" ya no tiene el selector de unidad: sólo dice cuál es y lleva al paso 1.
+    // 0.24.0: "Cómo se cobra" ya no es un paso; modality.js no tiene selector de unidad.
     const modality = code('js/ui/views/quote-steps/modality.js');
     assert.doesNotMatch(modality, /¿En qué unidad cobrás\?/);
     assert.doesNotMatch(modality, /¿Cómo se llama tu unidad\?/);
-    assert.match(modality, /Se cambia en «/);
   });
 });
 

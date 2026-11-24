@@ -527,11 +527,12 @@ function sameNumber(a, b) {
 
 /**
  * Paso del editor donde se corrige un ítem de completitud. La actividad
- * estimada se carga en "Cómo se cobra" (igual criterio que el editor).
+ * estimada se carga en "El servicio" y el precio a mano en "El precio" (0.24.0).
  */
 function stepForItem(item) {
   if (!item) return 'service';
-  if (item.id === 'utilization' || item.id === 'rate') return 'modality';
+  if (item.id === 'utilization') return 'service';
+  if (item.id === 'rate') return 'margin';
   return QUOTE_STEPS.some((st) => st.id === item.step) ? item.step : 'service';
 }
 
@@ -540,7 +541,7 @@ function stepHref(quote, step) {
   return `#/cotizaciones/${id}/${step}`;
 }
 
-/** Nombre del paso del editor: QUOTE_STEPS es la única fuente ("Cómo se cobra", "Margen y precio"…). */
+/** Nombre del paso del editor: QUOTE_STEPS es la única fuente ("El servicio", "El precio"…). */
 function stepLabel(step) {
   return labelOf(QUOTE_STEPS, step, 'Paso');
 }
@@ -1205,7 +1206,7 @@ function criticalAlerts(v) {
   const unitIssues = (Array.isArray(r.issues) ? r.issues : []).filter(unitIssue);
   if (unitIssues.length) {
     out.push(alertLine(unitIssues.some((i) => i.severity === 'error') ? 'danger' : 'warning', 'Revisá cómo cobrás.', unitIssues.map((i) => String(i.message || '')).join(' '),
-      stepLink(v.q, 'modality', `Ir a "${stepLabel('modality')}"`)));
+      stepLink(v.q, 'service', `Ir a "${stepLabel('service')}"`)));
   }
   // Avisos de adicionales (V-09): no reemplazan ningún valor, van en su propia lista.
   const extraIssues = (Array.isArray(r.issues) ? r.issues : []).filter(isExtrasIssue);
@@ -1214,7 +1215,7 @@ function criticalAlerts(v) {
       h('div', {},
         h('strong', {}, 'Adicionales para revisar:'),
         h('ul', {}, ...extraIssues.slice(0, 6).map((i) => h('li', {}, String(i.message || '')))),
-        stepLink(v.q, 'modality', `Ir a "${stepLabel('modality')}"`))));
+        stepLink(v.q, 'margin', `Ir a "${stepLabel('margin')}"`))));
   }
   const alerted = (i) => String(i.path || '').startsWith('billingTaxes') || (k.targetMarginInvalid && i.path === 'pricing.targetMarginPct') || unitIssue(i) || isExtrasIssue(i);
   const issues = (Array.isArray(r.issues) ? r.issues : []).filter((i) => !alerted(i));
@@ -1265,7 +1266,7 @@ function heroKnownRate(v) {
 
   let sentence;
   if (!rateOk) {
-    sentence = h('p', { class: 'qr-lead' }, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), ' para ver los días mínimos y el resultado.');
+    sentence = h('p', { class: 'qr-lead' }, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'margin', `Cargala en ${stepLabel('margin')}`), ' para ver los días mínimos y el resultado.');
   } else if (isMonth) {
     sentence = h('p', { class: 'qr-lead' },
       `Cotizás una tarifa del mes de ${rate(k.commercialListRate, v.unitLabel)}: la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. `,
@@ -1727,7 +1728,7 @@ function priceStat(v) {
     return statItem({
       label: 'Tu tarifa',
       value: EMPTY,
-      hint: statHint(h('span', {}, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), '.')),
+      hint: statHint(h('span', {}, 'Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'margin', `Cargala en ${stepLabel('margin')}`), '.')),
       className: 'qr-stat qr-stat-price',
     });
   }
@@ -1833,7 +1834,7 @@ function noRateContent(v) {
   const { r, k, q } = v;
   const need = byQty(v) ? `${unitTextsOf(r).cuantos} ${r.unitInfo.plural} necesitás facturar` : 'cuántos días necesitás trabajar';
   if (r.pricingMode === 'known_rate') {
-    return ['Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'modality', `Cargala en ${stepLabel('modality')}`), ` para saber ${need}.`];
+    return ['Todavía no cargaste la tarifa que vas a ofrecer. ', stepLink(q, 'margin', `Cargala en ${stepLabel('margin')}`), ` para saber ${need}.`];
   }
   if (!(k.activeDays > 0)) {
     return [byQty(v) ? `Falta saber ${unitTextsOf(r).cuantos} ${r.unitInfo.plural} por mes esperás facturar (y cuánto hacés por día de trabajo). ` : 'Falta saber cuántos días por mes esperás trabajar y facturar. ', stepLink(q, 'service', `Cargalo en ${stepLabel('service')}`), '.'];

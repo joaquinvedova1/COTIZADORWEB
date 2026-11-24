@@ -153,7 +153,7 @@ export const E2E_SCENARIOS = [
       equipment: [external({ name: 'Camión' }, { price: 3250, unit: 'km', fuelIncluded: true })], logistics: route({ destinationName: 'Añelo', tripsPerActivation: 2 }) }),
   },
   {
-    id: 'E2E-16', title: 'D8: on-call: la activación se llama "llamado" en "Cómo se cobra"',
+    id: 'E2E-16', title: 'D8: on-call: la activación se llama "llamado" en "El servicio"',
     build: () => service({ id: 'lab-e16', serviceType: 'on_call', unit: 'day', activity: { activeDaysPerMonth: 5, daysPerActivation: 2 }, labor: [person({ peoplePerPosition: 2 })], logistics: route({ distanceKm: 80, tollsPerActivation: 12000 }) }),
   },
   // ---- ECO-01 (AUD-T1 H-01, H-02, H-03): los avisos nuevos llevan a su campo y las cifras son las del motor.
@@ -216,6 +216,27 @@ export const E2E_SCENARIOS = [
       materials: [material({ description: 'Electrodos', component: 'supplies', basis: 'per_active_day', quantity: 2, unitCost: 9000 })],
       otherCosts: [otherCost({ description: 'Seguro de vida obligatorio', category: 'labor', behavior: 'fixed_monthly', amount: 90000 })],
     }),
+  },
+  // ---- 0.24.0 "Menos preguntas" (PLAN-2026-028, PR 1): sin el paso "Cómo se cobra".
+  {
+    id: 'E2E-26', title: 'Sin "Cómo se cobra": 5 etapas y un enlace viejo …/modality abre "El precio"',
+    build: () => service({ id: 'lab-e26', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()] }),
+  },
+  {
+    id: 'E2E-27', title: 'Un solo campo de precio a mano: cotización "ya tengo la tarifa" sembrada con $ 1.500.000 por día',
+    build: () => service({ id: 'lab-e27', serviceType: 'crew', unit: 'day', pricingMode: 'known_rate', activity: { activeDaysPerMonth: 12 }, labor: [person()], pricing: { knownRate: 1500000 } }),
+  },
+  {
+    id: 'E2E-28', title: 'Guardia en una franja cargada antes: se ve en "El precio" y la franja lleva a sus horas',
+    build: () => service({ id: 'lab-e28', serviceType: 'on_call', unit: 'hour', activity: { activeDaysPerMonth: 8, daysPerActivation: 1, hoursPerActiveDay: 10, availability: 'window', availabilityHoursPerDay: 8, guardType: 'passive' }, labor: [person({ role: 'Técnico de guardia' })] }),
+  },
+  {
+    id: 'E2E-29', title: 'Horas extra del trabajo: el campo se carga al final de "Personal"',
+    build: () => {
+      const q = service({ id: 'lab-e29', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, labor: [person({ role: 'Soldador' })] });
+      q.overtimeWork = { mode: 'some', hours50: 2, hours100: 0 };
+      return q;
+    },
   },
 ];
 
@@ -414,9 +435,10 @@ async function runMode(mode) {
     await scan(s.id, 'resultado');
     if (args.shots) await page.screenshot({ path: path.join(outDir, `${mode}-${s.id}-resultado.png`), fullPage: true });
     if (args.shots) {
-      await go(`#/cotizaciones/${encodeURIComponent(q.id)}/modality`, 600);
+      // 0.24.0: sin "Cómo se cobra"; la captura del precio va a "El precio".
+      await go(`#/cotizaciones/${encodeURIComponent(q.id)}/margin`, 600);
       await page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
-      await page.screenshot({ path: path.join(outDir, `${mode}-${s.id}-cobro.png`), fullPage: true });
+      await page.screenshot({ path: path.join(outDir, `${mode}-${s.id}-precio.png`), fullPage: true });
     }
 
     // PDF: el Resultado se exporta con "Imprimir / Guardar como PDF" (estilos de impresión).
@@ -678,6 +700,51 @@ async function runMode(mode) {
     check('E2E-25', 'el paso muestra "Gastos cargados antes" con el gasto y dónde suma', t.includes('Gastos cargados antes') && t.includes('Suma en: Personal (cargado antes)'), 'no aparece el bloque');
     const move = await page.evaluate(() => [...document.querySelectorAll('.qe-legacy-costs button')].filter((b) => /Pasar a la lista/.test(b.textContent)).length);
     check('E2E-25', 'un gasto que suma en Personal no se puede "Pasar a la lista"', move === 0, `${move} botones`);
+  }
+  // ---- 0.24.0 (PLAN-2026-028, PR 1): "Cómo se cobra" se disolvió.
+  {
+    const qid = byId['E2E-26'].q.id;
+    await screenText('E2E-26', 'service');
+    const stages = await page.evaluate(() => [...document.querySelectorAll('.qe-stage .qe-stage-label')].map((n) => n.textContent.trim()));
+    check('E2E-26', '5 etapas: El servicio, Los recursos, Otros gastos, El precio, Resultado', stages.join('|') === 'El servicio|Los recursos|Otros gastos|El precio|Resultado', stages.join(' · '));
+    await go(`#/cotizaciones/${encodeURIComponent(qid)}/modality`, 900);
+    const at = await page.evaluate(() => ({ hash: window.location.hash, current: (document.querySelector('.qe-stage.is-current .qe-stage-label') || {}).textContent || '' }));
+    check('E2E-26', 'un enlace viejo …/modality abre "El precio"', /\/margin$/.test(at.hash) && at.current.trim() === 'El precio', JSON.stringify(at));
+  }
+  {
+    const { q, r } = byId['E2E-27'];
+    let count = 0;
+    const where = [];
+    for (const step of ['service', 'labor', 'equipment', 'materials', 'logistics', 'indirect', 'finance', 'risk', 'margin']) {
+      await screenText('E2E-27', step);
+      const n = await page.evaluate(() => document.querySelectorAll('[name="pricing.knownRate"], [name="pricing.offeredRateOverride"]').length);
+      count += n;
+      if (n) where.push(`${step}: ${n}`);
+    }
+    check('E2E-27', 'un solo campo de precio a mano en toda la cotización (en "El precio")', count === 1 && where[0] === 'margin: 1', where.join(' · ') || 'ninguno');
+    await screenText('E2E-27', 'margin');
+    const field = await page.evaluate(() => {
+      const el = document.querySelector('[name="pricing.knownRate"]');
+      return { value: el ? el.value : null, reset: [...document.querySelectorAll('button')].some((b) => /Borrar mi precio y usar el sugerido/.test(b.textContent)) };
+    });
+    check('E2E-27', 'la cotización "ya tengo la tarifa" muestra su precio en el campo y el botón para usar el sugerido', norm(field.value).replace(/\D/g, '') === String(q.pricing.knownRate) && field.reset, JSON.stringify(field));
+    check('E2E-27', 'el motor usa ese precio', r.kpis.commercialSource === 'known_rate' && r.kpis.commercialListRate === q.pricing.knownRate, `${r.kpis.commercialSource} ${r.kpis.commercialListRate}`);
+  }
+  {
+    const { q } = byId['E2E-28'];
+    const t = await screenText('E2E-28', 'margin');
+    check('E2E-28', 'la guardia cargada antes se ve en "El precio"', t.includes('Guardia (cargada antes)') && t.includes('Detalle de la guardia') && t.includes('Cargado antes'), 'no aparece la guardia');
+    await go(fieldHref(q.id, 'activity.availabilityHoursPerDay').replace(/^.*#/, '#'), 600);
+    const f = await waitFocus('activity.availabilityHoursPerDay');
+    check('E2E-28', '"Ir al campo" de la franja enfoca las horas de guardia por día', f.name === 'activity.availabilityHoursPerDay' && f.inView, JSON.stringify(f));
+  }
+  {
+    const { q } = byId['E2E-29'];
+    const href = fieldHref(q.id, 'overtimeWork.hours50');
+    check('E2E-29', 'el enlace de las horas extra va a "Personal"', /\/labor\?campo=overtimeWork\.hours50$/.test(href), href);
+    await go(href.replace(/^.*#/, '#'), 600);
+    const f = await waitFocus('overtimeWork.hours50');
+    check('E2E-29', 'el foco de overtimeWork.* cae en "Personal"', f.name === 'overtimeWork.hours50' && f.inView, JSON.stringify(f));
   }
   {
     const pr = computeProduct(structuredClone(prod));

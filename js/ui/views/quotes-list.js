@@ -16,7 +16,7 @@ import { h, s, mount, debounce, uniqueId } from '../dom.js';
 import { actionToast, badge, banner, button, card, confirmDialog, disclosure, emptyState, icon, linkButton, openDialog, pageIntro, progressBar, table } from '../components.js';
 import { formatDateTime, formatDays, formatMoney, formatPercent, formatPeriod, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
-import { PRICING_MODES, QUOTE_STATUSES, QUOTE_STEPS, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
+import { QUOTE_STATUSES, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
 import { componentsServiceLabel } from '../../domain/contract.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
@@ -42,11 +42,10 @@ export function quoteUnitShort(quote) {
 
 const STATUS_TONES = Object.freeze({ draft: 'gray', sent: 'blue', won: 'green', lost: 'red', archived: 'navy' });
 
-/** Etapas del editor (para explicar "cómo sigue" sin mostrar los 11 pasos). */
+/** Etapas del editor (para explicar "cómo sigue" sin mostrar los 10 pasos). */
 const QUOTE_STAGES = Object.freeze([
-  { title: 'El servicio', text: 'Qué servicio vas a prestar y en qué unidad le cobrás al cliente.' },
+  { title: 'El servicio', text: 'Qué servicio vas a prestar, en qué unidad le cobrás al cliente y cuánto esperás trabajar.' },
   { title: 'Los recursos', text: 'Tu gente (sueldo por mes y valor de su hora), equipos, insumos y materiales, y viajes.' },
-  { title: 'Cómo se cobra', text: 'Horario normal, cuánto esperás trabajar y si lleva horas extra.' },
   { title: 'Otros gastos', text: 'Gastos de estructura, plazo de cobro e imprevistos.' },
   { title: 'El precio', text: 'Cuánto querés ganar y tus reglas comerciales.' },
   { title: 'Resultado', text: 'Costo, tarifa mínima, tarifa sugerida y días para no perder plata.' },
@@ -86,9 +85,6 @@ export function marginTone(summary) {
 export function summaryFailed(summary) {
   return !summary || summary.error === true;
 }
-
-/** Nombre del paso "Cómo se cobra" (única fuente: QUOTE_STEPS). */
-const PRICING_STEP_LABEL = labelOf(QUOTE_STEPS, 'modality');
 
 /** Marca ILUSTRATIVO de una cotización (nunca lanza, aun con datos raros). */
 export function quoteIllustrative(quote) {
@@ -291,7 +287,6 @@ export function quoteColumns({ statusCell = null } = {}) {
           { class: 'cell-main' },
           h('a', { href: quoteHref(quote), class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
           h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${componentsServiceLabel(quote) || labelOf(SERVICE_TYPES, quote.serviceType)}`),
-          h('span', { class: 'cell-sub' }, `${PRICING_STEP_LABEL}: ${labelOf(PRICING_MODES, quote.pricingMode)}`),
           failed ? failedBadge(quote) : null,
           illustrativeQuoteTag(quote),
         );
@@ -596,7 +591,6 @@ export async function render(root, app) {
       kvList([
         ['Código', h('span', { class: 'mono' }, textOf(quote.code, EMPTY))],
         ['Servicio', componentsServiceLabel(quote) || labelOf(SERVICE_TYPES, quote.serviceType)],
-        [PRICING_STEP_LABEL, labelOf(PRICING_MODES, quote.pricingMode)],
         ['Costo del mes', failed ? EMPTY : formatMoney(summary.totalCost)],
         ['Tarifa', quoteRateNode(quote, summary)],
         ['Período de la tarifa', failed ? EMPTY : ratePeriodNode(summary.rateUpdate)],

@@ -58,7 +58,7 @@ const norm = (v) => String(v || '').trim().toLowerCase();
 
 /**
  * ¿La unidad producida de la línea es la misma en que se cobra? (vacía = sí).
- * Si es otra (p. ej. m² cobrando por viaje), la producción de "Cómo se cobra"
+ * Si es otra (p. ej. m² cobrando por viaje), la producción del ritmo de trabajo (paso 1)
  * no sirve: la línea tiene que cargar la suya.
  */
 export function outputMatchesBilling(line = {}, billingUnit = null) {

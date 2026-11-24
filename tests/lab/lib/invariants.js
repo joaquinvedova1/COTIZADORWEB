@@ -468,6 +468,29 @@ export const QUOTE_INVARIANTS = [
       return fails.length ? fail(fails.join(' | ')) : ok('mismos números');
     },
   },
+  {
+    // PLAN-2026-028 (0.24.0, P-12): un solo campo de precio a mano. Escribe en `pricing.knownRate`
+    // si la cotización es "ya tengo la tarifa" y en `pricing.offeredRateOverride` si no. Las dos
+    // formas tienen que dar los mismos números con el mismo precio X.
+    id: 'INV-33', title: 'El mismo precio a mano X como "Tu tarifa" (known_rate) o como "Tarifa ofrecida a mano" da la misma tarifa comercial, facturación, resultado, margen y equilibrio',
+    check(q, r) {
+      const X = num(r.kpis.commercialListRate) > 0 ? r.kpis.commercialListRate : num(r.kpis.suggestedListRate) > 0 ? r.kpis.suggestedListRate : 1000000;
+      const qa = clone(q);
+      qa.pricingMode = 'known_rate';
+      qa.pricing = { ...(qa.pricing || {}), knownRate: X, offeredRateOverride: null };
+      const qb = clone(q);
+      qb.pricingMode = 'known_activity';
+      qb.pricing = { ...(qb.pricing || {}), knownRate: 0, offeredRateOverride: X };
+      const a = run(qa);
+      const b = run(qb);
+      const keys = ['commercialListRate', 'commercialNetRate', 'revenue', 'profit', 'marginPct', 'markupPct', 'breakEvenDays', 'breakEvenQuantity', 'targetMarginDays', 'totalCost', 'financialCost', 'billingTaxes'];
+      const diffs = keys.map((k) => [k, a.kpis[k], b.kpis[k]])
+        .filter(([, x, y]) => !(x === y || (num(x) !== null && num(y) !== null && Math.abs(x - y) <= TOL(x))));
+      const be = (res) => (res.breakEven ? [res.breakEven.reachable, res.breakEven.notApplicable] : []);
+      if (JSON.stringify(be(a)) !== JSON.stringify(be(b))) diffs.push(['equilibrio', JSON.stringify(be(a)), JSON.stringify(be(b))]);
+      return diffs.length ? fail(`X = ${X}: ${diffs.map(([k, x, y]) => `${k} ${x} ≠ ${y}`).join('; ')}`) : ok(`X = ${X}: mismos números`);
+    },
+  },
 ];
 
 /** Copia de la cotización con D días de trabajo (o la cantidad que los produce). */

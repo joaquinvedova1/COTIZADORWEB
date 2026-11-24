@@ -1,5 +1,5 @@
 /**
- * Adicionales que se cobran aparte (PLAN-2026-018), en "Cómo se cobra".
+ * Adicionales que se cobran aparte (PLAN-2026-018). Desde 0.24.0, en "El precio" → "Cargado antes".
  *
  * Como una planilla de cotización: el ítem principal (fijo mensual, hora on
  * call, precio cerrado) y debajo los adicionales con precio unitario (hora

@@ -169,7 +169,7 @@ export function applyContractModeChange(q, fromMode, toMode, fromTerms = null) {
       const was = fromMode === 'monthly' ? 'por mes' : 'por trabajo';
       ow.hours50 = 0;
       ow.hours100 = 0;
-      notices.push(`Se borraron las horas extra del trabajo (estaban ${was}): cargalas de nuevo en "Cómo se cobra".`);
+      notices.push(`Se borraron las horas extra del trabajo (estaban ${was}): cargalas de nuevo en "Horas extra del trabajo" (al final de Personal).`);
     }
   }
   const rules = isPlainObject(q.rules) ? q.rules : null;
