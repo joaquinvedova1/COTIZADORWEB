@@ -1757,7 +1757,8 @@ function chargeLoaded(quote) {
 }
 
 /** Avisos informativos (completeness.notices) que también se muestran en su paso. */
-const STEP_NOTICE_IDS = new Set(['idle_capacity', 'over_capacity', 'fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate', 'no_fuel_travels']);
+// 0.25.0 (PR 8): suman los avisos de combustible del cliente (P-20) y de horas sobre las normales (P-22).
+const STEP_NOTICE_IDS = new Set(['idle_capacity', 'over_capacity', 'fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate', 'no_fuel_travels', 'client_fuel_external_not_summed', 'overtime_hours_over_month']);
 
 /** Índices de los externos (equipment) con "¿Recuperás ese IVA?" sin definir. */
 export function undefinedVatRecoveryRows(quote) {

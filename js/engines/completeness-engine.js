@@ -1399,6 +1399,53 @@ export function evaluateCompleteness(quoteInput = {}) {
       message: 'Estar de guardia también cuesta: cubrilo en la tarifa (un solo precio).',
     });
   }
+  // P-20 (0.25.0): el cliente pone el combustible y un externo dice "combustible incluido: No" con
+  // consumo cargado: ese combustible no se suma (el motor lo cuesta en 0). Informativo, sin puntaje.
+  if (fuel.providedBy === 'client') {
+    equipment.forEach((e, index) => {
+      if (!isExt(e) || extOf(e).fuelIncluded !== false) return;
+      const x = extOf(e);
+      const mode = externalFuelMode(x);
+      const value = mode === 'per_hour' ? x.fuelLitersPerHour : mode === 'per_100km' ? x.fuelLitersPer100Km : x.fuelKmPerLiter;
+      if (!(nonNegative(value) > 0)) return;
+      const name = lineName(e, 'Externo');
+      notices.push({
+        id: 'client_fuel_external_not_summed',
+        step: 'equipment',
+        severity: 'info',
+        label: 'Combustible del cliente',
+        message: `El combustible de «${name}» no se está sumando: en "Movilización y viajes" el combustible lo pone el cliente. Si el cliente no se lo da al proveedor, cambialo ahí; si se lo da, está bien así.`,
+        focus: `equipment.${index}.external.fuelIncluded`,
+        targets: [{ list: 'equipment', index, name }],
+      });
+    });
+  }
+  // P-22 (0.25.0): por tiempo usado el control de horas del mes está apagado (arriba). Si los días
+  // por las horas por día de un puesto superan sus horas normales del mes y el trabajo no lleva
+  // horas extra, se avisa: con los datos cargados, sin constantes. Informativo, sin puntaje.
+  if (timeBasisHours && ow.mode === 'none' && D > 0 && !activeGuard) {
+    const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+    labor.forEach((l, index) => {
+      const normal = nonNegative(l.normalHoursPerMonth);
+      if (!(nonNegative(l.positions) > 0) || !(normal > 0)) return;
+      const own = nonNegative(l.coverageHoursPerDay) > 0
+        ? nonNegative(l.coverageHoursPerDay)
+        : isPlainObject(l.rotation) ? nonNegative(l.rotation.hoursPerShift) : 0;
+      const perDay = own > 0 ? Math.min(own, H) : H;
+      const total = D * perDay;
+      if (!(perDay > 0) || total <= normal + 1e-9) return;
+      const name = (typeof l.role === 'string' && l.role.trim()) || 'Personal';
+      notices.push({
+        id: 'overtime_hours_over_month',
+        step: 'labor',
+        severity: 'info',
+        label: 'Más horas que las normales del mes',
+        message: `«${name}»: ${fmt(D)} días × ${fmt(perDay)} h por día son ${fmt(total)} h, más que sus ${fmt(normal)} horas normales del mes, y el trabajo no lleva horas extra. Si las horas de más se pagan como extra, elegilo en "Horas extra del trabajo" (al final de Personal); si no, revisá los días o las horas por día.`,
+        focus: 'overtimeWork.mode',
+        targets: [{ list: 'labor', index, name }],
+      });
+    });
+  }
   // Puesto con sueldo y 0 posiciones: no suma costo (Test Lab, PLAN-2026-013).
   labor.forEach((l, index) => {
     if (nonNegative(l.basicMonthly) > 0 && !(nonNegative(l.positions) > 0)) {

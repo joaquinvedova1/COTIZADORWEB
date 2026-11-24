@@ -111,7 +111,7 @@ const expected = JSON.parse(readFileSync(PHOTO_URL, 'utf8')).cases;
 describe('0.24.0: la tanda 4 no cambia ningún número', () => {
   // Los casos que la tanda agrega después de la foto (p. ej. PRB-24) no tienen un "antes": se
   // controlan en sus propios tests. Todos los de la foto tienen que seguir existiendo.
-  const NEW_IN_TANDA4 = new Set(['probe:PRB-24']);
+  const NEW_IN_TANDA4 = new Set(['probe:PRB-24', 'probe:PRB-25', 'probe:PRB-26']);
   test('el caso del mínimo por encima de la estimación tiene su aviso (P-5 de la revisión)', () => {
     assert.ok(expected['fixture:especialista-24h-c2+minimo-20-unidades'].completeness.notices.includes('guarantee_above_estimate'));
   });
@@ -187,10 +187,10 @@ function equipmentCases() {
 }
 
 /** Casos que la 0.25.0 agrega después de la foto (sin "antes"; se controlan en sus propios tests). */
-const NEW_IN_0_25 = new Set(['product:PRD-11-NON-REMUNERATIVE']);
+const NEW_IN_0_25 = new Set(['product:PRD-11-NON-REMUNERATIVE', 'quote:probe:PRB-25', 'quote:probe:PRB-26']);
 
 const allB = [
-  ...all.map((c) => ({ id: `quote:${c.id}`, run: () => photoB(c.run()) })),
+  ...all.map((c) => ({ id: `quote:${c.id}`, run: () => photoB(c.run()) })).filter((c) => !NEW_IN_0_25.has(c.id)),
   ...productCases().filter((c) => !NEW_IN_0_25.has(c.id)).map((c) => ({ id: c.id, run: () => photoProduct(computeProduct(c.run())) })),
   ...equipmentCases(),
 ];
