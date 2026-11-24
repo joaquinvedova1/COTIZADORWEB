@@ -1339,6 +1339,15 @@ Esquema sin cambio. Campos opcionales: `materials[].usagePct`, `otherCosts[].usa
 - **Pruebas:** `tests/domain/material-types.test.js`, `tests/domain/other-cost-conversion.test.js`, `tests/engines/insumos-y-materiales-0-22-0.test.js`, `tests/ui/insumos-y-materiales-0-22-0.test.js`, migración v10 → v11 en `tests/data/migrations.test.js`. Test Lab: INV-32, PRB-22, PRB-23, SRV-40, cobertura `materialType`, `UX-TERM-MATERIALS`; navegador E2E-23/24/25 (en el plan, E2E-21/22/23: esos ids ya estaban usados).
 - **Pendiente (tanda 4):** derivar "¿Qué incluye?" de lo cargado y sacar el bloque; `modality.js` (otro hilo) todavía dice "Materiales" en el resumen de recursos (riesgo 7, en la lista permitida de `UX-TERM-MATERIALS`).
 
+### PLAN-2026-029 — Menos preguntas, segunda parte (0.25.0, auditoría beta tanda 4)
+
+- **Origen:** `auditoria-beta/PLAN-TANDA-4.md`, los PR que quedaron fuera de la 0.24.0: PR 4 (unidad de cobro antes de crear), PR 6 (horas del recurso), PR 7 (Productos), PR 8 (dos avisos) y PR 9 (alta de Recursos).
+- **Regla:** ningún número de una cotización o un producto guardados cambia. Foto nueva con el motor de la 0.24.0 antes del primer cambio (`tests/fixtures/tanda4-sin-cambio-0-25.json`: `computeQuote`, `computeProduct` y `computeEquipmentUnit`); la foto de la 0.24.0 no se regenera. `SCHEMA_VERSION` 11, sin migración. `tests/lab/golden-lock.json` y `tests/golden-cases/` sin tocar.
+- **Decisiones:** D3 sin campo "Cantidad": "Agregar otra persona igual" y operadores numerados. D5 sólo el texto de la merma. D1 y D2 esperan al dueño; D7 y D9 fuera de alcance.
+- **Hecho:** PR 4 (`createBlankQuote(opts, { unit })`, `createQuote({ unit })`, tarjetas en "Nuevo servicio", unidades comunes y del rubro en el buscador, W-09), PR 6 (`billableHoursPerMonth` opcional en el equipo de Recursos, `computeEquipmentUnit` lo usa como horas usadas; sin el campo, los mismos resultados al centavo; `BILLABLE_HOURS_LABEL` único), PR 7 (R-04, R-05, R-06 con `ownParams`, R-07, R-10, R-12, R-13, W-23), PR 8 (`client_fuel_external_not_summed`, `overtime_hours_over_month`, en `notices`), PR 9 (familias, textos, pliegues, W-19).
+- **Pruebas:** `tests/engines/tanda4-sin-cambio.test.js` (foto B), `tests/ui/unidad-antes-0-25.test.js`, `tests/engines/horas-del-recurso-0-25.test.js`, `tests/ui/otra-persona-igual-0-25.test.js`, `tests/ui/productos-0-25.test.js`, `tests/engines/avisos-0-25.test.js`, `tests/ui/recursos-alta-0-25.test.js`. Test Lab: `UX-TERM-HOURS`, PINV-11, PRD-11-NON-REMUNERATIVE, PRB-25, PRB-26; navegador E2E-33 a E2E-35.
+- **Pendiente:** D1 y D2. W-19 completo (4 pestañas en Recursos) queda para otra versión; sólo se corrigió el texto accesible.
+
 ### PLAN-2026-028 — Menos preguntas (0.24.0, auditoría beta tanda 4)
 
 - **Origen:** auditoría para cerrar la beta (project files `auditoria-beta/PLAN-TANDA-4.md`). Preguntas repetidas o que no mueven ningún número: el paso "Cómo se cobra" repetía lo cargado, había dos campos para el mismo precio a mano, el Resultado mostraba cinco cifras del mismo tamaño y cada cotización volvía a pedir los datos de la empresa.
