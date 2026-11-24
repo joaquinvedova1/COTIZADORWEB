@@ -289,4 +289,37 @@ export const PROBES = [
         : { how: 'silent', evidence: `nació con ${q.fuel.pricePerLiter}/L y ${q.finance.monthlyRatePct} %` };
     },
   },
+  {
+    // PLAN-2026-029 (0.25.0, P-20): el cliente pone el combustible y un alquilado dice "combustible
+    // incluido: No" con consumo cargado. El motor lo cuesta en 0 (es lo correcto si el cliente se lo
+    // da al proveedor); RATEOS lo tiene que decir, sin bajar el puntaje.
+    id: 'PRB-25', dimension: 'C', title: 'Combustible del cliente y un externo con "combustible incluido: No" y consumo: se avisa que no se suma',
+    expect: 'warn', onSilent: { severity: 'P1', category: 'P1 COMPLETENESS' },
+    explain: 'fuel.providedBy = client hace 0 el combustible del externo; el aviso informativo client_fuel_external_not_summed lo nombra.',
+    build: () => service({
+      id: 'prb-25', serviceType: 'equipment_with_operator', unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 },
+      labor: [person()],
+      equipment: [external({ name: 'Retro alquilada', acquisition: 'rented' }, { price: 300000, unit: 'day', fuelIncluded: false, fuelLitersPerHour: 10 })],
+      fuel: { providedBy: 'client' },
+    }),
+    respond: (q, r) => {
+      const n = (r.completeness.notices || []).find((x) => x.id === 'client_fuel_external_not_summed');
+      return n && /«Retro alquilada»: .*este consumo no se suma/.test(n.message) ? { how: 'warn', evidence: n.message } : { how: 'silent', evidence: 'sin el aviso del combustible del cliente' };
+    },
+  },
+  {
+    // PLAN-2026-029 (0.25.0, P-22): por tiempo usado el control de horas del mes está apagado. Con
+    // 22 días × 10 h (220 h) para un puesto de 176 h normales y sin horas extra, se avisa.
+    id: 'PRB-26', dimension: 'C', title: 'Por tiempo usado: días × horas por día de un puesto superan sus horas normales del mes sin horas extra',
+    expect: 'warn', onSilent: { severity: 'P1', category: 'P1 COMPLETENESS' },
+    explain: 'overtime_hours_over_month: usa los días, las horas por día y las horas normales cargadas; sin constantes.',
+    build: () => ({
+      ...service({ id: 'prb-26', serviceType: 'crew', unit: 'hour', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 10 }, labor: [person({ role: 'Soldador' })] }),
+      costBasis: 'time',
+    }),
+    respond: (q, r) => {
+      const n = (r.completeness.notices || []).find((x) => x.id === 'overtime_hours_over_month');
+      return n && /220 h/.test(n.message) && /176 horas normales/.test(n.message) ? { how: 'warn', evidence: n.message } : { how: 'silent', evidence: 'sin el aviso de horas sobre las normales del mes' };
+    },
+  },
 ];

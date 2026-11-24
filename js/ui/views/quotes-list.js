@@ -16,8 +16,8 @@ import { h, s, mount, debounce, uniqueId } from '../dom.js';
 import { actionToast, badge, banner, button, card, confirmDialog, disclosure, emptyState, icon, linkButton, openDialog, pageIntro, progressBar, table } from '../components.js';
 import { formatDateTime, formatDays, formatMoney, formatPercent, formatPeriod, EMPTY } from '../../core/format.js';
 import { isFiniteNumber } from '../../core/money.js';
-import { QUOTE_STATUSES, SERVICE_TYPES, labelOf } from '../../domain/catalogs.js';
-import { componentsServiceLabel } from '../../domain/contract.js';
+import { QUOTE_STATUSES, labelOf } from '../../domain/catalogs.js';
+import { billingUnitPhrase, componentsServiceLabel } from '../../domain/contract.js';
 import { illustrativeInfo } from '../../domain/quote-factory.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { usesTimeBasis } from '../../domain/cost-basis.js';
@@ -26,7 +26,7 @@ import { breakEvenZeroText } from '../result-text.js';
 import { markFreshQuote, onSessionReset } from '../session-memory.js';
 import { completenessTone } from '../../engines/completeness-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
-import { templateContents } from './services.js';
+import { templateContents, templateUnitLabel } from './services.js';
 import { openRateUpdateDialog, ratePeriodNode } from '../rate-update-ui.js';
 import { companySetupCard } from '../company-defaults.js';
 
@@ -240,7 +240,7 @@ function serviceCell({ quote, summary }, href) {
     'div',
     { class: 'cell-main' },
     h('a', { href, class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
-    h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${componentsServiceLabel(quote) || labelOf(SERVICE_TYPES, quote.serviceType)}`),
+    h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${quote.unitPending === true ? 'Unidad sin elegir' : componentsServiceLabel(quote) || billingUnitPhrase(quote)}`),
     summaryFailed(summary) ? failedBadge(quote) : null,
     illustrativeQuoteTag(quote),
   );
@@ -287,7 +287,7 @@ export function quoteColumns({ statusCell = null } = {}) {
           'div',
           { class: 'cell-main' },
           h('a', { href: quoteHref(quote), class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
-          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${componentsServiceLabel(quote) || labelOf(SERVICE_TYPES, quote.serviceType)}`),
+          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${quote.unitPending === true ? 'Unidad sin elegir' : componentsServiceLabel(quote) || billingUnitPhrase(quote)}`),
           failed ? failedBadge(quote) : null,
           illustrativeQuoteTag(quote),
         );
@@ -591,7 +591,7 @@ export async function render(root, app) {
       { class: 'stack quote-options' },
       kvList([
         ['Código', h('span', { class: 'mono' }, textOf(quote.code, EMPTY))],
-        ['Servicio', componentsServiceLabel(quote) || labelOf(SERVICE_TYPES, quote.serviceType)],
+        ['Servicio', componentsServiceLabel(quote) || billingUnitPhrase(quote)],
         ['Costo del mes', failed ? EMPTY : formatMoney(summary.totalCost)],
         ['Tarifa', quoteRateNode(quote, summary)],
         ['Período de la tarifa', failed ? EMPTY : ratePeriodNode(summary.rateUpdate)],
@@ -704,10 +704,18 @@ export async function render(root, app) {
 /** Plantillas visibles de entrada en "Nueva cotización" (el resto, en "Ver todas"). */
 const VISIBLE_TEMPLATES = 6;
 
-function choiceCard({ title, text = null, meta = null, metaStrong = false, tags = [], iconName = null, className = '', onChoose }) {
+/** Unidades de "¿Cómo le cobrás al cliente?" (0.25.0, PR 4): las cuatro de siempre. */
+export const START_UNITS = Object.freeze([
+  { unit: 'hour', title: 'Por hora', text: 'Cada hora trabajada.' },
+  { unit: 'day', title: 'Por día', text: 'Cada día de trabajo.' },
+  { unit: 'month', title: 'Por mes', text: 'Un abono fijo por mes.' },
+  { unit: 'job', title: 'Por trabajo', text: 'Un precio por todo el trabajo u obra.' },
+]);
+
+function choiceCard({ title, text = null, meta = null, metaStrong = false, tags = [], iconName = null, className = '', data = null, onChoose }) {
   const btn = h(
     'button',
-    { type: 'button', class: ['quote-choice', className] },
+    { type: 'button', class: ['quote-choice', className], dataset: data || undefined },
     iconName ? h('span', { class: 'quote-choice-icon', 'aria-hidden': 'true' }, icon(iconName, { size: 22 })) : null,
     h('span', { class: 'quote-choice-title' }, title),
     text ? h('span', { class: 'quote-choice-text' }, text) : null,
@@ -752,17 +760,19 @@ export async function renderNewQuote(root, app) {
   const choices = [];
   let busy = false;
 
-  async function create(templateId) {
+  async function create(templateId, { unit = null, pickUnit = false } = {}) {
     if (busy) return;
     busy = true;
     choices.forEach((b) => {
       b.disabled = true;
     });
     try {
-      const quote = await ctx.quotes.createQuote({ templateId });
+      const quote = await ctx.quotes.createQuote({ templateId, unit, unitPending: pickUnit });
       markFreshQuote(quote.id);
-      app.toast(`Cotización ${quote.code || ''} creada.`, 'success');
-      app.navigate(quoteHref(quote, 'service'));
+      // "Otra unidad…": sin aviso (en celular tapaba el encabezado); el paso 1 dice que falta la unidad.
+      if (!pickUnit) app.toast(`Cotización ${quote.code || ''} creada.`, 'success');
+      // "Otra unidad…": se abre el paso 1 con el buscador de la unidad enfocado.
+      app.navigate(pickUnit ? `${quoteHref(quote, 'service')}?campo=unit` : quoteHref(quote, 'service'));
     } catch (error) {
       busy = false;
       choices.forEach((b) => {
@@ -772,14 +782,28 @@ export async function renderNewQuote(root, app) {
     }
   }
 
-  const blank = choiceCard({
-    title: 'Empezar en blanco',
-    text: 'Armás la estructura de costos desde cero, paso a paso.',
-    iconName: 'plus',
-    className: 'quote-choice-blank',
-    onChoose: () => create(null),
-  });
-  choices.push(blank);
+  // 0.25.0 (PR 4, W-12): en blanco se empieza por la unidad de cobro. Nada preelegido.
+  const unitCards = [...START_UNITS.map((u) => choiceCard({
+    title: u.title,
+    text: u.text,
+    className: 'quote-choice-blank quote-unit-choice',
+    data: { unit: u.unit },
+    onChoose: () => create(null, { unit: u.unit }),
+  })), choiceCard({
+    title: 'Otra unidad…',
+    text: 'Viaje, m³, km, tonelada… La elegís en el paso siguiente.',
+    className: 'quote-choice-blank quote-unit-choice',
+    data: { unit: 'other' },
+    onChoose: () => create(null, { pickUnit: true }),
+  })];
+  choices.push(...unitCards);
+  const blank = h(
+    'section',
+    { class: 'quote-unit-start', 'aria-labelledby': 'quote-unit-start-title' },
+    h('h2', { class: 'quote-unit-start-title', id: 'quote-unit-start-title' }, '¿Cómo le cobrás al cliente?'),
+    h('p', { class: 'muted' }, 'Elegí la unidad y empezás una cotización en blanco, paso a paso. Después la podés cambiar en «El servicio».'),
+    h('div', { class: 'quote-choice-grid quote-unit-grid' }, ...unitCards),
+  );
   const templateCards = services.map((service) => {
     const contents = templateContents(service);
     const choice = choiceCard({
@@ -788,7 +812,7 @@ export async function renderNewQuote(root, app) {
       meta: [contents.resources, contents.conditions].filter(Boolean),
       metaStrong: contents.hasContent,
       tags: [
-        badge(labelOf(SERVICE_TYPES, service.serviceType, 'Servicio configurable'), 'navy'),
+        templateUnitLabel(service) ? badge(templateUnitLabel(service), 'navy') : null,
         service.illustrative ? illustrativeTag('Plantilla de demostración con valores ilustrativos') : null,
       ].filter(Boolean),
       onChoose: () => create(service.id),
@@ -805,15 +829,17 @@ export async function renderNewQuote(root, app) {
       'div',
       { class: 'view-narrow stack-lg' },
       pageIntro({
-        title: '¿Qué servicio vas a cotizar?',
+        title: 'Empezá tu cotización',
         text: services.length
-          ? 'Elegí un servicio parecido al tuyo: arrancás con su tipo de servicio y su actividad típica (y sus recursos, si la plantilla los tiene). Después podés cambiar todo.'
-          : 'Empezá en blanco: RATEOS te va preguntando paso a paso. Si querés ver antes cómo queda una cotización completa, mirá el ejemplo.',
+          ? 'Empezá en blanco por cómo le cobrás o desde una plantilla parecida a tu servicio (arrancás con su actividad típica y sus recursos, si los tiene). Después podés cambiar todo.'
+          : 'Empezá en blanco por cómo le cobrás: RATEOS te va preguntando paso a paso. Si querés ver antes cómo queda una cotización completa, mirá el ejemplo.',
       }),
-      h('div', { class: 'quote-choice-grid' }, blank, ...first),
+      blank,
+      first.length ? h('h2', { class: 'quote-unit-start-title' }, 'O empezá desde una plantilla') : null,
+      first.length ? h('div', { class: 'quote-choice-grid' }, ...first) : null,
       rest.length
         ? disclosure(
-            { summary: `Ver todas las plantillas (${services.length})`, hint: `${rest.length === 1 ? 'Una plantilla más' : `${rest.length} plantillas más`}, con su tipo de servicio y actividad.`, className: 'disclosure-plain quote-choice-more' },
+            { summary: `Ver todas las plantillas (${services.length})`, hint: `${rest.length === 1 ? 'Una plantilla más' : `${rest.length} plantillas más`}, con su unidad de cobro y su actividad típica.`, className: 'disclosure-plain quote-choice-more' },
             h('div', { class: 'quote-choice-grid' }, ...rest),
           )
         : null,

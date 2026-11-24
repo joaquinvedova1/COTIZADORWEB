@@ -34,14 +34,14 @@ import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '..
 import { createTrace } from '../../../core/trace.js';
 import { nonNegative } from '../../../core/money.js';
 import { illustrativeTag } from '../../layout.js';
-import { hasNumber, moneyText, plural, stepName } from './shared.js';
+import { hasNumber, laborOptionLabels, moneyText, plural, stepName } from './shared.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
 import { fieldHref } from '../../field-links.js';
 import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
-import { closedJobsPerMonth, quoteUnitPlace, unitAmountText, costPlaceLabel, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText, equipmentFullHourRate } from '../../result-text.js';
+import { closedJobsPerMonth, quoteUnitPlace, unitAmountText, costPlaceLabel, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText, equipmentFullHourRate, BILLABLE_HOURS_LABEL, EQUIPMENT_BILLABLE_HOURS_HINT } from '../../result-text.js';
 import { usesTimeBasis, unitHoursConversion, showsPerUnit, unitHoursFactor, serviceMonthHours } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { workDaysText } from '../../unit-text.js';
@@ -110,6 +110,9 @@ const unitHints = (T) => ({
   global: 'Monto por todo el contrato, repartido en los meses de contrato.',
 });
 
+/** Ayuda del consumo de un externo cuando el combustible lo pone el cliente (revisión 0.25.0, UX C7). */
+const CLIENT_FUEL_HINT = 'En «¿Quién paga el combustible?» (Movilización y viajes) elegiste el cliente. Si al proveedor se lo pagás vos, cambialo ahí.';
+
 /** Ficha del equipo a la utilización de la cotización (por unidad). */
 export function equipmentCardAtQuote(result, index, source) {
   const line = result && result.model.equipment[index];
@@ -127,6 +130,11 @@ export function equipmentCardAtQuote(result, index, source) {
       availableHoursPerMonth: activity.availableDaysPerMonth * hours,
       availableDaysPerMonth: activity.availableDaysPerMonth,
       utilizationPct: activity.utilizationPct,
+      // En una cotización a la utilización (no por tiempo usado), la ficha va a los días de la
+      // cotización; las horas por mes de la línea no rigen. Por tiempo usado la ficha no se muestra y
+      // el valor hora sí usa billableHoursPerMonth. El null conserva la ficha de la 0.24 en las líneas
+      // que ya traen ese dato de Recursos (0.25.0).
+      billableHoursPerMonth: null,
     },
     { fuelPricePerLiter: result.model.fuel.pricePerLiter, fuelPaidByUs: result.model.fuel.paidByUs },
   );
@@ -633,9 +641,8 @@ export function render(container, ctx) {
     }, { tag: 'p' }),
   );
 
-  const operatorOptions = () => (Array.isArray(quote.labor) ? quote.labor : [])
-    .filter((l) => l && typeof l.id === 'string')
-    .map((l) => ({ value: l.id, label: l.role || 'Puesto sin nombre' }));
+  // D3 (0.25.0): un puesto asignado dos veces se numera ("Chofer 1", "Chofer 2").
+  const operatorOptions = () => laborOptionLabels(quote.labor);
   const acquisitionField = (i) => {
     const current = acquisitionOf(quote.equipment[i]);
     return selectField({
@@ -799,7 +806,7 @@ export function render(container, ctx) {
     // Datos del equipo, en tres partes: valor (a la vista), seguro y patente (en "Costos de
     // tenerlo") y combustible trabajando (en un vehículo, plegado en "¿También trabaja parado…?").
     const valueFields = () => [
-      kit.num(`${p}.replacementValue`, { label: 'Cuánto cuesta comprarlo hoy', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, requiredMark: !fromResource, hint: 'Valor de reposición: lo que costaría comprar uno igual hoy. Con esto y la vida útil sale su desgaste por mes (amortización).' }),
+      kit.num(`${p}.replacementValue`, { label: '¿Cuánto cuesta uno nuevo hoy?', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, requiredMark: !fromResource, hint: 'Valor de reposición: lo que costaría comprar uno igual hoy. Con esto y la vida útil sale su desgaste por mes (amortización).' }),
       kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative, requiredMark: !fromResource, hint: 'En cuántos años lo vas a tener que cambiar.' }),
     ];
     // V-06: seguro y patente se piden (en 0 el costo quedaba de menos sin aviso); plegados con su resumen.
@@ -874,11 +881,12 @@ export function render(container, ctx) {
     // I7 (2026-11-18): por tiempo usado, con cuántas horas por mes se reparte lo de tenerlo (a la vista, junto a las horas de uso).
     const billableField = () => kit.num(`${p}.billableHoursPerMonth`, {
       // 0.20.1 (Joaco): no es otro costo; es con cuántas horas se reparte el costo del mes que ya sale de los datos del equipo.
-      label: '¿Cuántas horas por mes trabaja, entre todos tus trabajos?',
+      // 0.25.0 (P-08): el mismo texto que en Recursos y en Personal.
+      label: BILLABLE_HOURS_LABEL,
       rule: 'hours',
       unit: 'h/mes',
       placeholder: billablePlaceholder(i),
-      hint: 'No es un costo más ni cambia los datos del equipo: es sólo con cuántas horas se reparte su costo del mes. Valor hora = costo del mes (amortización, seguro, patente…) ÷ estas horas. Vacío = un mes completo de trabajo. Si el equipo trabaja menos horas por mes, cada hora cuesta más.',
+      hint: `${EQUIPMENT_BILLABLE_HOURS_HINT} Vacío = un mes completo de trabajo.`,
     });
     // Nombre: un equipo en blanco que resulta ser un vehículo arranca con 0 h en la locación.
     const nameField = () => {
@@ -949,6 +957,8 @@ export function render(container, ctx) {
         // Sin "Cantidad" (Joaco, 2026-11-20): si hay otro equipo igual, se agrega otra vez. Una línea con otra cantidad la sigue mostrando.
         line.quantity !== null && line.quantity !== undefined && line.quantity !== '' && Math.abs(Number(line.quantity) - 1) < 1e-9 ? null : kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true, hint: 'Cargada antes. Para sumar otro equipo igual, agregalo otra vez.' }),
         operatorField(i),
+        // 0.25.0 (PR 6): un equipo en blanco pide a la vista con cuántas horas por mes se reparte su costo.
+        timeBasis && !fromResource ? billableField() : null,
         fromResource ? null : acquisitionField(i),
         ...(fromResource ? [] : valueFields()),
         ...(fromResource || (vehicle && !timeBasis) ? [] : fuelFields()),
@@ -1044,7 +1054,8 @@ export function render(container, ctx) {
           },
         },
         // 0.19.0: una sola pregunta a la vista; de qué horas sale el valor hora y el motor andando, acá.
-        timeBasis ? kit.group('Valor hora', formGrid(3, billableField(), vehicle ? null : hoursField())) : null,
+        // 0.25.0 (PR 6): las horas por mes de un equipo de Recursos van acá; en uno en blanco, a la vista.
+        timeBasis && (fromResource || !vehicle) ? kit.group('Valor hora', formGrid(3, fromResource ? billableField() : null, vehicle ? null : hoursField())) : null,
         fromResource
           ? h('p', { class: 'qe-note' }, 'Estos datos se cargan una sola vez en ', h('a', { href: '#/recursos' }, 'Recursos'), '. Si los cambiás acá, cambian sólo en esta cotización.')
           : null,
@@ -1280,6 +1291,7 @@ export function render(container, ctx) {
     const illustrative = ill.marked;
     const acq = acquisitionOf(line);
     const ext = line.external || {};
+    const clientFuel = Boolean(quote.fuel && quote.fuel.providedBy === 'client');
     const sym = currencyUnit(line.base, quote);
     const unit = ext.unit || 'day';
     const unitKey = unitKeyOf(ext);
@@ -1379,12 +1391,20 @@ export function render(container, ctx) {
               hint: 'Un camión por km o por viaje: por km de ruta. Un equipo que trabaja por horas: por hora.',
             })
             : null,
+          // Revisión 0.25.0 (UX C7): con el combustible del cliente ("Movilización y viajes") el consumo
+          // no se suma, y el campo lo dice (igual que el aviso P-20).
           ext.fuelIncluded === false && ext.fuelMode === 'per_100km'
-            ? kit.num(`${p}.external.fuelLitersPer100Km`, { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/100 km', hint: 'Sobre los km físicos de la ruta (viajes × km por viaje). Se suma como combustible, aparte de la tarifa.' })
+            ? kit.num(`${p}.external.fuelLitersPer100Km`, clientFuel
+              ? { label: 'Consumo (lo pone el cliente: no se suma)', rule: 'quantity', unit: 'L/100 km', hint: CLIENT_FUEL_HINT }
+              : { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/100 km', hint: 'Sobre los km físicos de la ruta (viajes × km por viaje). Se suma como combustible, aparte de la tarifa.' })
             : ext.fuelIncluded === false && ext.fuelMode === 'km_per_liter'
-              ? kit.num(`${p}.external.fuelKmPerLiter`, { label: 'Rendimiento', rule: 'quantity', unit: 'km/L', hint: 'Km por litro sobre los km físicos de la ruta. Se suma como combustible, aparte de la tarifa.' })
+              ? kit.num(`${p}.external.fuelKmPerLiter`, clientFuel
+                ? { label: 'Rendimiento (lo pone el cliente: no se suma)', rule: 'quantity', unit: 'km/L', hint: CLIENT_FUEL_HINT }
+                : { label: 'Rendimiento', rule: 'quantity', unit: 'km/L', hint: 'Km por litro sobre los km físicos de la ruta. Se suma como combustible, aparte de la tarifa.' })
               : ext.fuelIncluded === false
-                ? kit.num(`${p}.external.fuelLitersPerHour`, { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/h', hint: 'Se suma como combustible con el precio de la cotización.' })
+                ? kit.num(`${p}.external.fuelLitersPerHour`, clientFuel
+                  ? { label: 'Consumo (lo pone el cliente: no se suma)', rule: 'quantity', unit: 'L/h', hint: CLIENT_FUEL_HINT }
+                  : { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/h', hint: 'Se suma como combustible con el precio de la cotización.' })
                 : null,
           ext.fuelIncluded === false ? kit.out((r) => (at(r) ? externalFuelText(r, at(r)) : ''), { tag: 'p', className: 'small qe-fuel-calc', allowEmpty: true }) : null,
           triField(`${p}.external.mobilizationIncluded`, 'Movilización (llevarlo y traerlo)'),

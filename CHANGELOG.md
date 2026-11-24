@@ -12,6 +12,41 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-24
+
+**Menos preguntas, segunda parte.** Auditoría para cerrar la beta, tanda 4 (project files `auditoria-beta/PLAN-TANDA-4.md`, PLAN-2026-029): PR 4, 6, 7, 8 y 9 del plan, y la decisión D3. **Esquema 11, sin cambio ni migración.** Sin cambio de fórmulas: ninguna cotización ni producto guardado cambia sus números (foto nueva `tests/fixtures/tanda4-sin-cambio-0-25.json`, sacada con el motor de la 0.24.0 antes de tocar el código: cotizaciones, productos y fichas de equipos). Reglas: docs/CALCULATION_RULES.md §39.
+
+### Agregado
+
+- **"¿Cómo le cobrás al cliente?" antes de crear la cotización** (PR 4, W-12): "Nuevo servicio" empieza con cuatro tarjetas (Por hora, Por día, Por mes, Por trabajo) y "Otra unidad…", que abre el campo de la unidad. La cotización nace con esa unidad y la forma de contrato que le corresponde (por hora o por día a demanda, por mes mensual, por trabajo cerrado con un trabajo por mes). Las plantillas siguen debajo ("O empezá desde una plantilla") y dicen su unidad. En la lista de unidades, sin escribir, se ven las comunes y las del rubro de la empresa (petróleo y gas, minería y energía); escribiendo, aparecen todas.
+- **Horas por mes del equipo** (PR 6, P-08/P-09): en Recursos › Equipos, una sola pregunta, la misma que en Personal: "¿Cuántas horas por mes trabaja para clientes, entre todos tus trabajos?". Con ese dato el $/hora de la ficha sale del costo del mes ÷ esas horas, y es el mismo valor hora que muestra la cotización al asignarlo. Un equipo guardado sin el dato sigue con horas disponibles × utilización (el campo muestra ese número como sugerido) y no cambia nada.
+- **"Agregar otra persona igual"** (D3): en Personal copia la línea debajo. En el selector de operador de un equipo, los puestos repetidos se numeran ("Chofer 1", "Chofer 2").
+- **Productos** (PR 7): "= 350 g por unidad que vendés" debajo de cada ingrediente por tanda, y "= 6 min de trabajo por unidad que vendés" en Personal (R-05); "Son mis valores" en las cargas de una persona con valores de ejemplo (R-06, `ownParams`); "No remunerativo por mes" junto a los adicionales (R-07); "Agregar algo que va en cada unidad" y "Mover a…" en lugar de "¿Dónde va?" (R-10); en Recursos se ofrecen primero materiales e insumos; con equilibrio 0, "Cualquier venta te deja ganancia" (W-23); "Ver un ejemplo: Chipá" en la lista vacía.
+- **Dos avisos informativos** (PR 8; no cambian el puntaje ni los números): "El combustible de «…» no se está sumando" cuando el cliente pone el combustible y un equipo externo tiene consumo sin combustible incluido (P-20), y, por tiempo usado sin horas extra, "«Soldador»: 22 días × 10 h por día son 220 h, más que sus 176 horas normales del mes" (P-22).
+
+### Cambiado
+
+- **Recursos, alta más corta** (PR 9, W-14, W-18, W-19): familias generales primero y las de pozo al final ("(pozo)"), salvo en petróleo y gas; "¿Cuánto cuesta uno nuevo hoy?"; "Patente" en lugar de "Dominio"; mantenimiento y neumáticos plegados con lo cargado en el resumen; "Por tenerlo / Por usarlo"; en la tabla, "Costo por hora" y "Costo por mes" (sin "Costo por día usado" ni "Utilización"). En el puesto, la hora al 50 % y al 100 % van plegadas; sin convenio, "Cargas sociales de este puesto"; un convenio por crear dice "(nuevo)". El número de cada pestaña se lee una sola vez.
+- **Productos**: con responsable inscripto los precios de compra dicen "(sin IVA)"; sin condición frente al IVA, una línea con enlace a Configuración (R-04). La merma dice "% extra que tenés que comprar por lo que se pierde" (R-12; la cuenta sigue siendo cantidad × (1 + merma), decisión D5). La tabla de la tanda dice la unidad del producto (R-13). Una línea nueva nace sin nombre.
+- **El modo de cobro** (W-09): sin el pliegue vacío cuando no hay nada que mostrar.
+
+### Corregido (revisión de la 0.25.0)
+
+Sin cambio de fórmulas: la foto `tanda4-sin-cambio-0-25` pasa sin regenerarse (sólo se le agregaron casos).
+
+- **"Otra unidad…"** ya no abre la cotización con "por día" elegido: el buscador arranca vacío, muestra primero viaje, km, m³, tonelada…, y dice "Todavía no elegiste la unidad. Si no elegís, queda por día." (se guarda por día, como siempre, con la marca opcional `unitPending`, que se borra al elegir). La lista dice "Unidad sin elegir" y el resultado lo muestra como aviso informativo. El texto de la tarjeta ya no se corta, "Nuevo servicio" se titula "Empezá tu cotización" y no queda "tipo de servicio" en las plantillas (que dicen su unidad, "Por día" si no tienen).
+- **Equipos**: un equipo creado en la 0.25.0 y editado después vuelve a escribir sus horas disponibles al 100 % (una pestaña anterior leía otro $/hora) y no dice "los datos que cargaste antes". Con más horas para clientes que disponibles, los días usados de la ficha no pasan de los del mes. La ayuda de las horas en Recursos dice que en una cotización por día o por mes cuentan los días de esa cotización. "¿Cuánto cuesta uno nuevo hoy?" en Recursos y en la cotización; "Por tenerlo / Por usarlo" también en el encabezado y la leyenda.
+- **Combustible del cliente** (P-20): el aviso nombra «¿Quién paga el combustible?» y el consumo del externo dice "(lo pone el cliente: no se suma)". En L/100 km o km/L sin km de ruta no avisa.
+- **Horas sobre las normales del mes** (P-22): cuenta las personas por puesto (relevos) y los meses de un trabajo largo, como el control de siempre; no avisa si el puesto tiene horas extra cargadas, y los puestos iguales van en un solo aviso ("«Chofer» (2 personas)").
+- **Personal**: las tarjetas de puestos repetidos se numeran como el selector de operador ("Chofer 1", "Chofer 2") y la copia nueva se muestra y enfoca. En una línea de antes con varias personas, el botón dice "Agregar otro puesto igual (N personas)".
+- **Productos**: con equilibrio 0, "Sin gastos fijos cargados" (y cómo cargarlos), no "Cualquier venta te deja ganancia". El no remunerativo dice que no lleva aguinaldo, vacaciones ni contribuciones patronales, y que la obra social o la cuota sindical van en el % del convenio. Como responsable inscripto: sin IVA con factura A; con factura C o ticket, el precio completo. "Mover a…" convierte la cantidad (por tanda ↔ por unidad) y el costo no cambia. "Costo por bolsa" y "Ganás por bolsa" en el resumen. "= N g por unidad" dice "(sin la merma; comprás …)" y pasa a kg antes de mostrar "1.000 g". En un producto de ejemplo las cargas siguen marcadas como de ejemplo.
+- **Inicio público**: "Un servicio (por hora, por día, por mes o por trabajo)".
+
+### Test Lab
+
+- Foto `tanda4-sin-cambio-0-25`: se agregan 88 fichas de equipo en la cotización (`equipmentCardAtQuote`), con y sin horas por mes en la línea, sacadas con el motor de la 0.24.0; los demás casos no cambiaron (revisión de la 0.25.0, P-6).
+- Foto `tanda4-sin-cambio-0-25` (cotizaciones, productos, fichas de equipos y la línea que produce cada equipo). Control estático `UX-TERM-HOURS` (no quedan los rótulos de horas de antes). Invariante PINV-11 (el no remunerativo de un producto suma sin cargas patronales). Escenario PRD-11-NON-REMUNERATIVE; sondas PRB-25 y PRB-26. Navegador E2E-33 (unidad antes de crear), E2E-34 (valor hora del equipo en Recursos y en la cotización) y E2E-35 (Productos: "sin IVA" y la cantidad por unidad); E2E-31 y E2E-32 usan las tarjetas de la unidad.
+
 ## [0.24.0] - 2026-11-24
 
 **Menos preguntas.** Auditoría para cerrar la beta, tanda 4 (project files `auditoria-beta/PLAN-TANDA-4.md`, PLAN-2026-028): PR 1, 2, 3 y 5 del plan. **Esquema 11, sin cambio.** Sin cambio de fórmulas: ninguna cotización ni producto cambia sus números (foto de `computeQuote` antes de tocar el código, `tests/engines/tanda4-sin-cambio.test.js`: KPIs, estructura de costos y completitud de la demo, los fixtures y los escenarios y sondas del Test Lab; de la completitud sólo cambia el paso al que apunta cada pendiente). Reglas: docs/CALCULATION_RULES.md §38.

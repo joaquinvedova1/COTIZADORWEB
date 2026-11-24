@@ -746,10 +746,14 @@ export function render(container, ctx) {
     })
     : null;
   const timePaceInMain = Boolean(timePace) && Math.abs(storedPace - 1) > 1e-9;
-  // Por viaje: "Trabajo fuera del horario normal" va plegado en "Más detalle" si no está en uso.
   // 0.20.0: el ritmo va en el paso 1; las horas fuera de horario cargadas antes, en "El precio" (0.24.0).
-  const oohInFold = false && tripFold && !(Array.isArray(quote.extras) && quote.extras.some((x) => isOutOfHoursExtra(x)));
-  const oohSlot = h('div', { class: 'qe-ooh-fold' });
+  // W-09 (0.25.0, PR 4): "Más detalle" del ritmo sólo se dibuja si tiene algún campo; si no, tenía sólo
+  // cifras que ya están a la vista (utilización, unidades facturables) y se saltea.
+  const foldHasFields = Boolean(singleJob || !(availableInMain || hideAvailable) || !hoursInMain || quantityPaceSlot || (timePace && !timePaceInMain));
+  const longJobNote = () => kit.out((r) => {
+    const text = longClosedJobNote(r);
+    return text ? h('p', { class: 'banner banner-info qe-long-job', role: 'status' }, text) : '';
+  }, { tag: 'div', allowEmpty: true });
   const activityCard = card(
     {},
     byQuantity
@@ -829,7 +833,7 @@ export function render(container, ctx) {
     // utilización y las intervenciones no dicen nada en un abono). Se esconde; sólo vuelve si
     // una cotización anterior guardó menos días disponibles que días de servicio (ahí cambia
     // el costo), para que se vea y se pueda corregir.
-    monthlyContract && !monthlyAvailableConflict ? null : kit.advanced(
+    monthlyContract && !monthlyAvailableConflict ? null : !foldHasFields ? longJobNote() : kit.advanced(
       {
         key: 'modality',
         title: singleJob ? 'Más detalle (¿hacés más de un trabajo así por mes?)' : 'Más detalle (opcional)',
@@ -853,7 +857,6 @@ export function render(container, ctx) {
         // Por cantidad: los días por llamado o salida cuentan las movilizaciones y el mínimo por llamado.
       ),
       !hoursInMain && tripFold ? coverageShortcutsSlot(true) : null,
-      oohInFold ? oohSlot : null,
       // Por cantidad: cuántas intervenciones (movilizaciones, mínimos) hay.
       // Puede durar varios días o haber varias en un día (se guarda 1 / N).
       quantityPaceSlot,
@@ -861,10 +864,7 @@ export function render(container, ctx) {
       // 0.24.0 (P-14): "Tiempo máximo de respuesta" no mueve ningún número: salió del ritmo y
       // queda sólo en "Detalle de la guardia" (en "El precio"), para las que ya tienen guardia.
       // UX 1: un trabajo cerrado más largo que el mes no es un error; se dice como dato (azul).
-      kit.out((r) => {
-        const text = longClosedJobNote(r);
-        return text ? h('p', { class: 'banner banner-info qe-long-job', role: 'status' }, text) : '';
-      }, { tag: 'div', allowEmpty: true }),
+      longJobNote(),
       kit.stats(
         // M5 / I4: por tiempo usado sin costos fijos ni la utilización ni los "meses" del trabajo cambian el precio.
         timeNoFixed ? null : kit.stat(
@@ -1091,7 +1091,6 @@ export function render(container, ctx) {
       : null,
   ) : null;
 
-  if (oohInFold && outOfHoursCard) oohSlot.appendChild(outOfHoursCard);
 
   // 4. Guardia (opcional, al final): un fijo bajo por estar disponible + un plus por cada llamado.
   const feeNow = Number(quote.rules && quote.rules.availabilityFeeMonthly) > 0;
@@ -1240,7 +1239,7 @@ export function render(container, ctx) {
   const parts = {
     overtime: [overtimeWorkCard],
     travel: [travelCard],
-    legacy: [oohInFold ? null : outOfHoursCard, guardCard, extrasSection(ctx, contract)],
+    legacy: [outOfHoursCard, guardCard, extrasSection(ctx, contract)],
   };
   const cards = parts[part] || [...parts.overtime, ...parts.travel, ...parts.legacy];
   mount(container, ...cards);

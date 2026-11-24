@@ -112,6 +112,18 @@ export async function render(root, app) {
     }
   }
 
+  async function openExample(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const product = await ctx.products.createProduct({ example: true });
+      app.toast('Se creó el ejemplo "Chipá" con valores ILUSTRATIVOS.', 'success');
+      app.navigate(productHref(product, 'resultado'));
+    } catch (error) {
+      if (btn) btn.disabled = false;
+      app.toast(userErrorMessage(error, 'No se pudo crear el ejemplo.'), 'danger');
+    }
+  }
+
   const intro = pageIntro({
     title: 'Productos',
     text: 'Calculá cuánto te cuesta hacer cada producto (ingredientes, personal, máquinas y gastos fijos) y a qué precio venderlo para ganar lo que querés.',
@@ -130,6 +142,8 @@ export async function render(root, app) {
           title: 'Todavía no tenés productos',
           text: 'Armá tu primer producto paso a paso, o mirá primero un ejemplo con valores ilustrativos.',
           action: readOnly ? null : linkButton('Nuevo producto', '#/productos/nuevo', { variant: 'primary', icon: 'plus' }),
+          // W-23 (0.25.0): "mirá primero un ejemplo" lleva al ejemplo.
+          secondary: readOnly ? null : button('Ver un ejemplo: Chipá', { variant: 'secondary', icon: 'product', onClick: (e) => openExample(e.currentTarget) }),
           level: 2,
         }),
       ),

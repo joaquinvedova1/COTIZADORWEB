@@ -238,6 +238,8 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 .quote-choice-go { position: absolute; top: 1.25rem; right: 1.1rem; display: inline-flex; color: var(--ink-3); transition: transform 0.12s, color 0.12s; }
 .quote-choice:hover .quote-choice-go { color: var(--blue-text); transform: translateX(2px); }
 .quote-choice-blank { border-style: dashed; border-color: #B9CEDD; background: var(--surface-2); box-shadow: none; }
+/* Revisión 0.25.0 (UX C2): en las tarjetas de unidad el texto no se corta (lleva la instrucción). */
+.quote-unit-grid .quote-choice-text { -webkit-line-clamp: unset; line-clamp: unset; display: block; overflow: visible; }
 .quote-choice-more > .disclosure-body { padding-top: 0.5rem; }
 
 .stage-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.85rem 1.25rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
@@ -740,3 +742,16 @@ a.cell-title:hover { color: var(--blue-text); text-decoration: underline; }
 }
 /* Asignación de personal (0.16.0): select y % con aire entre sí. */
 .qe-dedication-field { display: grid; gap: 0.6rem; min-width: 0; }
+
+/* 0.25.0 (PR 4): "¿Cómo le cobrás al cliente?" antes de crear la cotización. */
+.quote-unit-start { display: grid; gap: 0.6rem; }
+.quote-unit-start > p { margin: 0; }
+.quote-unit-start-title { font-size: 1.1rem; margin: 0; }
+.quote-unit-grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.quote-unit-grid .quote-choice { min-height: 0; }
+@media (max-width: 760px) {
+  .quote-unit-grid { grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+  .quote-unit-grid .quote-choice-title { padding-right: 0; }
+  .quote-unit-grid .quote-choice { padding: 0.9rem 0.9rem 0.8rem; }
+  .quote-unit-grid .quote-choice-go { display: none; }
+}

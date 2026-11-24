@@ -24,13 +24,14 @@ import {
 } from '../components.js';
 import { formatMoney, formatNumber, formatPercent, formatDateTime, EMPTY } from '../../core/format.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
-import { isFiniteNumber } from '../../core/money.js';
+import { isFiniteNumber, nonNegative } from '../../core/money.js';
 import { logger } from '../../core/logger.js';
 import { CURRENCY } from '../../config.js';
-import { computeProduct, PRODUCT_FINANCE_NET_NOTE } from '../../engines/product-engine.js';
+import { computeProduct, laborMinutesPerUnit, materialQuantityPerUnit, PRODUCT_FINANCE_NET_NOTE } from '../../engines/product-engine.js';
+import { resourceMaterialType } from '../../domain/material-types.js';
 import { maintenanceOf } from '../../engines/equipment-engine.js';
 import {
-  PRODUCT_STEPS, MEASURE_UNITS, PRODUCT_PRICE_MODES, PRODUCT_MATERIAL_PER, SALE_UNIT_SUGGESTIONS, MAINTENANCE_MODES,
+  PRODUCT_STEPS, MEASURE_UNITS, PRODUCT_PRICE_MODES, SALE_UNIT_SUGGESTIONS, MAINTENANCE_MODES,
   BUDGET_PERIODS, ILLUSTRATIVE_AGREEMENT_PARAMS, CURRENCIES, isIllustrativeAgreementParam,
   vatIsCost,
 } from '../../domain/catalogs.js';
@@ -179,11 +180,33 @@ function emptyHint(text) {
   return h('p', { class: 'pe-empty muted' }, text);
 }
 
+/**
+ * W-23 (0.25.0): con equilibrio 0 (sin gastos fijos) no hay "0 unidades por mes". Revisión UX C9: no
+ * se dice "cualquier venta te deja ganancia" (el dueño paga los sueldos igual).
+ */
+export const BREAK_EVEN_ZERO_TEXT = 'Sin gastos fijos cargados';
+export const BREAK_EVEN_ZERO_HINT = 'Si pagás alquiler, luz o sueldos aunque no vendas, cargalos en Gastos fijos y vas a ver cuánto tenés que vender.';
+export function breakEvenIsZero(value) {
+  return isFiniteNumber(value) && Math.abs(value) < 1e-9;
+}
+
+/** R-10 (0.25.0): "Traelo de Recursos" ofrece primero materiales e insumos (sin tipo, al final). */
+export function libraryByType(list) {
+  const rank = (m) => ({ materials: 0, supplies: 1 }[resourceMaterialType(m)] ?? 2);
+  return (Array.isArray(list) ? list : []).map((m, i) => ({ m, i })).sort((a, b) => rank(a.m) - rank(b.m) || a.i - b.i).map(({ m }) => m);
+}
+
 // ------------------------------------------------------------------ editor
 
 function createEditor(root, app, { product, resources, settings = {}, stepId, restoredDraft = false }) {
   // Auditoría externa K-05: monotributo o exento → los precios de compra se cargan con IVA.
   const purchaseVatHint = vatIsCost(settings) ? 'Como monotributista o exento, el IVA de lo que comprás es costo: cargá el precio con IVA.' : null;
+  // R-04 (0.25.0): responsable inscripto → los precios de compra se cargan sin IVA (lo recuperás).
+  const purchaseNoVat = settings && settings.vatCondition === 'registered';
+  const purchaseVatUnknown = !purchaseVatHint && !purchaseNoVat;
+  const purchaseLabel = (text) => (purchaseVatHint ? `${text} (con IVA)` : purchaseNoVat ? `${text} (sin IVA)` : text);
+  // Revisión 0.25.0 (COSTOS 5): la factura C o el ticket no dan crédito fiscal.
+  const purchaseHint = purchaseVatHint || (purchaseNoVat ? 'Como responsable inscripto, cargá el precio sin IVA cuando te dan factura A. Si te dan factura C o ticket (monotributistas, minoristas), ese IVA no lo recuperás: cargá el precio completo.' : null);
   const productId = product.id;
   const readOnly = Boolean(app.ctx && app.ctx.init && app.ctx.init.readOnly);
   // Sin almacenamiento persistente (modo memoria) no hay que decir "Guardado".
@@ -440,12 +463,15 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
 
   // ------------------------------------------------------------- campos
   const kit = {
-    num(path, { label, rule = 'money', unit = null, hint = null, required = false, placeholder = '', illustrative = false } = {}) {
+    num(path, { label, rule = 'money', unit = null, hint = null, required = false, placeholder = '', illustrative = false, onValue = null } = {}) {
       const v = getPath(state.product, path);
       return numberField({
         label, rule, unit, hint, required, placeholder, illustrative, name: path, disabled: readOnly,
         value: isFiniteNumber(v) ? v : null,
-        onChange: (value) => update(path, value),
+        onChange: (value) => {
+          update(path, value);
+          if (typeof onValue === 'function' && !readOnly && !state.disposed) onValue(value);
+        },
       });
     },
     text(path, { label, maxLength = 120, hint = null, placeholder = '', multiline = false } = {}) {
@@ -645,6 +671,16 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
     return `${num(i.quantity, 3)} ${i.useUnit}${converted} × ${unitMoney(i.unitPrice)} por ${perName(i.priceUnit)}${waste} = ${unitMoney(i.cost)} ${perText}.`;
   }
 
+  /** R-05 (0.25.0): "= 350 g por unidad" (cuánto lleva cada unidad que vendés). */
+  function perUnitQuantityText(i, r) {
+    const q = materialQuantityPerUnit(i, r && r.sellablePerBatch);
+    if (!q) return '';
+    const shown = (x) => num(x, x < 10 ? 2 : 0);
+    // Revisión 0.25.0 (P-4): la cantidad por unidad no incluye la merma; se dice cuánto se compra.
+    const waste = i.wastePct > 0 ? ` (sin la merma; comprás ${shown(q.quantity * (1 + i.wastePct / 100))} ${q.unit})` : '';
+    return `= ${shown(q.quantity)} ${q.unit} por ${saleUnit()} que vendés${waste}.`;
+  }
+
   function materialCard(i) {
     const line = state.product.materials[i];
     const base = `materials.${i}`;
@@ -652,7 +688,8 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
     const pack = line.priceMode === 'pack';
     const ill = line.illustrative === true;
     const foreign = line.base && line.base.currency && line.base.currency !== currency() ? line.base.currency : null;
-    const wasteField = kit.num(`${base}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%', hint: 'Lo que se tira o se pierde al usarlo.' });
+    // R-12 (0.25.0): sólo el texto; la cuenta sigue siendo cantidad × (1 + merma) (decisión D5).
+    const wasteField = kit.num(`${base}.wastePct`, { label: 'Merma', rule: 'percent', unit: '%', hint: '% extra que tenés que comprar por lo que se pierde: se suma a la cantidad que usás (100 g con 10 % de merma son 110 g).' });
     return lineCard({
       listKey: 'materials',
       index: i,
@@ -662,7 +699,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
       body: [
         formGrid(
           3,
-          kit.text(`${base}.description`, { label: per === 'unit' ? 'Material' : 'Ingrediente', maxLength: 120 }),
+          kit.text(`${base}.description`, { label: per === 'unit' ? 'Qué es' : 'Ingrediente', maxLength: 120, placeholder: per === 'unit' ? 'Ej.: bolsita, caja, etiqueta' : 'Ej.: harina, queso, huevos' }),
           kit.num(`${base}.quantity`, { label: per === 'unit' ? `Cantidad por ${saleUnit()}` : 'Cantidad por tanda', rule: 'quantity', illustrative: ill }),
           kit.select(`${base}.useUnit`, { label: 'Unidad', options: unitOptions(line.useUnit) }),
         ),
@@ -677,14 +714,14 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         pack
           ? formGrid(
             4,
-            kit.num(`${base}.packPrice`, { label: purchaseVatHint ? 'Precio del paquete (con IVA)' : 'Precio del paquete', unit: '$', hint: purchaseVatHint, illustrative: ill }),
+            kit.num(`${base}.packPrice`, { label: purchaseLabel('Precio del paquete'), unit: '$', hint: purchaseHint, illustrative: ill }),
             kit.num(`${base}.packSize`, { label: 'El paquete trae', rule: 'quantity' }),
             kit.select(`${base}.unit`, { label: 'Unidad del contenido', options: unitOptions(line.unit) }),
             wasteField,
           )
           : formGrid(
             3,
-            kit.num(`${base}.unitCost`, { label: purchaseVatHint ? 'Precio (con IVA)' : 'Precio', unit: '$', hint: purchaseVatHint, illustrative: ill }),
+            kit.num(`${base}.unitCost`, { label: purchaseLabel('Precio'), unit: '$', hint: purchaseHint, illustrative: ill }),
             kit.select(`${base}.unit`, { label: 'Por', options: unitOptions(line.unit) }),
             wasteField,
           ),
@@ -693,9 +730,42 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
           return m && m.unitPrice !== null ? `Precio por ${perName(m.priceUnit)}: ${unitMoney(m.unitPrice)}.` : '';
         }) : null,
         calc((r) => materialText(r.materials[i])),
-        kit.select(`${base}.per`, { label: '¿Dónde va?', options: PRODUCT_MATERIAL_PER.map((o) => ({ value: o.id, label: o.label })), structural: true }),
+        per === 'batch' ? calc((r) => perUnitQuantityText(r.materials[i], r)) : null,
+        // R-10 (0.25.0): la sección ya dice dónde va; "Mover a…" la pasa a la otra.
+        readOnly ? null : h('div', { class: 'qe-toolbar pe-move' }, button(per === 'unit' ? 'Mover a la receta (por tanda)' : `Mover a "En cada ${saleUnit()}"`, {
+          variant: 'ghost',
+          size: 'sm',
+          onClick: () => moveMaterial(i),
+        })),
       ],
     });
+  }
+
+  /**
+   * "Mover a…" (revisión 0.25.0, UX C9): la cantidad se convierte (÷ o × las unidades para vender de
+   * una tanda) y el costo por unidad queda igual. Sin ese dato no se puede convertir: se mueve y se
+   * avisa que la cantidad quedó igual, para revisarla.
+   */
+  function moveMaterial(i) {
+    const line = state.product.materials[i];
+    if (!line) return;
+    const toUnit = line.per !== 'unit';
+    const sellable = state.result && state.result.sellablePerBatch > 0 ? state.result.sellablePerBatch : null;
+    const qty = Number(line.quantity);
+    const has = Number.isFinite(qty) && qty > 0;
+    const useUnit = line.useUnit || line.unit || '';
+    const from = `${num(qty, 3)} ${useUnit}`.trim();
+    const next = has && sellable ? (toUnit ? qty / sellable : qty * sellable) : null;
+    mutate((p) => {
+      const l = p.materials[i];
+      l.per = toUnit ? 'unit' : 'batch';
+      if (next !== null) l.quantity = next;
+    });
+    const where = toUnit ? `por ${saleUnit()}` : 'por tanda';
+    const before = toUnit ? 'por tanda' : `por ${saleUnit()}`;
+    if (!has) return;
+    if (next !== null) notify(`La cantidad ahora es ${where}: ${num(next, 3)} ${useUnit} (antes: ${from} ${before}). El costo no cambia.`, 'success');
+    else notify(`La cantidad ahora es ${where}: revisala (antes: ${from} ${before}).`, 'warning');
   }
 
   function addMaterialFromLibrary(id) {
@@ -720,7 +790,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
       : h(
         'div',
         { class: 'qe-toolbar pe-toolbar' },
-        button(per === 'unit' ? 'Agregar empaque' : 'Agregar ingrediente', { variant: 'primary', icon: 'plus', onClick: () => addBlankMaterial(per), attrs: { 'data-edit': 'true' } }),
+        button(per === 'unit' ? `Agregar algo que va en cada ${saleUnit()}` : 'Agregar ingrediente', { variant: 'primary', icon: 'plus', onClick: () => addBlankMaterial(per), attrs: { 'data-edit': 'true' } }),
         per === 'batch' && library.length
           ? selectField({
             label: 'O traelo de Recursos → Insumos y materiales',
@@ -728,13 +798,17 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
             value: '',
             includeEmpty: true,
             emptyLabel: 'Elegí un material…',
-            options: library.map((m) => ({ value: m.id, label: `${m.description || m.name || 'Material'}${m.illustrative ? ' (ilustrativo)' : ''}` })),
+            // R-10 (0.25.0): primero los materiales e insumos; herramientas, EPP y otros gastos, después.
+            options: libraryByType(library).map((m) => ({ value: m.id, label: `${m.description || m.name || 'Material'}${m.illustrative ? ' (ilustrativo)' : ''}` })),
             onChange: (v) => v && addMaterialFromLibrary(v),
           })
           : null,
       ));
     return [
       tip('Cargá lo que usás en UNA tanda y cuánto te cuesta. RATEOS pasa solo de gramos a kilos y de mililitros a litros. Si comprás por bolsa o paquete, elegí "Precio del paquete".'),
+      purchaseVatUnknown
+        ? h('p', { class: 'qe-note pe-vat-unknown' }, '¿Los precios van con o sin IVA? Depende de tu condición frente al IVA: elegila en ', h('a', { href: '#/configuracion/parametros' }, 'Configuración → Parámetros económicos'), '.')
+        : null,
       h(
         'section',
         { class: 'pe-section stack' },
@@ -748,7 +822,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         { class: 'pe-section stack' },
         h('h3', { class: 'pe-section-title' }, `En cada ${saleUnit()} que vendés`),
         h('p', { class: 'muted small pe-section-text' }, 'Bolsita, etiqueta, caja o bandeja: lo que va en cada unidad.'),
-        perUnit.length ? h('div', { class: 'qe-lines' }, ...perUnit.map(materialCard)) : emptyHint('Sin empaques por unidad.'),
+        perUnit.length ? h('div', { class: 'qe-lines' }, ...perUnit.map(materialCard)) : emptyHint(`Todavía no cargaste nada que vaya en cada ${saleUnit()}.`),
         toolbar('unit'),
       ),
       exchangeRatesBlock(),
@@ -771,7 +845,9 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
     const line = state.product.labor[i];
     const base = `labor.${i}`;
     const agreement = agreements.find((a) => a.id === line.agreementId) || null;
-    const ill = (key) => isIllustrativeAgreementParam(line, key, { agreement });
+    // Revisión 0.25.0 (P-5): en un producto de demostración todo es ILUSTRATIVO (como en una cotización).
+    const demoProduct = state.product.illustrative === true;
+    const ill = (key) => isIllustrativeAgreementParam(line, key, { agreement, wholeIllustrative: demoProduct });
     const anyIll = ['normalHoursPerMonth', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct'].some(ill);
     return lineCard({
       listKey: 'labor',
@@ -800,8 +876,15 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
           3,
           kit.num(`${base}.basicMonthly`, { label: 'Sueldo básico mensual (por persona)', unit: '$', illustrative: line.illustrative === true }),
           kit.num(`${base}.additionalsMonthly`, { label: 'Adicionales mensuales', unit: '$', hint: 'Presentismo, antigüedad u otros adicionales remunerativos.' }),
+          // R-07 (0.25.0): el motor ya lo leía; vacío = 0 = el número de siempre.
+          // Revisión 0.25.0 (COSTOS 4, UX C9): el motor suma el % de cargas del convenio sobre el no remunerativo.
+          kit.num(`${base}.nonRemunerativeMonthly`, { label: 'No remunerativo por mes', unit: '$', hint: `Sumas no remunerativas (por persona). No llevan aguinaldo, vacaciones ni contribuciones patronales. Si tu convenio les aplica obra social o cuota sindical, va en el % del convenio.${nonNegative(line.nonRemunerativeChargesPct) > 0 ? ` (+ ${pctText(nonNegative(line.nonRemunerativeChargesPct))} de cargas del convenio)` : ''}` }),
           kit.num(`${base}.minutesPerBatch`, { label: 'Minutos por tanda (cada persona)', rule: 'minutes', unit: 'min', hint: 'Su tiempo de trabajo en una tanda: preparar, hornear, empaquetar.' }),
         ),
+        calc((r) => {
+          const m = laborMinutesPerUnit(r.labor[i], r.sellablePerBatch);
+          return m === null ? '' : `= ${num(m, m < 10 ? 2 : 1)} min de trabajo por ${saleUnit()} que vendés.`;
+        }),
         calc((r) => {
           const l = r.labor[i];
           if (!l) return '';
@@ -819,13 +902,17 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         disclosure(
           { summary: 'Cargas sociales y horas del mes', hint: anyIll ? 'Valores ILUSTRATIVOS: reemplazalos por los de tu convenio' : 'Aguinaldo, vacaciones, contribuciones, ART' },
           anyIll ? h('p', { class: 'small' }, 'Estos valores son genéricos e ILUSTRATIVOS: no son los de ningún convenio real. Cargá los vigentes de tu CCT o elegí un convenio con tus valores.') : null,
+          // R-06 (0.25.0): si ya son los tuyos (aunque coincidan con el ejemplo), se marcan como propios.
+          anyIll && !readOnly && !demoProduct && !(agreement && agreement.illustrative) && line.illustrative !== true
+            ? h('div', { class: 'qe-toolbar' }, button('Son mis valores', { variant: 'secondary', size: 'sm', icon: 'check', onClick: () => markOwnParams(i) }))
+            : null,
           formGrid(
             3,
-            kit.num(`${base}.normalHoursPerMonth`, { label: 'Horas normales por mes', rule: 'hours', unit: 'h', illustrative: ill('normalHoursPerMonth') }),
-            kit.num(`${base}.sacPct`, { label: 'Aguinaldo (SAC)', rule: 'percent', unit: '%', illustrative: ill('sacPct') }),
-            kit.num(`${base}.vacationPct`, { label: 'Vacaciones', rule: 'percent', unit: '%', illustrative: ill('vacationPct') }),
-            kit.num(`${base}.employerContributionsPct`, { label: 'Contribuciones patronales', rule: 'percent', unit: '%', hint: 'Sólo sobre lo remunerativo (con aguinaldo y vacaciones): nunca sobre las sumas no remunerativas.', illustrative: ill('employerContributionsPct') }),
-            kit.num(`${base}.artPct`, { label: 'ART', rule: 'percent', unit: '%', illustrative: ill('artPct') }),
+            kit.num(`${base}.normalHoursPerMonth`, { label: 'Horas normales por mes', rule: 'hours', unit: 'h', illustrative: ill('normalHoursPerMonth'), onValue: () => markOwnParam(i, 'normalHoursPerMonth') }),
+            kit.num(`${base}.sacPct`, { label: 'Aguinaldo (SAC)', rule: 'percent', unit: '%', illustrative: ill('sacPct'), onValue: () => markOwnParam(i, 'sacPct') }),
+            kit.num(`${base}.vacationPct`, { label: 'Vacaciones', rule: 'percent', unit: '%', illustrative: ill('vacationPct'), onValue: () => markOwnParam(i, 'vacationPct') }),
+            kit.num(`${base}.employerContributionsPct`, { label: 'Contribuciones patronales', rule: 'percent', unit: '%', hint: 'Sólo sobre lo remunerativo (con aguinaldo y vacaciones): nunca sobre las sumas no remunerativas.', illustrative: ill('employerContributionsPct'), onValue: () => markOwnParam(i, 'employerContributionsPct') }),
+            kit.num(`${base}.artPct`, { label: 'ART', rule: 'percent', unit: '%', illustrative: ill('artPct'), onValue: () => markOwnParam(i, 'artPct') }),
             kit.num(`${base}.ppeMonthly`, { label: 'Ropa de trabajo por mes', unit: '$' }),
             kit.num(`${base}.insuranceMonthly`, { label: 'Seguro de vida u otros por mes', unit: '$' }),
             kit.num(`${base}.trainingMonthly`, { label: 'Capacitación por mes', unit: '$' }),
@@ -833,6 +920,23 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         ),
       ],
     });
+  }
+
+  /** R-06 (0.25.0): parámetros del convenio que la persona escribió (no se marcan ILUSTRATIVOS). */
+  const OWN_PARAM_KEYS = ['normalHoursPerMonth', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct'];
+  function markOwnParam(i, key) {
+    const line = state.product.labor[i];
+    if (!line || state.product.illustrative === true) return;
+    const own = Array.isArray(line.ownParams) ? line.ownParams : [];
+    if (!own.includes(key)) line.ownParams = [...own, key];
+  }
+  function markOwnParams(i) {
+    mutate((p) => {
+      const line = p.labor[i];
+      const own = Array.isArray(line.ownParams) ? line.ownParams : [];
+      line.ownParams = [...new Set([...own, ...OWN_PARAM_KEYS])];
+    });
+    notify('Listo: las cargas sociales de este puesto quedan como tuyas.', 'success');
   }
 
   function chooseAgreement(i, id) {
@@ -846,6 +950,8 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         [...AGREEMENT_PARAM_KEYS, 'fixedContributionsMonthly', 'nonRemunerativeChargesPct', 'otherChargesPct', 'workerContributionsPct'].forEach((key) => {
           if (isFiniteNumber(params[key])) line[key] = params[key];
         });
+        // Los valores pasan a ser los del convenio: ya no son los que escribió la persona.
+        delete line.ownParams;
       }
     }, { focus: `labor.${i}.agreementId` });
     if (agreement) notify(`Se cargaron las cargas sociales de "${agreement.name}"${agreement.illustrative ? ' (ILUSTRATIVAS)' : ''}.`, 'success');
@@ -1287,6 +1393,8 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
 
   function breakEvenText(value, price) {
     if (value === null) return price === null ? EMPTY : 'No se alcanza';
+    // W-23 (0.25.0): sin gastos fijos asignados no hay un mínimo de ventas.
+    if (breakEvenIsZero(value)) return BREAK_EVEN_ZERO_TEXT;
     return formatNumber(Math.ceil(value));
   }
 
@@ -1303,7 +1411,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
     const beHint = be === null
       ? (pr.suggestedPrice === null ? 'Faltan datos.' : `Con este precio cada ${u} no cubre lo que cuesta hacerla.`)
       : !(r.fixedMonthly > 0)
-        ? 'Sin gastos fijos asignados: cada venta ya deja ganancia.'
+        ? BREAK_EVEN_ZERO_HINT
         : N > 0
           ? (N >= be ? `Vendés ${num(N, 0)} por mes: estás por encima.` : `Vendés ${num(N, 0)} por mes: todavía no llegás.`)
           : 'Para cubrir los gastos fijos del mes.';
@@ -1327,7 +1435,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
           size: 'lg',
         }),
         bigStat({ label: `Ganás por cada ${u}`, value: unitMoney(pr.gainPerUnit), hint: 'Después de los impuestos sobre la venta y de todos los costos.', tone: pr.gainPerUnit > 0 ? 'green' : pr.gainPerUnit < 0 ? 'red' : null }),
-        bigStat({ label: 'Para no perder plata', value: breakEvenText(be, pr.suggestedPrice), unit: be !== null ? `${units()} por mes` : null, hint: beHint, trace: r.traces.breakEven, tone: be !== null && N > 0 && N < be ? 'orange' : null }),
+        bigStat({ label: 'Para no perder plata', value: breakEvenText(be, pr.suggestedPrice), unit: be !== null && !breakEvenIsZero(be) ? `${units()} por mes` : null, hint: beHint, trace: r.traces.breakEven, tone: be !== null && N > 0 && N < be ? 'orange' : null }),
       ),
       pr.priceWithVat !== null
         ? h('p', { class: 'pe-vat' }, `Precio al público con IVA (${pctText(pr.vatPct)}): `, h('strong', { class: 'mono' }, unitMoney(pr.priceWithVat)), ' ', traceCell('vat'))
@@ -1381,7 +1489,8 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
             { key: 'value', label: 'La tanda', align: 'right', render: (row) => h('span', { class: ['mono', row.strong ? 'pe-strong' : null] }, row.value) },
           ],
           rows: [
-            { label: 'Unidades por tanda', value: num(r.unitsPerBatch) },
+            // R-13 (0.25.0): en la unidad del producto ("Docenas por tanda").
+            { label: `${units().charAt(0).toUpperCase()}${units().slice(1)} por tanda`, value: num(r.unitsPerBatch) },
             r.lossPct > 0 ? { label: 'Se pierde', value: pctText(r.lossPct) } : null,
             r.lossPct > 0 ? { label: `${units().charAt(0).toUpperCase()}${units().slice(1)} para vender`, value: num(r.sellablePerBatch) } : null,
             { label: 'Ingredientes (receta)', value: unitMoney(r.perBatch.materials) },
@@ -1435,7 +1544,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
             { class: 'qe-stats' },
             h('div', { class: 'qe-stat' }, h('span', { class: 'qe-stat-label' }, 'Margen real'), h('span', { class: 'qe-stat-value mono' }, current.marginPct === null ? EMPTY : pctText(current.marginPct))),
             h('div', { class: 'qe-stat' }, h('span', { class: 'qe-stat-label' }, `Ganás por ${u}`), h('span', { class: 'qe-stat-value mono' }, unitMoney(current.profitPerUnit))),
-            h('div', { class: 'qe-stat' }, h('span', { class: 'qe-stat-label' }, 'Para no perder plata'), h('span', { class: 'qe-stat-value mono' }, `${breakEvenText(current.breakEvenUnits, current.price)}${current.breakEvenUnits !== null ? ` ${units()}/mes` : ''}`)),
+            h('div', { class: 'qe-stat' }, h('span', { class: 'qe-stat-label' }, 'Para no perder plata'), h('span', { class: 'qe-stat-value mono' }, `${breakEvenText(current.breakEvenUnits, current.price)}${current.breakEvenUnits !== null && !breakEvenIsZero(current.breakEvenUnits) ? ` ${units()}/mes` : ''}`)),
             N > 0 ? h('div', { class: 'qe-stat' }, h('span', { class: 'qe-stat-label' }, 'Resultado del mes'), h('span', { class: 'qe-stat-value mono' }, money0(current.monthlyProfit))) : null,
           ),
         )
@@ -1498,10 +1607,10 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
       h(
         'dl',
         { class: 'pe-aside-list' },
-        asideRow('Costo por unidad', (r) => unitMoney(r.unitCost)),
+        asideRow(`Costo por ${saleUnit()}`, (r) => unitMoney(r.unitCost)),
         asideRow('Precio sugerido', (r) => unitMoney(r.pricing.suggestedPrice), { strong: true }),
-        asideRow('Ganás por unidad', (r) => unitMoney(r.pricing.gainPerUnit)),
-        asideRow('Para no perder', (r) => (r.pricing.breakEvenUnits === null ? (r.pricing.suggestedPrice === null ? EMPTY : 'No se alcanza') : `${formatNumber(Math.ceil(r.pricing.breakEvenUnits))} por mes`)),
+        asideRow(`Ganás por ${saleUnit()}`, (r) => unitMoney(r.pricing.gainPerUnit)),
+        asideRow('Para no perder', (r) => (r.pricing.breakEvenUnits === null ? (r.pricing.suggestedPrice === null ? EMPTY : 'No se alcanza') : breakEvenIsZero(r.pricing.breakEvenUnits) ? BREAK_EVEN_ZERO_TEXT : `${formatNumber(Math.ceil(r.pricing.breakEvenUnits))} por mes`)),
       ),
       out((r) => (r.unitCost > 0 ? barList(r.breakdown.filter((b) => b.displayPct > 0).map((b) => ({ label: b.label, value: b.displayPct }))) : h('p', { class: 'small muted' }, 'A medida que cargues datos, acá vas a ver cómo se forma el costo.')), { tag: 'div', className: 'pe-aside-bars', fixed: true }),
       out((r) => {

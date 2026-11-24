@@ -48,7 +48,7 @@ describe('un campo oculto con valor guardado se sigue viendo', () => {
   test('"Datos de la unidad (opcional)": plegada, se abre sola si tiene algo cargado y lo resume', () => {
     assert.match(LIBRARY, /title: 'Datos de la unidad \(opcional\)',\n\s+key: 'unit-data',\n\s+collapsible: true,\n\s+openWhen: \(d\) => unitDataParts\(d\)\.length > 0/);
     assert.deepEqual(unitDataParts({}), []);
-    assert.deepEqual(unitDataParts({ capacity: ' 12 yd³ ', internalCode: 'EQ-014', modelId: 'm1', year: 2019, plate: 'AB123CD' }), ['12 yd³', 'interno EQ-014', 'con modelo', '2019', 'dominio AB123CD']);
+    assert.deepEqual(unitDataParts({ capacity: ' 12 yd³ ', internalCode: 'EQ-014', modelId: 'm1', year: 2019, plate: 'AB123CD' }), ['12 yd³', 'interno EQ-014', 'con modelo', '2019', 'patente AB123CD']);
     assert.deepEqual(unitDataParts({ internalCode: '  ', year: 0 }), []);
   });
 

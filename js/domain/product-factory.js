@@ -111,7 +111,8 @@ export function blankProductMaterialLine({ id = createId(), per = 'batch', curre
   return {
     id,
     sourceId: null,
-    description: per === 'unit' ? 'Empaque' : 'Ingrediente',
+    // R-10 (0.25.0): nace sin nombre; la pantalla muestra un texto de muestra.
+    description: '',
     per: per === 'unit' ? 'unit' : 'batch',
     unit: per === 'unit' ? 'u' : 'kg',
     useUnit: per === 'unit' ? 'u' : 'kg',

@@ -143,6 +143,18 @@ export const PRODUCT_SCENARIOS = [
     expect: { variablePerUnit: 2500 },
   },
   {
+    // 0.25.0 (PLAN-2026-029, R-07): "No remunerativo por mes" en el personal del producto.
+    id: 'PRD-11-NON-REMUNERATIVE',
+    title: 'Producto con personal que cobra una suma no remunerativa: se suma sin aguinaldo, vacaciones ni cargas',
+    family: 'manufactured',
+    build: () => product({
+      id: 'prd-11', saleUnit: 'docena', unitsPerBatch: 24, monthlyUnits: 800,
+      materials: [ingredient({ description: 'Harina', unit: 'kg', useUnit: 'g', quantity: 3000, unitCost: 900 })],
+      labor: [worker({ role: 'Panadero/a', basicMonthly: 1200000, nonRemunerativeMonthly: 150000, minutesPerBatch: 90 })],
+      pricing: { targetMarginPct: 25, roundingStep: 10 },
+    }),
+  },
+  {
     id: 'PRD-E01-NO-MONTHLY-UNITS',
     title: 'Extremo: sin unidades por mes con gastos fijos (costo por unidad sin calcular, error visible)',
     family: 'edge',

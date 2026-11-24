@@ -42,15 +42,16 @@ import { deepClone, getPath, setPath } from '../../core/object.js';
 import { sanitizeText } from '../../core/validation.js';
 import { AGREEMENT_TYPES, AGREEMENT_TYPES_SORTED, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_UNIT_PRESETS, MATERIAL_PROVIDERS, materialProviderOptions, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf, vatIsCost } from '../../domain/catalogs.js';
 import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
-import { maintenanceOf } from '../../engines/equipment-engine.js';
+import { maintenanceOf, tiresOf } from '../../engines/equipment-engine.js';
+import { industryOf } from '../../domain/industry-catalog.js';
 import { wearNote } from '../equipment-wear-ui.js';
 import { hasText, positiveValue, unitDataParts } from '../optional-fields.js';
-import { EQUIPMENT_FAMILIES, familyById, familyIdOf, familyVariants, isVehicleFamily, modelLabel, suggestedMobility } from '../../domain/equipment-catalog.js';
+import { EQUIPMENT_FAMILIES, WELL_FAMILY_IDS, familyById, familyIdOf, familyVariants, isVehicleFamily, modelLabel, suggestedMobility } from '../../domain/equipment-catalog.js';
 import { emptyBase } from '../../domain/economic-base.js';
 import { createExternalTerms, createEquipmentMobility, acquisitionOf } from '../../domain/quote-factory.js';
 import { externalFiscal } from '../../engines/external-engine.js';
 import { baseTag, baseFormFields } from '../economic-base-ui.js';
-import { BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT, BILLABLE_OVER_NORMAL_NOTE } from '../result-text.js';
+import { BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT, BILLABLE_OVER_NORMAL_NOTE, EQUIPMENT_LIBRARY_HOURS_HINT } from '../result-text.js';
 import { CURRENCY } from '../../config.js';
 import { laborLoadFactor } from '../../engines/labor-engine.js';
 import { computeMaterialLine } from '../../engines/materials-engine.js';
@@ -90,7 +91,7 @@ const TABS = Object.freeze([
     type: 'equipment',
     addLabel: 'Agregar equipo',
     icon: 'services',
-    intro: 'Mis equipos: las unidades reales de tu empresa (interno, modelo, valor, base y movilidad). En las propias, RATEOS separa lo que cuesta tenerlas (COSTO DE POSESIÓN, aunque no trabajen) de lo que cuesta usarlas (COSTO DE OPERACIÓN).',
+    intro: 'Mis equipos: las unidades reales de tu empresa (interno, modelo, valor, base y movilidad). En las propias, RATEOS separa lo que cuesta tenerlas (aunque no trabajen) de lo que cuesta usarlas.',
     emptyTitle: 'Todavía no agregaste equipos.',
     emptyText: 'Guardá tus equipos una vez y reutilizalos en futuras cotizaciones.',
   },
@@ -274,9 +275,9 @@ function equipmentTrace(eq, c) {
     id: 'equipment_card',
     title: `Costo de equipo — ${eq.name || 'equipo'}`,
     formula:
-      'Posesión/mes = amortización + seguro + patente + certificaciones + otros + mantenimiento fijo (presupuesto) + costo de capital · Operación/h = mantenimiento/h + neumáticos/h + litros/h × precio combustible (service = costo / horas entre services; juego = costo / vida útil en horas) · $/mes = posesión + operación/h × horas usadas · $/hora = $/mes / horas usadas · $/día = $/mes / días usados',
+      'Por tenerlo/mes = amortización + seguro + patente + certificaciones + otros + mantenimiento fijo (presupuesto) + costo de capital · Por usarlo/h = mantenimiento/h + neumáticos/h + litros/h × precio combustible (service = costo / horas entre services; juego = costo / vida útil en horas) · $/mes = por tenerlo + por usarlo/h × horas por mes · $/hora = $/mes / horas por mes',
     inputs: [
-      { label: 'Valor de reposición', value: o.replacement, format: 'money' },
+      { label: 'Cuánto cuesta uno nuevo hoy (reposición)', value: o.replacement, format: 'money' },
       { label: 'Valor residual', value: o.residual, format: 'money' },
       { label: 'Vida útil', value: o.lifeYears, format: 'number', unit: 'años' },
       { label: 'Seguro anual', value: o.insuranceMonthly * 12, format: 'money' },
@@ -291,26 +292,28 @@ function equipmentTrace(eq, c) {
         ? { label: 'Combustible', value: 'No usa combustible', format: 'text' }
         : { label: 'Consumo de combustible', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
       op.fuelNotApplicable ? null : { label: 'Precio del combustible (de Configuración; en cada cotización se cambia en "Movilización y viajes")', value: op.fuelPricePerLiter, format: 'rate' },
-      { label: 'Horas disponibles por mes', value: cap.availableHoursPerMonth, format: 'hours' },
-      { label: 'Días disponibles por mes', value: cap.availableDaysPerMonth, format: 'number', unit: 'días' },
-      { label: 'Utilización esperada', value: cap.utilizationPct, format: 'percent' },
+      // 0.25.0 (PR 6): las horas por mes que trabaja para clientes; un equipo de antes, sus datos de antes.
+      ...(cap.ownBillableHours
+        ? [{ label: 'Horas por mes que trabaja para clientes', value: cap.billableHoursPerMonth, format: 'hours' }]
+        : [
+          { label: 'Horas del mes (cargadas antes)', value: cap.availableHoursPerMonth, format: 'hours' },
+          { label: 'Uso esperado (cargado antes)', value: cap.utilizationPct, format: 'percent' },
+        ]),
     ],
     steps: [
       { label: 'Amortización mensual', value: o.depreciationMonthly, format: 'money' },
       { label: 'Seguro + patente + certificaciones + otros + mantenimiento fijo (mensual)', value: o.cashMonthly, format: 'money' },
       { label: 'Costo de capital mensual', value: o.capitalCostMonthly, format: 'money' },
-      { label: 'COSTO DE POSESIÓN mensual', value: o.totalMonthly, format: 'money' },
-      { label: 'COSTO DE OPERACIÓN por hora', value: op.totalPerHour, format: 'rate' },
-      { label: 'Horas usadas por mes', value: cap.usedHoursPerMonth, format: 'hours' },
-      { label: 'Días usados por mes', value: cap.usedDaysPerMonth, format: 'number', unit: 'días' },
-      { label: 'Operación mensual', value: r.operationMonthly, format: 'money' },
-      { label: '$/hora usada', value: r.costPerUsedHour, format: 'rate' },
-      { label: '$/día usado', value: r.costPerUsedDay, format: 'money' },
+      { label: 'Por tenerlo, por mes', value: o.totalMonthly, format: 'money' },
+      { label: 'Por usarlo, por hora', value: op.totalPerHour, format: 'rate' },
+      { label: 'Horas por mes', value: cap.usedHoursPerMonth, format: 'hours' },
+      { label: 'Por usarlo, en el mes', value: r.operationMonthly, format: 'money' },
+      { label: '$/hora', value: r.costPerUsedHour, format: 'rate' },
     ],
-    result: { label: 'Costo mensual a la utilización configurada', value: r.costPerMonth, format: 'money' },
+    result: { label: 'Costo del mes con esas horas', value: r.costPerMonth, format: 'money' },
     notes: [
       'La amortización y el costo de capital no son salidas de caja mensuales, pero sí son costo: el equipo se desgasta y la plata invertida tiene un costo.',
-      'Con menos utilización, el costo de posesión se reparte en menos horas y sube el $/hora.',
+      'Con menos horas por mes, lo de tenerlo se reparte en menos horas y sube el $/hora.',
     ],
   });
 }
@@ -468,14 +471,15 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
       liveHost,
       section.extra ? section.extra({ draft, rerender }) : null,
     ];
+    const title = typeof section.title === 'function' ? section.title(draft) : section.title;
     if (!section.collapsible) {
-      return h('fieldset', { class: 'form-section' }, h('legend', {}, section.title), ...content);
+      return h('fieldset', { class: 'form-section' }, h('legend', {}, title), ...content);
     }
     // Opciones avanzadas: cerradas, con un resumen VISIBLE de lo que hay adentro.
     const key = section.key || `s${index}`;
     const summary = typeof section.summary === 'function' ? section.summary(draft) : section.summary;
     return disclosure(
-      { summary: section.title, hint: summary || null, open: openSections.has(key), className: 'form-section-collapsible', onToggle: (isOpen) => (isOpen ? openSections.add(key) : openSections.delete(key)) },
+      { summary: title, hint: summary || null, open: openSections.has(key), className: 'form-section-collapsible', onToggle: (isOpen) => (isOpen ? openSections.add(key) : openSections.delete(key)) },
       h('div', { class: 'form-section' }, ...content),
     );
   }
@@ -579,7 +583,7 @@ export function agreementFromChoice(choice) {
 }
 
 function laborSections(agreements, app, { profileCost = null } = {}) {
-  const agreementOptions = agreements.map((a) => ({ value: a.id, label: `${a.name || labelOf(AGREEMENT_TYPES, a.code, 'Convenio')}${a.pending ? ' (nuevo, con valores de ejemplo)' : ''}` }));
+  const agreementOptions = agreements.map((a) => ({ value: a.id, label: `${a.name || labelOf(AGREEMENT_TYPES, a.code, 'Convenio')}${a.pending ? ' (nuevo)' : ''}` }));
   const hasValue = (v) => isFiniteNumber(v) && v > 0;
   const agreementOf = (draft) => agreements.find((a) => a.id === draft.agreementId) || null;
   return [
@@ -624,7 +628,8 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
       } : null,
     },
     {
-      title: 'Cargas sociales del convenio',
+      // 0.25.0 (PR 9): sin convenio, las cargas son del puesto.
+      title: (d) => (agreementOf(d) ? 'Cargas sociales del convenio' : 'Cargas sociales de este puesto'),
       collapsible: true,
       key: 'labor-charges',
       openWhen: (d) => ownParamKeys(d, agreementOf(d)).length > 0 || !agreementOf(d),
@@ -668,15 +673,13 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
     },
     {
       // PLAN-2026-026: el valor de la hora (normal, al 50 % y al 100 %) es de cada recurso.
-      title: 'Valor de la hora (normal, para cotizar, al 50 % y al 100 %)',
+      title: 'Valor de la hora',
       hint: 'Lo que te cuesta una hora de esta persona, con cargas. RATEOS lo calcula con el sueldo; si tu convenio paga otro valor, escribilo y se usa ése. Lo habitual: al 50 % los días de semana después del horario y el sábado a la mañana; al 100 % el sábado a la tarde, domingos y feriados (depende de cada convenio).',
       cols: 3,
       fields: [
         { key: 'normalHoursPerMonth', label: 'Horas normales por mes', rule: 'hours', unit: 'h', hint: 'Las horas que trabaja en un mes normal (por ejemplo 176 = 8 h × 22 días). Con esto sale el valor de la hora.' },
         // Horas que de verdad le cobra a clientes por mes (2026-11-18, M7): con ellas sale la hora para cotizar trabajos (tiempo usado).
         { key: 'billableHoursPerMonth', label: BILLABLE_HOURS_LABEL, rule: 'hours', unit: 'h', nullable: true, placeholder: 'Igual a las normales', hint: BILLABLE_HOURS_HINT },
-        { key: 'overtimeRate50', label: 'Hora al 50 % (opcional)', rule: 'money', unit: '$/h', nullable: true, placeholder: 'Se calcula sola', hint: 'Vacío = la calculada (abajo).' },
-        { key: 'overtimeRate100', label: 'Hora al 100 % (opcional)', rule: 'money', unit: '$/h', nullable: true, placeholder: 'Se calcula sola', hint: 'Vacío = la calculada (abajo).' },
       ],
       live: profileCost ? (draft) => {
         const p = profileCost(draft).perPerson;
@@ -694,6 +697,19 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
           cell('Valor de la hora', p.ownBillableHours ? p.billableHourlyCost : p.loadedHourlyCost, p.ownBillableHours ? 'Costo del mes ÷ horas que le cobrás a clientes' : 'Igual a la hora normal (no cargaste horas para clientes)'));
         return over ? h('div', {}, rates, h('p', { class: 'hour-rates-warning', role: 'status' }, BILLABLE_OVER_NORMAL_NOTE)) : rates;
       } : null,
+    },
+    {
+      // 0.25.0 (PR 9): la hora al 50 % y al 100 % se calculan solas; escribirlas es la excepción.
+      title: 'Hora al 50 % y al 100 % (opcional)',
+      collapsible: true,
+      key: 'labor-overtime',
+      openWhen: (d) => hasValue(d.overtimeRate50) || hasValue(d.overtimeRate100),
+      summary: (d) => (hasValue(d.overtimeRate50) || hasValue(d.overtimeRate100) ? 'Tiene valores propios de tu convenio.' : 'Se calculan solas con el sueldo. Escribilas sólo si tu convenio paga otro valor.'),
+      cols: 3,
+      fields: [
+        { key: 'overtimeRate50', label: 'Hora al 50 % (opcional)', rule: 'money', unit: '$/h', nullable: true, placeholder: 'Se calcula sola', hint: 'Vacío = la calculada (arriba).' },
+        { key: 'overtimeRate100', label: 'Hora al 100 % (opcional)', rule: 'money', unit: '$/h', nullable: true, placeholder: 'Se calcula sola', hint: 'Vacío = la calculada (arriba).' },
+      ],
     },
     {
       title: 'Más detalle (opcional)',
@@ -817,6 +833,18 @@ const ACQ_OPTIONS = ACQUISITION_MODES.map((a) => ({ value: a.id, label: a.label 
 const UNIT_OPTIONS = EXTERNAL_UNITS.map((u) => ({ value: u.id, label: u.label }));
 const TRIP_BASIS_OPTIONS = EXTERNAL_TRIP_BASES.map((b) => ({ value: b.id, label: b.label }));
 const FAMILY_OPTIONS = EQUIPMENT_FAMILIES.map((f) => ({ value: f.id, label: f.label }));
+/**
+ * Familias en el orden del alta (0.25.0, PR 9, W-14): primero las generales; las de pozo (vactor,
+ * atmosférico, frac tank, flushby, wireline) agrupadas al final, salvo en petróleo y gas, que
+ * quedan como siempre. "Otro / Personalizado" va último. Sólo el orden: ninguna se borra.
+ */
+export function familyOptionsFor(sector = null) {
+  if (sector === 'oil_gas') return FAMILY_OPTIONS;
+  const well = FAMILY_OPTIONS.filter((o) => WELL_FAMILY_IDS.includes(o.value));
+  const other = FAMILY_OPTIONS.filter((o) => o.value === 'other');
+  const general = FAMILY_OPTIONS.filter((o) => !WELL_FAMILY_IDS.includes(o.value) && o.value !== 'other');
+  return [...general, ...well.map((o) => ({ ...o, label: `${o.label} (pozo)` })), ...other];
+}
 const isExternalDraft = (d) => acquisitionOf(d) !== 'owned';
 const currencySymbol = (d, key = 'base') => {
   const c = d && d[key] && d[key].currency;
@@ -1010,8 +1038,15 @@ function wearSections(settings) {
   };
   return [
     {
+      // 0.25.0 (PR 9, W-14): plegado, con lo cargado en el resumen (abierto si ya tiene algo).
       key: 'maintenance',
       title: 'Mantenimiento',
+      collapsible: true,
+      openWhen: (d) => maintenanceOf(d).perHour > 0 || maintenanceOf(d).fixedMonthly > 0,
+      summary: (d) => {
+        const m = maintenanceOf(d);
+        return m.fixedMonthly > 0 ? `Fijo ${formatMoney(m.fixedMonthly)} por mes.` : m.perHour > 0 ? `${formatMoney(m.perHour)} por hora de uso.` : 'Sin cargar.';
+      },
       hint: 'Elegí cómo lo cargás. El costo por hora y el service se suman por cada hora de uso; un presupuesto mensual o anual es un costo FIJO de tenerlo (no se divide por horas).',
       fields: [
         { key: 'maintenanceMode', label: '¿Cómo lo cargás?', kind: 'select', options: MAINTENANCE_OPTIONS, rerender: true },
@@ -1026,6 +1061,12 @@ function wearSections(settings) {
     {
       key: 'tires',
       title: 'Neumáticos',
+      collapsible: true,
+      openWhen: (d) => tiresOf(d).perHour > 0 || tiresOf(d).perKm > 0,
+      summary: (d) => {
+        const t = tiresOf(d);
+        return t.perKm > 0 ? `${formatMoney(t.perKm)} por km.` : t.perHour > 0 ? `${formatMoney(t.perHour)} por hora de uso.` : 'Sin cargar.';
+      },
       hint: 'Por hora de uso, o el costo del juego y su vida útil. Para equipos de ruta, la vida útil en km da un costo por km (se suma en los traslados).',
       fields: [
         { key: 'tiresMode', label: '¿Cómo lo cargás?', kind: 'select', options: TIRE_OPTIONS, rerender: true },
@@ -1040,8 +1081,10 @@ function wearSections(settings) {
 }
 
 /** Legajo de una unidad de "Mis equipos": identificación, economía, operación y movilidad. */
-function equipmentSections(models = [], settings = {}) {
+function equipmentSections(models = [], settings = {}, { sector = null, original = null } = {}) {
   return (draft) => {
+    // Las horas "de antes" son las del equipo guardado, salvo que sean la copia que escribió la 0.25.
+    const legacyHours = original && isOurHoursCopy(original) ? null : legacyEquipmentHours(original || draft);
     const familyModels = models.filter((m) => m.familyId === draft.familyId);
     const vehicle = !isExternalDraft(draft) && isVehicleFamily(draft.familyId);
     const sections = [
@@ -1049,20 +1092,20 @@ function equipmentSections(models = [], settings = {}) {
         title: '¿Qué equipo es?',
         hint: 'Elegí la familia y, si querés, una variante común: completa la capacidad y sugiere el nombre. Podés cambiar todo o cargarlo desde cero.',
         fields: [
-          { key: 'familyId', label: 'Familia', kind: 'select', options: FAMILY_OPTIONS, rerender: true },
-          { key: 'name', label: 'Nombre', kind: 'text', required: true, placeholder: 'Ej.: Vactor 12 yd³ / 1.500 gal' },
+          { key: 'familyId', label: 'Familia', kind: 'select', options: familyOptionsFor(sector), rerender: true },
+          { key: 'name', label: 'Nombre', kind: 'text', required: true, placeholder: 'Ej.: Retroexcavadora 4x4, camioneta de apoyo' },
         ],
         extra: ({ draft: d, rerender }) => variantSuggestions({ draft: d, rerender }),
       },
       {
-        // 0.24.0 (P-14): interno, modelo, año, dominio y capacidad no mueven ningún número: plegados.
+        // 0.24.0 (P-14): interno, modelo, año, patente y capacidad no mueven ningún número: plegados.
         title: 'Datos de la unidad (opcional)',
         key: 'unit-data',
         collapsible: true,
         openWhen: (d) => unitDataParts(d).length > 0,
         summary: (d) => {
           const parts = unitDataParts(d);
-          return parts.length ? `${parts.join(' · ')}.` : 'Interno, modelo, año, dominio y capacidad.';
+          return parts.length ? `${parts.join(' · ')}.` : 'Interno, modelo, año, patente y capacidad.';
         },
         cols: 4,
         fields: [
@@ -1077,7 +1120,7 @@ function equipmentSections(models = [], settings = {}) {
             emptyLabel: familyModels.length ? 'Sin modelo' : 'Sin modelos de esta familia (agregalos en Catálogo)',
           },
           { key: 'year', label: 'Año (opcional)', rule: 'integer', nullable: true },
-          { key: 'plate', label: 'Dominio (opcional)', kind: 'text', maxLength: 20 },
+          { key: 'plate', label: 'Patente (opcional)', kind: 'text', maxLength: 20, placeholder: 'Ej.: AB 123 CD' },
         ],
       },
       {
@@ -1094,7 +1137,7 @@ function equipmentSections(models = [], settings = {}) {
           title: 'Valor del equipo',
           hint: VAT_HINT,
           fields: [
-            { key: 'replacementValue', label: 'Valor de reposición', rule: 'money', unit: (d) => currencySymbol(d), hint: 'Lo que costaría reemplazarlo hoy.' },
+            { key: 'replacementValue', label: '¿Cuánto cuesta uno nuevo hoy?', rule: 'money', unit: (d) => currencySymbol(d), hint: 'El valor de reposición: lo que te costaría comprar uno igual hoy. Con la vida útil sale lo que se gasta por mes.' },
             { key: 'usefulLifeYears', label: 'Vida útil', rule: 'years', unit: 'años' },
             ...baseFormFields('base', { currency: true, periodLabel: 'Base del valor (mes)' }),
           ],
@@ -1123,7 +1166,7 @@ function equipmentSections(models = [], settings = {}) {
             return `Residual ${formatMoneyIn(toNumber(d.residualValue, 0), d.base && d.base.currency)} · seguro ${formatMoney(toNumber(d.insuranceAnnual, 0))}/año · patente ${formatMoney(toNumber(d.licenseAnnual, 0))}/año · certificaciones ${formatMoney(toNumber(d.certificationsAnnual, 0))}/año · otros ${formatMoney(toNumber(d.otherAnnual, 0))}/año${fixedMaintenance}.`;
           },
           fields: [
-            { key: 'residualValue', label: 'Valor residual', rule: 'money', unit: (d) => currencySymbol(d), hint: 'Mismo período y moneda que el valor de reposición.' },
+            { key: 'residualValue', label: 'Valor residual', rule: 'money', unit: (d) => currencySymbol(d), hint: 'Mismo período y moneda que lo que cuesta uno nuevo hoy.' },
             // 0.24.0 (P-14): informativo; se ve sólo si ya tiene valor.
             { key: 'currentValue', label: 'Valor actual (informativo)', rule: 'money', unit: '$', when: (d) => positiveValue(d.currentValue) },
             { key: 'insuranceAnnual', label: 'Seguro anual', rule: 'money', unit: '$' },
@@ -1148,17 +1191,24 @@ function equipmentSections(models = [], settings = {}) {
           ],
         },
         {
-          title: 'Disponibilidad y uso',
+          // 0.25.0 (PR 6, P-08/P-09): una sola pregunta en lugar de horas disponibles, días disponibles
+          // y utilización. Un equipo guardado con esos tres datos los conserva (sin tocarlos) y muestra
+          // como sugerido lo que daban; uno nuevo guarda además las horas disponibles = este número y
+          // 100 % de uso, para que una pestaña con una versión anterior lea lo mismo.
+          title: 'Horas de trabajo',
+          cols: 2,
           fields: [
-            { key: 'availableHoursPerMonth', label: 'Horas disponibles por mes', rule: 'hours', unit: 'h', required: true },
-            { key: 'availableDaysPerMonth', label: 'Días disponibles por mes', rule: 'daysInMonth', unit: 'días', required: true },
             {
-              key: 'utilizationPct',
-              label: '¿Qué parte de ese tiempo esperás que trabaje y facture?',
-              rule: 'utilization',
-              unit: '%',
-              required: true,
-              hint: 'Utilización esperada. Con menos uso, cada hora y cada día cuestan más.',
+              key: 'billableHoursPerMonth',
+              label: BILLABLE_HOURS_LABEL,
+              rule: 'hours',
+              unit: 'h/mes',
+              nullable: true,
+              required: legacyHours === null,
+              placeholder: legacyHours !== null ? `Sugerido: ${formatNumber(legacyHours, { decimals: 2 })}` : 'Ej.: 120',
+              hint: legacyHours !== null
+                ? `${EQUIPMENT_LIBRARY_HOURS_HINT} Vacío = ${formatNumber(legacyHours, { decimals: 2 })} h, lo que daban los datos que cargaste antes (${formatNumber(toNumber(draft.availableHoursPerMonth, 0), { decimals: 2 })} h disponibles × ${formatNumber(toNumber(draft.utilizationPct, 0), { decimals: 2 })} % de uso).`
+                : EQUIPMENT_LIBRARY_HOURS_HINT,
             },
           ],
         },
@@ -1167,6 +1217,44 @@ function equipmentSections(models = [], settings = {}) {
     sections.push(mobilitySection({ vehicle }), { title: 'Marca', cols: 2, fields: [illustrativeField] });
     return sections;
   };
+}
+
+/**
+ * Horas por mes que daban los datos de antes de la 0.25.0 (disponibles × utilización), o null si el
+ * equipo no los tiene completos. Es lo mismo que usa la ficha mientras no se carguen las horas nuevas.
+ */
+export function legacyEquipmentHours(eq = {}) {
+  const hours = toNumber(eq && eq.availableHoursPerMonth, 0);
+  const util = Math.min(toNumber(eq && eq.utilizationPct, 0), 100);
+  return hours > 0 && util > 0 ? (hours * util) / 100 : null;
+}
+
+/**
+ * ¿Las horas disponibles y el 100 % de uso del equipo guardado son la copia que escribe la 0.25.0 de
+ * las horas para clientes? (Revisión 0.25.0, UX C6 / COSTOS 2.) Entonces no son "datos de antes".
+ */
+export function isOurHoursCopy(eq = {}) {
+  const own = toNumber(eq && eq.billableHoursPerMonth, 0);
+  return own > 0 && toNumber(eq.utilizationPct, 0) === 100 && toNumber(eq.availableHoursPerMonth, 0) === own;
+}
+
+/**
+ * Al guardar un equipo propio (0.25.0): si no tenía los datos de antes completos, las horas nuevas se
+ * escriben también como horas disponibles con 100 % de uso (una pestaña anterior lee lo mismo). Si
+ * esos datos son la copia que escribimos nosotros (`previous`, el equipo antes de editarlo), se
+ * vuelven a copiar en cada guardado. Un equipo que tenía datos propios los conserva sin tocar. MUTA y
+ * devuelve `entity`.
+ */
+export function withEquipmentHours(entity, previous = null) {
+  if (!entity || typeof entity !== 'object' || isExternalDraft(entity)) return entity;
+  const own = toNumber(entity.billableHoursPerMonth, 0);
+  const ours = previous && typeof previous === 'object' && isOurHoursCopy(previous);
+  if (own > 0 && (ours || legacyEquipmentHours(entity) === null)) {
+    entity.availableHoursPerMonth = own;
+    entity.utilizationPct = 100;
+    if (!(toNumber(entity.availableDaysPerMonth, 0) > 0)) entity.availableDaysPerMonth = 30;
+  }
+  return entity;
 }
 
 /** Al cambiar a alquilado / tercerizado se arman sus condiciones; nunca se borran datos del propio. */
@@ -1200,6 +1288,7 @@ function newEquipment() {
     maintenancePerHour: 0,
     tiresPerHour: 0,
     fuelLitersPerHour: 0,
+    billableHoursPerMonth: null,
     availableHoursPerMonth: null,
     availableDaysPerMonth: 30,
     utilizationPct: null,
@@ -1401,7 +1490,7 @@ export async function render(root, app, params = {}) {
 
 async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   const { ctx } = app;
-  const data = { resources: {}, equipmentCards: new Map(), settings: {}, quotes: [] };
+  const data = { resources: {}, equipmentCards: new Map(), settings: {}, quotes: [], sector: null };
 
   const addButton = () => button(tab.addLabel, { variant: 'primary', icon: 'plus', onClick: () => openEditor(null) });
   const setHeader = (hasItems) => {
@@ -1420,9 +1509,12 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
   async function load() {
     // "Usado en" (PLAN-2026-012): las cotizaciones tal como están guardadas (sin calcular).
     const readQuotes = ctx.quotes && typeof ctx.quotes.listQuoteRecords === 'function' ? ctx.quotes.listQuoteRecords().catch(() => []) : Promise.resolve([]);
-    const [resources, settings, quotes] = await Promise.all([ctx.resources.list(), app.getSettings(), readQuotes]);
+    // 0.25.0 (PR 9): el sector ordena las familias de equipos (las de pozo, primero sólo en petróleo y gas).
+    const readOrg = ctx.settings && typeof ctx.settings.getOrganization === 'function' ? Promise.resolve(ctx.settings.getOrganization()).catch(() => null) : Promise.resolve(null);
+    const [resources, settings, quotes, org] = await Promise.all([ctx.resources.list(), app.getSettings(), readQuotes, readOrg]);
     data.resources = resources || {};
     data.settings = settings || {};
+    data.sector = industryOf(org || {}).sector;
     data.quotes = Array.isArray(quotes) ? quotes : [];
     data.equipmentCards = new Map();
     if (tab.type === 'equipment') {
@@ -1641,9 +1733,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         openResourceForm(app, {
           title: isNew ? 'Nuevo equipo' : `Legajo del equipo — ${item.internalCode ? `${item.internalCode} · ` : ''}${item.name || ''}`,
           initial: isNew ? newEquipment() : { ...newEquipment(), ...item, familyId: familyIdOf(item) },
-          sections: equipmentSections(list('equipmentModels'), data.settings),
+          sections: equipmentSections(list('equipmentModels'), data.settings, { sector: data.sector, original: isNew ? null : item }),
           prepare: (draft) => prepareEquipmentDraft(draft, data.settings),
-          validate: (d) => (!isExternalDraft(d) && toNumber(d.residualValue) > toNumber(d.replacementValue) ? 'El valor residual no puede superar el valor de reposición.' : null),
+          validate: (d) => (!isExternalDraft(d) && toNumber(d.residualValue) > toNumber(d.replacementValue) ? 'El valor residual no puede superar lo que cuesta uno nuevo hoy.' : null),
           preview: async (draft) => {
             if (isExternalDraft(draft)) return externalPreview(draft);
             const c = await ctx.resources.equipmentCard(draft);
@@ -1652,16 +1744,16 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
             }
             return previewKpis(
               [
-                { label: 'Posesión por mes', value: formatMoney(c.ownership.totalMonthly), hint: 'COSTO DE POSESIÓN' },
-                { label: 'Operación por hora', value: formatValue(c.operation.totalPerHour, 'rate'), hint: 'COSTO DE OPERACIÓN' },
+                { label: 'Por tenerlo, por mes', value: formatMoney(c.ownership.totalMonthly), hint: 'Amortización, seguro, patente y demás, lo uses o no' },
+                { label: 'Por usarlo, por hora', value: formatValue(c.operation.totalPerHour, 'rate'), hint: 'Combustible, mantenimiento y neumáticos' },
                 { label: '$/hora', value: formatValue(c.rates.costPerUsedHour, 'rate') },
-                { label: '$/día', value: formatMoney(c.rates.costPerUsedDay) },
                 { label: '$/mes', value: formatMoney(c.rates.costPerMonth), emphasis: true },
               ],
               equipmentTrace(draft, c),
             );
           },
-          onSave,
+          // 0.25.0 (PR 6): un equipo nuevo guarda también las horas como disponibles al 100 %.
+          onSave: (entity) => onSave(withEquipmentHours(entity, isNew ? null : item)),
         });
         break;
       case 'materials':
@@ -1894,7 +1986,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         columns: [
           nameCol,
           acqCol,
-          { key: 'perDay', label: 'Costo por día usado', align: 'right', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : money(c && c.rates.costPerUsedDay)) },
+          // 0.25.0 (PR 6): $/hora y $/mes, como en Personal (sin "Costo por día usado" ni "Utilización").
+          { key: 'perHour', label: 'Costo por hora', align: 'right', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : rate(c && c.rates.costPerUsedHour)) },
           { key: 'perMonth', label: 'Costo por mes', align: 'right', render: ({ item, c, external }) => (external ? h('span', { class: 'muted small' }, 'Según uso en cada cotización') : noRate(c) ? EMPTY : withTrace(h('strong', { class: 'nowrap' }, formatMoney(c && c.rates.costPerMonth)), equipmentTrace(item, c))) },
           usageColumn('equipment'),
           actions,
@@ -1908,11 +2001,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       columns: [
         nameCol,
         acqCol,
-        { key: 'ownership', label: 'Posesión $/mes', align: 'right', className: 'col-ownership', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : money(c && c.ownership.totalMonthly)) },
-        { key: 'operation', label: 'Operación $/h', align: 'right', className: 'col-operation', render: ({ c, external }) => (external ? EMPTY : rate(c && c.operation.totalPerHour)) },
-        { key: 'util', label: 'Utilización', align: 'right', render: ({ c, external }) => (external ? EMPTY : percent(c && c.capacity.utilizationPct)) },
+        { key: 'ownership', label: 'Por tenerlo $/mes', align: 'right', className: 'col-ownership', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : money(c && c.ownership.totalMonthly)) },
+        { key: 'operation', label: 'Por usarlo $/h', align: 'right', className: 'col-operation', render: ({ c, external }) => (external ? EMPTY : rate(c && c.operation.totalPerHour)) },
         { key: 'perHour', label: '$/hora', align: 'right', render: ({ c, external }) => (external || noRate(c) ? EMPTY : rate(c && c.rates.costPerUsedHour)) },
-        { key: 'perDay', label: '$/día', align: 'right', render: ({ c, external }) => (external || noRate(c) ? EMPTY : money(c && c.rates.costPerUsedDay)) },
         { key: 'perMonth', label: '$/mes', align: 'right', render: ({ item, c, external }) => (external || noRate(c) ? EMPTY : withTrace(h('strong', { class: 'nowrap' }, formatMoney(c && c.rates.costPerMonth)), equipmentTrace(item, c))) },
         usageColumn('equipment'),
         actions,
@@ -2043,11 +2134,10 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       ...TABS.filter((t) => RESOURCE_TAB_IDS.includes(t.id)).map((t) =>
         h(
           'a',
-          { href: `#/recursos/${t.id}`, 'aria-current': t.id === tab.id ? 'page' : null },
+          // W-19 (0.25.0): el nombre accesible lee el número una sola vez ("Personal (5)").
+          { href: `#/recursos/${t.id}`, 'aria-current': t.id === tab.id ? 'page' : null, 'aria-label': `${t.label} (${list(t.type).length})` },
           t.label,
-          // Nombre accesible "Personal (5)": el número visible es decorativo.
           h('span', { class: 'tab-count', 'aria-hidden': 'true' }, String(list(t.type).length)),
-          h('span', { class: 'sr-only' }, ` (${list(t.type).length})`),
         ),
       ),
     );
@@ -2066,8 +2156,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       return h(
         'div',
         { class: 'cost-legend' },
-        h('div', { class: 'cost-legend-item cost-legend-ownership' }, h('strong', {}, 'COSTO DE POSESIÓN'), h('span', {}, 'Existe aunque el equipo no trabaje: amortización, seguro, patente, certificaciones y costo de capital.')),
-        h('div', { class: 'cost-legend-item cost-legend-operation' }, h('strong', {}, 'COSTO DE OPERACIÓN'), h('span', {}, `Sólo cuando trabaja: mantenimiento, neumáticos y combustible (a ${formatValue(fuel, 'rate')}/L según Configuración).`)),
+        h('div', { class: 'cost-legend-item cost-legend-ownership' }, h('strong', {}, 'Por tenerlo'), h('span', {}, 'Existe aunque el equipo no trabaje: amortización, seguro, patente, certificaciones y costo de capital.')),
+        h('div', { class: 'cost-legend-item cost-legend-operation' }, h('strong', {}, 'Por usarlo'), h('span', {}, `Sólo cuando trabaja: mantenimiento, neumáticos y combustible (a ${formatValue(fuel, 'rate')}/L según Configuración).`)),
       );
     }
     if (tab.type === 'externalServices') {
@@ -2108,7 +2198,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   const VIEW_HINTS = Object.freeze({
     laborProfiles: 'Suma convenio, remunerativo, no remunerativo, neto y factor de cargas',
-    equipment: 'Suma posesión, operación, utilización y costo por hora',
+    equipment: 'Suma lo de tenerlo, lo de usarlo y el costo por hora',
     materials: 'Suma tipo, costo unitario, merma, flete y quién lo provee',
   });
 

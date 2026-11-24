@@ -140,6 +140,36 @@ export function computeProductMaterialLine(line = {}, product = {}) {
   };
 }
 
+/**
+ * R-05 (0.25.0): cuánto de un ingrediente de la receta lleva cada unidad que se vende (cantidad por
+ * tanda ÷ unidades para vender de la tanda), en gramos o mililitros si es menos de un kilo o un
+ * litro. Sólo para mostrar: no entra en ningún costo. null si no es de la receta o faltan datos.
+ * @param {ReturnType<typeof computeProductMaterialLine>} line
+ * @returns {{ quantity: number, unit: string }|null}
+ */
+export function materialQuantityPerUnit(line, sellablePerBatch) {
+  if (!line || line.per !== 'batch' || !(line.quantity > 0) || !(sellablePerBatch > 0)) return null;
+  const q = line.quantity / sellablePerBatch;
+  const unit = MEASURE_UNITS.find((u) => u.id === unitIdOf(line.useUnit));
+  if (unit && (unit.dimension === 'mass' || unit.dimension === 'volume')) {
+    const small = MEASURE_UNITS.find((u) => u.dimension === unit.dimension && u.factor === 1);
+    const big = MEASURE_UNITS.find((u) => u.dimension === unit.dimension && u.factor > 1);
+    const inSmall = q * unit.factor;
+    // Revisión 0.25.0 (P-4): 999,6 g se mostraba "1.000 g" (sin decimales): pasa a kg antes.
+    return inSmall < big.factor - 0.5 ? { quantity: inSmall, unit: small.id } : { quantity: inSmall / big.factor, unit: big.id };
+  }
+  return { quantity: q, unit: line.useUnit };
+}
+
+/**
+ * R-05 (0.25.0): minutos de trabajo de un puesto por cada unidad que se vende (personas × minutos por
+ * tanda ÷ unidades para vender). Sólo para mostrar. null si faltan datos.
+ */
+export function laborMinutesPerUnit(line, sellablePerBatch) {
+  if (!line || !(line.minutesPerBatch > 0) || !(line.people > 0) || !(sellablePerBatch > 0)) return null;
+  return (line.people * line.minutesPerBatch) / sellablePerBatch;
+}
+
 /** Personal: costo hora con cargas (LaborEngine) × tiempo por tanda. */
 export function computeProductLaborLine(line = {}) {
   const labor = computeLaborLine({ ...line, positions: 1, peoplePerPosition: 1, payrollHeadcount: null, rotation: null });

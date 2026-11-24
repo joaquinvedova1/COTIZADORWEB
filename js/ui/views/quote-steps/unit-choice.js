@@ -41,6 +41,9 @@ const TYPED = '__typed:';
 /** Rótulo de la opción abierta cuando todavía no tiene nombre. */
 export const OPEN_UNIT_LABEL = '$/otra unidad… (escribí el nombre)';
 
+/** Línea del paso 1 mientras la unidad no se eligió (revisión 0.25.0, UX C1). */
+export const UNIT_PENDING_TEXT = 'Todavía no elegiste la unidad. Si no elegís, queda por día.';
+
 /** "por llamado", "por m³"… */
 const perText = (info) => `por ${info.singular || 'unidad'}`;
 
@@ -113,6 +116,7 @@ export function applyQuoteUnit(q, nextUnit) {
   const toTime = (toInfo.kind === 'day' || toInfo.kind === 'hour') && fromInfo.id !== toInfo.id;
   const days = toTime ? derivedActiveDays(q, fromInfo) : null;
   q.unit = nextUnit;
+  delete q.unitPending;
   const notices = applyUnitChange(q, fromInfo, billingUnitOf(q));
   notices.push(...applyModeDerivation(q, fromMode, modeForUnit(nextUnit), fromTerms));
   if (nextUnit === 'job') {
@@ -236,13 +240,39 @@ export function unitOptions(info) {
 }
 
 /**
+ * Unidades comunes que se ven sin escribir (0.25.0, PR 4), además de mes, día, hora y trabajo. Los
+ * casi sinónimos (jornal, día-equipo, hora de equipo, turno, guardia) y el resto del catálogo
+ * aparecen al escribir. No se borra ninguna: las guardadas siguen valiendo y la elegida se ve siempre.
+ */
+export const COMMON_UNITS = Object.freeze(['trip', 'km', 'm3', 'ton', 'unit', 'meter', 'm2', 'ha', 'manhour', 'call']);
+/** Grupos que se ven sin escribir según el sector de la empresa (organization.industry). */
+const SECTOR_UNIT_GROUPS = Object.freeze({ oil_gas: ['oilfield', 'energy'], mining: ['oilfield', 'energy'], energy: ['oilfield', 'energy'] });
+
+/** true si la opción se ve con el buscador vacío. */
+export function unitShownWithoutTyping(option, { current = null, sector = null } = {}) {
+  if (!option) return false;
+  const value = String(option.value);
+  if (value === 'custom' || FIRST_IDS.includes(value) || COMMON_UNITS.includes(value) || value === current) return true;
+  const groups = SECTOR_UNIT_GROUPS[sector] || [];
+  return Boolean(option.unit) && groups.includes(unitGroupOf(option.unit).id);
+}
+
+/**
  * Lo que muestra el desplegable al escribir: las unidades que coinciden y, si lo escrito no es
  * exactamente una de ellas, la opción de usarlo como unidad propia ("$/diagnóstico"). Sin texto,
- * todas.
+ * la lista corta (unitShownWithoutTyping); sin `view`, todas (como antes de la 0.25.0).
+ * @param {{ current?: string|null, sector?: string|null }|null} view unidad elegida y sector de la empresa
  */
-export function searchUnitOptions(options, query) {
+export function searchUnitOptions(options, query, view = null) {
   const typed = cleanUnitName(query);
-  if (!typed) return [...options];
+  if (!typed && view && view.preferCommon) {
+    // Revisión 0.25.0 (UX C1): quien tocó la tarjeta de las otras unidades ve primero las comunes
+    // (viaje, km, m³…) y después las cuatro de siempre.
+    const shown = options.filter((o) => unitShownWithoutTyping(o, view));
+    const common = COMMON_UNITS.map((id) => shown.find((o) => o.value === id)).filter(Boolean);
+    return [...common, ...shown.filter((o) => !common.includes(o))];
+  }
+  if (!typed) return view ? options.filter((o) => unitShownWithoutTyping(o, view)) : [...options];
   const found = searchUnits(options.map((o) => o.unit), query);
   const matches = options.filter((o) => found.includes(o.unit) && o.value !== 'custom');
   const exact = options.some((o) => o.value !== 'custom' && [o.unit.singular, o.unit.plural, o.unit.short, o.label.replace(/^\$\/?\s*/, '')].some((t) => fold(t) === fold(typed)));
@@ -260,7 +290,17 @@ export function unitChoiceBlock(ctx) {
   const info = billingUnitOf(quote);
   const options = unitOptions(info);
   const def = BILLING_UNITS.find((u) => u.id === info.id) || {};
+  // Revisión 0.25.0 (UX C1): creada sin elegir la unidad. Se guarda por día (como siempre) con una
+  // marca que se borra al elegir; mientras tanto el buscador arranca vacío.
+  const pending = quote.unitPending === true;
   const pick = async (value) => {
+    if (quote.unitPending === true) {
+      ctx.mutate((q) => { delete q.unitPending; });
+      if (value === (quote.unit || 'day')) {
+        ctx.toast(`Cobrás ${perText(billingUnitOf(quote))}.`, 'success');
+        return;
+      }
+    }
     const typed = typeof value === 'string' && value.startsWith(TYPED) ? cleanUnitName(value.slice(TYPED.length)) : null;
     // Lo escrito pasa a ser el nombre ANTES de cambiar la unidad: el aviso ya dice "Cobrás por diagnóstico".
     const wasCustom = (quote.unit || 'day') === 'custom';
@@ -275,13 +315,15 @@ export function unitChoiceBlock(ctx) {
   const choice = formGrid(2, searchSelectField({
     label: '¿En qué unidad le cobrás al cliente?',
     name: 'unit',
-    value: info.id,
+    value: pending ? null : info.id,
     disabled: kit.readOnly,
     allowEmpty: false,
-    placeholder: 'Elegí o escribí: mes, hora, viaje, m³, diagnóstico…',
+    placeholder: pending ? 'Escribí: viaje, m³, km, tonelada…' : 'Elegí o escribí: mes, hora, viaje, m³, diagnóstico…',
     options,
-    search: (query) => searchUnitOptions(options, query),
-    hint: info.custom
+    search: (query) => searchUnitOptions(options, query, pending ? { current: null, sector: ctx.sector || null, preferCommon: true } : { current: info.id, sector: ctx.sector || null }),
+    hint: pending
+      ? 'Si la tuya no está, escribila y elegí "Usar como unidad propia".'
+      : info.custom
       ? 'Unidad propia: le ponés el nombre que quieras.'
       : `${(FIRST_UNITS.find((u) => u.value === info.id) || {}).hint || def.hint || ''} Si la tuya no está, escribila y elegí "Usar como unidad propia".`.trim(),
     onChange: pick,
@@ -303,8 +345,10 @@ export function unitChoiceBlock(ctx) {
       });
     }
   }
-  const quoted = h('p', { class: 'qe-quoted-item' },
-    h('span', { class: 'qe-quoted-item-label' }, 'Vas a cotizar: '),
-    h('strong', {}, quotedItemText(quote)));
+  const quoted = pending
+    ? h('p', { class: 'qe-quoted-item qe-unit-pending', role: 'status' }, UNIT_PENDING_TEXT)
+    : h('p', { class: 'qe-quoted-item' },
+      h('span', { class: 'qe-quoted-item-label' }, 'Vas a cotizar: '),
+      h('strong', {}, quotedItemText(quote)));
   return h('div', { class: 'qe-unit-first' }, choice, nameField ? formGrid(2, nameField) : null, quoted);
 }

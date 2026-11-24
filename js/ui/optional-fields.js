@@ -26,7 +26,7 @@ export function unitDataParts(d = {}) {
     text(d.internalCode) ? `interno ${text(d.internalCode)}` : '',
     d.modelId ? 'con modelo' : '',
     positiveValue(d.year) ? String(d.year) : '',
-    text(d.plate) ? `dominio ${text(d.plate)}` : '',
+    text(d.plate) ? `patente ${text(d.plate)}` : '',
   ].filter(Boolean);
 }
 
