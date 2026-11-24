@@ -170,7 +170,9 @@ export function computeEquipmentUnit(eq = {}, { fuelPricePerLiter = 0, fuelPaidB
     ? Math.min(nonNegative(eq.utilizationPct), 100)
     : availableHours > 0 ? Math.min((own / availableHours) * 100, 100) : 100;
   const usedHours = own === null ? availableHours * pct(utilizationPct) : own;
-  const usedDays = own === null ? availableDays * pct(utilizationPct) : availableHours > 0 ? availableDays * (own / availableHours) : 0;
+  // Con el campo, los días usados no pasan de los días disponibles del mes (0.25.0, revisión): un
+  // equipo con más horas para clientes que disponibles no trabaja 60 días en un mes de 30.
+  const usedDays = own === null ? availableDays * pct(utilizationPct) : availableHours > 0 ? Math.min(availableDays * (own / availableHours), availableDays) : 0;
   const operationMonthly = operation.totalPerHour * usedHours;
   const costPerMonth = ownership.totalMonthly + operationMonthly;
   return {

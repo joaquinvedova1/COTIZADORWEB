@@ -110,6 +110,9 @@ const unitHints = (T) => ({
   global: 'Monto por todo el contrato, repartido en los meses de contrato.',
 });
 
+/** Ayuda del consumo de un externo cuando el combustible lo pone el cliente (revisión 0.25.0, UX C7). */
+const CLIENT_FUEL_HINT = 'En «¿Quién paga el combustible?» (Movilización y viajes) elegiste el cliente. Si al proveedor se lo pagás vos, cambialo ahí.';
+
 /** Ficha del equipo a la utilización de la cotización (por unidad). */
 export function equipmentCardAtQuote(result, index, source) {
   const line = result && result.model.equipment[index];
@@ -127,7 +130,10 @@ export function equipmentCardAtQuote(result, index, source) {
       availableHoursPerMonth: activity.availableDaysPerMonth * hours,
       availableDaysPerMonth: activity.availableDaysPerMonth,
       utilizationPct: activity.utilizationPct,
-      // A la utilización de la cotización: las horas por mes de la ficha de Recursos no rigen acá (0.25.0).
+      // En una cotización a la utilización (no por tiempo usado), la ficha va a los días de la
+      // cotización; las horas por mes de la línea no rigen. Por tiempo usado la ficha no se muestra y
+      // el valor hora sí usa billableHoursPerMonth. El null conserva la ficha de la 0.24 en las líneas
+      // que ya traen ese dato de Recursos (0.25.0).
       billableHoursPerMonth: null,
     },
     { fuelPricePerLiter: result.model.fuel.pricePerLiter, fuelPaidByUs: result.model.fuel.paidByUs },
@@ -800,7 +806,7 @@ export function render(container, ctx) {
     // Datos del equipo, en tres partes: valor (a la vista), seguro y patente (en "Costos de
     // tenerlo") y combustible trabajando (en un vehículo, plegado en "¿También trabaja parado…?").
     const valueFields = () => [
-      kit.num(`${p}.replacementValue`, { label: 'Cuánto cuesta comprarlo hoy', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, requiredMark: !fromResource, hint: 'Valor de reposición: lo que costaría comprar uno igual hoy. Con esto y la vida útil sale su desgaste por mes (amortización).' }),
+      kit.num(`${p}.replacementValue`, { label: '¿Cuánto cuesta uno nuevo hoy?', rule: 'money', unit: currencyUnit(line.base, quote), illustrative, requiredMark: !fromResource, hint: 'Valor de reposición: lo que costaría comprar uno igual hoy. Con esto y la vida útil sale su desgaste por mes (amortización).' }),
       kit.num(`${p}.usefulLifeYears`, { label: 'Vida útil', rule: 'years', unit: 'años', illustrative, requiredMark: !fromResource, hint: 'En cuántos años lo vas a tener que cambiar.' }),
     ];
     // V-06: seguro y patente se piden (en 0 el costo quedaba de menos sin aviso); plegados con su resumen.
@@ -1285,6 +1291,7 @@ export function render(container, ctx) {
     const illustrative = ill.marked;
     const acq = acquisitionOf(line);
     const ext = line.external || {};
+    const clientFuel = Boolean(quote.fuel && quote.fuel.providedBy === 'client');
     const sym = currencyUnit(line.base, quote);
     const unit = ext.unit || 'day';
     const unitKey = unitKeyOf(ext);
@@ -1384,12 +1391,20 @@ export function render(container, ctx) {
               hint: 'Un camión por km o por viaje: por km de ruta. Un equipo que trabaja por horas: por hora.',
             })
             : null,
+          // Revisión 0.25.0 (UX C7): con el combustible del cliente ("Movilización y viajes") el consumo
+          // no se suma, y el campo lo dice (igual que el aviso P-20).
           ext.fuelIncluded === false && ext.fuelMode === 'per_100km'
-            ? kit.num(`${p}.external.fuelLitersPer100Km`, { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/100 km', hint: 'Sobre los km físicos de la ruta (viajes × km por viaje). Se suma como combustible, aparte de la tarifa.' })
+            ? kit.num(`${p}.external.fuelLitersPer100Km`, clientFuel
+              ? { label: 'Consumo (lo pone el cliente: no se suma)', rule: 'quantity', unit: 'L/100 km', hint: CLIENT_FUEL_HINT }
+              : { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/100 km', hint: 'Sobre los km físicos de la ruta (viajes × km por viaje). Se suma como combustible, aparte de la tarifa.' })
             : ext.fuelIncluded === false && ext.fuelMode === 'km_per_liter'
-              ? kit.num(`${p}.external.fuelKmPerLiter`, { label: 'Rendimiento', rule: 'quantity', unit: 'km/L', hint: 'Km por litro sobre los km físicos de la ruta. Se suma como combustible, aparte de la tarifa.' })
+              ? kit.num(`${p}.external.fuelKmPerLiter`, clientFuel
+                ? { label: 'Rendimiento (lo pone el cliente: no se suma)', rule: 'quantity', unit: 'km/L', hint: CLIENT_FUEL_HINT }
+                : { label: 'Rendimiento', rule: 'quantity', unit: 'km/L', hint: 'Km por litro sobre los km físicos de la ruta. Se suma como combustible, aparte de la tarifa.' })
               : ext.fuelIncluded === false
-                ? kit.num(`${p}.external.fuelLitersPerHour`, { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/h', hint: 'Se suma como combustible con el precio de la cotización.' })
+                ? kit.num(`${p}.external.fuelLitersPerHour`, clientFuel
+                  ? { label: 'Consumo (lo pone el cliente: no se suma)', rule: 'quantity', unit: 'L/h', hint: CLIENT_FUEL_HINT }
+                  : { label: 'Consumo que pagás vos', rule: 'quantity', unit: 'L/h', hint: 'Se suma como combustible con el precio de la cotización.' })
                 : null,
           ext.fuelIncluded === false ? kit.out((r) => (at(r) ? externalFuelText(r, at(r)) : ''), { tag: 'p', className: 'small qe-fuel-calc', allowEmpty: true }) : null,
           triField(`${p}.external.mobilizationIncluded`, 'Movilización (llevarlo y traerlo)'),

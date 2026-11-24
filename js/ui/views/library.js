@@ -51,7 +51,7 @@ import { emptyBase } from '../../domain/economic-base.js';
 import { createExternalTerms, createEquipmentMobility, acquisitionOf } from '../../domain/quote-factory.js';
 import { externalFiscal } from '../../engines/external-engine.js';
 import { baseTag, baseFormFields } from '../economic-base-ui.js';
-import { BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT, BILLABLE_OVER_NORMAL_NOTE, EQUIPMENT_BILLABLE_HOURS_HINT } from '../result-text.js';
+import { BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT, BILLABLE_OVER_NORMAL_NOTE, EQUIPMENT_LIBRARY_HOURS_HINT } from '../result-text.js';
 import { CURRENCY } from '../../config.js';
 import { laborLoadFactor } from '../../engines/labor-engine.js';
 import { computeMaterialLine } from '../../engines/materials-engine.js';
@@ -91,7 +91,7 @@ const TABS = Object.freeze([
     type: 'equipment',
     addLabel: 'Agregar equipo',
     icon: 'services',
-    intro: 'Mis equipos: las unidades reales de tu empresa (interno, modelo, valor, base y movilidad). En las propias, RATEOS separa lo que cuesta tenerlas (COSTO DE POSESIÓN, aunque no trabajen) de lo que cuesta usarlas (COSTO DE OPERACIÓN).',
+    intro: 'Mis equipos: las unidades reales de tu empresa (interno, modelo, valor, base y movilidad). En las propias, RATEOS separa lo que cuesta tenerlas (aunque no trabajen) de lo que cuesta usarlas.',
     emptyTitle: 'Todavía no agregaste equipos.',
     emptyText: 'Guardá tus equipos una vez y reutilizalos en futuras cotizaciones.',
   },
@@ -1081,8 +1081,10 @@ function wearSections(settings) {
 }
 
 /** Legajo de una unidad de "Mis equipos": identificación, economía, operación y movilidad. */
-function equipmentSections(models = [], settings = {}, { sector = null } = {}) {
+function equipmentSections(models = [], settings = {}, { sector = null, original = null } = {}) {
   return (draft) => {
+    // Las horas "de antes" son las del equipo guardado, salvo que sean la copia que escribió la 0.25.
+    const legacyHours = original && isOurHoursCopy(original) ? null : legacyEquipmentHours(original || draft);
     const familyModels = models.filter((m) => m.familyId === draft.familyId);
     const vehicle = !isExternalDraft(draft) && isVehicleFamily(draft.familyId);
     const sections = [
@@ -1164,7 +1166,7 @@ function equipmentSections(models = [], settings = {}, { sector = null } = {}) {
             return `Residual ${formatMoneyIn(toNumber(d.residualValue, 0), d.base && d.base.currency)} · seguro ${formatMoney(toNumber(d.insuranceAnnual, 0))}/año · patente ${formatMoney(toNumber(d.licenseAnnual, 0))}/año · certificaciones ${formatMoney(toNumber(d.certificationsAnnual, 0))}/año · otros ${formatMoney(toNumber(d.otherAnnual, 0))}/año${fixedMaintenance}.`;
           },
           fields: [
-            { key: 'residualValue', label: 'Valor residual', rule: 'money', unit: (d) => currencySymbol(d), hint: 'Mismo período y moneda que el valor de reposición.' },
+            { key: 'residualValue', label: 'Valor residual', rule: 'money', unit: (d) => currencySymbol(d), hint: 'Mismo período y moneda que lo que cuesta uno nuevo hoy.' },
             // 0.24.0 (P-14): informativo; se ve sólo si ya tiene valor.
             { key: 'currentValue', label: 'Valor actual (informativo)', rule: 'money', unit: '$', when: (d) => positiveValue(d.currentValue) },
             { key: 'insuranceAnnual', label: 'Seguro anual', rule: 'money', unit: '$' },
@@ -1202,11 +1204,11 @@ function equipmentSections(models = [], settings = {}, { sector = null } = {}) {
               rule: 'hours',
               unit: 'h/mes',
               nullable: true,
-              required: legacyEquipmentHours(draft) === null,
-              placeholder: legacyEquipmentHours(draft) !== null ? `Sugerido: ${formatNumber(legacyEquipmentHours(draft), { decimals: 2 })}` : 'Ej.: 120',
-              hint: legacyEquipmentHours(draft) !== null
-                ? `${EQUIPMENT_BILLABLE_HOURS_HINT} Vacío = ${formatNumber(legacyEquipmentHours(draft), { decimals: 2 })} h, lo que daban los datos que cargaste antes (${formatNumber(toNumber(draft.availableHoursPerMonth, 0), { decimals: 2 })} h disponibles × ${formatNumber(toNumber(draft.utilizationPct, 0), { decimals: 2 })} % de uso).`
-                : EQUIPMENT_BILLABLE_HOURS_HINT,
+              required: legacyHours === null,
+              placeholder: legacyHours !== null ? `Sugerido: ${formatNumber(legacyHours, { decimals: 2 })}` : 'Ej.: 120',
+              hint: legacyHours !== null
+                ? `${EQUIPMENT_LIBRARY_HOURS_HINT} Vacío = ${formatNumber(legacyHours, { decimals: 2 })} h, lo que daban los datos que cargaste antes (${formatNumber(toNumber(draft.availableHoursPerMonth, 0), { decimals: 2 })} h disponibles × ${formatNumber(toNumber(draft.utilizationPct, 0), { decimals: 2 })} % de uso).`
+                : EQUIPMENT_LIBRARY_HOURS_HINT,
             },
           ],
         },
@@ -1228,14 +1230,26 @@ export function legacyEquipmentHours(eq = {}) {
 }
 
 /**
- * Al guardar un equipo propio (0.25.0): si no tenía los datos de antes completos, las horas nuevas se
- * escriben también como horas disponibles con 100 % de uso (una pestaña anterior lee lo mismo). Un
- * equipo que ya los tenía los conserva sin tocar. MUTA y devuelve `entity`.
+ * ¿Las horas disponibles y el 100 % de uso del equipo guardado son la copia que escribe la 0.25.0 de
+ * las horas para clientes? (Revisión 0.25.0, UX C6 / COSTOS 2.) Entonces no son "datos de antes".
  */
-export function withEquipmentHours(entity) {
+export function isOurHoursCopy(eq = {}) {
+  const own = toNumber(eq && eq.billableHoursPerMonth, 0);
+  return own > 0 && toNumber(eq.utilizationPct, 0) === 100 && toNumber(eq.availableHoursPerMonth, 0) === own;
+}
+
+/**
+ * Al guardar un equipo propio (0.25.0): si no tenía los datos de antes completos, las horas nuevas se
+ * escriben también como horas disponibles con 100 % de uso (una pestaña anterior lee lo mismo). Si
+ * esos datos son la copia que escribimos nosotros (`previous`, el equipo antes de editarlo), se
+ * vuelven a copiar en cada guardado. Un equipo que tenía datos propios los conserva sin tocar. MUTA y
+ * devuelve `entity`.
+ */
+export function withEquipmentHours(entity, previous = null) {
   if (!entity || typeof entity !== 'object' || isExternalDraft(entity)) return entity;
   const own = toNumber(entity.billableHoursPerMonth, 0);
-  if (own > 0 && legacyEquipmentHours(entity) === null) {
+  const ours = previous && typeof previous === 'object' && isOurHoursCopy(previous);
+  if (own > 0 && (ours || legacyEquipmentHours(entity) === null)) {
     entity.availableHoursPerMonth = own;
     entity.utilizationPct = 100;
     if (!(toNumber(entity.availableDaysPerMonth, 0) > 0)) entity.availableDaysPerMonth = 30;
@@ -1719,9 +1733,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         openResourceForm(app, {
           title: isNew ? 'Nuevo equipo' : `Legajo del equipo — ${item.internalCode ? `${item.internalCode} · ` : ''}${item.name || ''}`,
           initial: isNew ? newEquipment() : { ...newEquipment(), ...item, familyId: familyIdOf(item) },
-          sections: equipmentSections(list('equipmentModels'), data.settings, { sector: data.sector }),
+          sections: equipmentSections(list('equipmentModels'), data.settings, { sector: data.sector, original: isNew ? null : item }),
           prepare: (draft) => prepareEquipmentDraft(draft, data.settings),
-          validate: (d) => (!isExternalDraft(d) && toNumber(d.residualValue) > toNumber(d.replacementValue) ? 'El valor residual no puede superar el valor de reposición.' : null),
+          validate: (d) => (!isExternalDraft(d) && toNumber(d.residualValue) > toNumber(d.replacementValue) ? 'El valor residual no puede superar lo que cuesta uno nuevo hoy.' : null),
           preview: async (draft) => {
             if (isExternalDraft(draft)) return externalPreview(draft);
             const c = await ctx.resources.equipmentCard(draft);
@@ -1739,7 +1753,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
             );
           },
           // 0.25.0 (PR 6): un equipo nuevo guarda también las horas como disponibles al 100 %.
-          onSave: (entity) => onSave(withEquipmentHours(entity)),
+          onSave: (entity) => onSave(withEquipmentHours(entity, isNew ? null : item)),
         });
         break;
       case 'materials':
@@ -2142,8 +2156,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       return h(
         'div',
         { class: 'cost-legend' },
-        h('div', { class: 'cost-legend-item cost-legend-ownership' }, h('strong', {}, 'COSTO DE POSESIÓN'), h('span', {}, 'Existe aunque el equipo no trabaje: amortización, seguro, patente, certificaciones y costo de capital.')),
-        h('div', { class: 'cost-legend-item cost-legend-operation' }, h('strong', {}, 'COSTO DE OPERACIÓN'), h('span', {}, `Sólo cuando trabaja: mantenimiento, neumáticos y combustible (a ${formatValue(fuel, 'rate')}/L según Configuración).`)),
+        h('div', { class: 'cost-legend-item cost-legend-ownership' }, h('strong', {}, 'Por tenerlo'), h('span', {}, 'Existe aunque el equipo no trabaje: amortización, seguro, patente, certificaciones y costo de capital.')),
+        h('div', { class: 'cost-legend-item cost-legend-operation' }, h('strong', {}, 'Por usarlo'), h('span', {}, `Sólo cuando trabaja: mantenimiento, neumáticos y combustible (a ${formatValue(fuel, 'rate')}/L según Configuración).`)),
       );
     }
     if (tab.type === 'externalServices') {
@@ -2184,7 +2198,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
 
   const VIEW_HINTS = Object.freeze({
     laborProfiles: 'Suma convenio, remunerativo, no remunerativo, neto y factor de cargas',
-    equipment: 'Suma posesión, operación, utilización y costo por hora',
+    equipment: 'Suma lo de tenerlo, lo de usarlo y el costo por hora',
     materials: 'Suma tipo, costo unitario, merma, flete y quién lo provee',
   });
 

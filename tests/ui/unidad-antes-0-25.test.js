@@ -60,7 +60,7 @@ describe('"¿Cómo le cobrás al cliente?" en "Nuevo servicio"', () => {
     assert.doesNotMatch(src, /'Empezar en blanco'/);
   });
   test('el servicio pasa la unidad a createBlankQuote', () => {
-    assert.match(source('js/services/quote-service.js'), /createBlankQuote\(options, \{ unit \}\)/);
+    assert.match(source('js/services/quote-service.js'), /createBlankQuote\(options, \{ unit, unitPending \}\)/);
   });
 });
 
@@ -99,7 +99,44 @@ describe('buscador de unidades: lista corta sin escribir', () => {
     assert.equal(unitShownWithoutTyping(null), false);
   });
   test('el paso 1 pasa la unidad elegida y el sector al buscador', () => {
-    assert.match(source('js/ui/views/quote-steps/unit-choice.js'), /searchUnitOptions\(options, query, \{ current: info\.id, sector: ctx\.sector \|\| null \}\)/);
+    assert.match(source('js/ui/views/quote-steps/unit-choice.js'), /searchUnitOptions\(options, query, pending \? \{ current: null, sector: ctx\.sector \|\| null, preferCommon: true \} : \{ current: info\.id, sector: ctx\.sector \|\| null \}\)/);
+  });
+});
+
+describe('revisión 0.25.0 (UX C1): "Otra unidad…" no nace "por día" elegida', () => {
+  test('la cotización se guarda por día con la marca de unidad pendiente; los números son los mismos', () => {
+    const pending = createBlankQuote(opts(), { unitPending: true });
+    assert.equal(pending.unit, 'day');
+    assert.equal(pending.unitPending, true);
+    const { unitPending, ...rest } = pending;
+    assert.deepEqual(rest, createBlankQuote(opts()));
+    const a = computeQuote(withTimeCostBasis(structuredClone(pending)));
+    const b = computeQuote(withTimeCostBasis(createBlankQuote(opts())));
+    assert.deepEqual(a.kpis, b.kpis);
+    assert.equal(a.completeness.scorePct, b.completeness.scorePct);
+    assert.deepEqual(a.completeness.pending.map((x) => x.id), b.completeness.pending.map((x) => x.id));
+  });
+  test('con una unidad elegida no hay marca', () => {
+    assert.ok(!('unitPending' in createBlankQuote(opts(), { unit: 'hour', unitPending: true })));
+  });
+  test('mientras falta, un aviso informativo; al elegir la unidad se borra', () => {
+    const q = withTimeCostBasis(createBlankQuote(opts(), { unitPending: true }));
+    const n = computeQuote(structuredClone(q)).completeness.notices.find((x) => x.id === 'unit_pending');
+    assert.ok(n);
+    assert.equal(n.severity, 'info');
+    assert.equal(n.message, 'Todavía no elegiste la unidad. Si no elegís, queda por día.');
+    applyQuoteUnit(q, 'trip');
+    assert.ok(!('unitPending' in q));
+    assert.ok(!computeQuote(q).completeness.notices.some((x) => x.id === 'unit_pending'));
+  });
+  test('el buscador arranca vacío y muestra primero las comunes', () => {
+    const shown = searchUnitOptions(unitOptions(billingUnitOf({ unit: 'day' })), '', { current: null, sector: null, preferCommon: true }).map((o) => o.value);
+    assert.deepEqual(shown.slice(0, COMMON_UNITS.length), [...COMMON_UNITS]);
+    assert.deepEqual(shown.slice(COMMON_UNITS.length, COMMON_UNITS.length + 4), ['month', 'day', 'hour', 'job']);
+    const src = source('js/ui/views/quote-steps/unit-choice.js');
+    assert.match(src, /value: pending \? null : info\.id,/);
+    assert.match(src, /'Escribí: viaje, m³, km, tonelada…'/);
+    assert.match(source('js/ui/views/quotes-list.js'), /createQuote\(\{ templateId, unit, unitPending: pickUnit \}\)/);
   });
 });
 
@@ -108,6 +145,8 @@ describe('W-13: la unidad en lugar del tipo de servicio interno', () => {
     assert.equal(templateUnitLabel({ defaults: { unit: 'hour' } }), 'Por hora');
     assert.equal(templateUnitLabel({ defaults: { unit: 'm3' } }), 'Por m³');
     assert.equal(templateUnitLabel({ serviceType: 'on_call' }), null);
+    // Sin unidad guardada nace por día: la etiqueta lo dice (revisión 0.25.0).
+    assert.equal(templateUnitLabel({ defaults: {} }), 'Por día');
   });
   test('listas, Inicio y Servicios no muestran SERVICE_TYPES', () => {
     ['js/ui/views/quotes-list.js', 'js/ui/views/dashboard.js', 'js/ui/views/services.js'].forEach((p) => {

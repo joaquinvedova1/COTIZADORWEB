@@ -155,7 +155,8 @@ export function materialQuantityPerUnit(line, sellablePerBatch) {
     const small = MEASURE_UNITS.find((u) => u.dimension === unit.dimension && u.factor === 1);
     const big = MEASURE_UNITS.find((u) => u.dimension === unit.dimension && u.factor > 1);
     const inSmall = q * unit.factor;
-    return inSmall < big.factor ? { quantity: inSmall, unit: small.id } : { quantity: inSmall / big.factor, unit: big.id };
+    // Revisión 0.25.0 (P-4): 999,6 g se mostraba "1.000 g" (sin decimales): pasa a kg antes.
+    return inSmall < big.factor - 0.5 ? { quantity: inSmall, unit: small.id } : { quantity: inSmall / big.factor, unit: big.id };
   }
   return { quantity: q, unit: line.useUnit };
 }

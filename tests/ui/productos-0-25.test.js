@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { computeProduct, materialQuantityPerUnit, laborMinutesPerUnit } from '../../js/engines/product-engine.js';
 import { blankProductMaterialLine, exampleProduct } from '../../js/domain/product-factory.js';
 import { isIllustrativeAgreementParam, ILLUSTRATIVE_AGREEMENT_PARAMS } from '../../js/domain/catalogs.js';
-import { BREAK_EVEN_ZERO_TEXT, breakEvenIsZero, libraryByType } from '../../js/ui/views/product-editor.js';
+import { BREAK_EVEN_ZERO_TEXT, BREAK_EVEN_ZERO_HINT, breakEvenIsZero, libraryByType } from '../../js/ui/views/product-editor.js';
 import { product, ingredient, worker } from '../lab/lib/build.js';
 
 const source = (p) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
@@ -32,6 +32,13 @@ describe('R-05: cuánto lleva cada unidad', () => {
     assert.deepEqual(materialQuantityPerUnit(r.materials[1], 5), { quantity: 4, unit: 'u' });
     assert.deepEqual(materialQuantityPerUnit(r.materials[2], 5), { quantity: 10, unit: 'kg' });
   });
+  test('999,6 g por unidad se muestra en kg (no "1.000 g")', () => {
+    assert.deepEqual(materialQuantityPerUnit({ per: 'batch', quantity: 9.996, useUnit: 'kg' }, 10), { quantity: 0.9996, unit: 'kg' });
+    assert.deepEqual(materialQuantityPerUnit({ per: 'batch', quantity: 9.99, useUnit: 'kg' }, 10).unit, 'g');
+  });
+  test('con merma, dice que no la incluye y cuánto se compra', () => {
+    assert.match(editor, /\(sin la merma; comprás /);
+  });
   test('lo que va por unidad o sin datos: nada', () => {
     const r = computeProduct(product({ unitsPerBatch: 10, materials: [ingredient({ per: 'unit', unit: 'u', useUnit: 'u', quantity: 1, unitCost: 1 })] }));
     assert.equal(materialQuantityPerUnit(r.materials[0], 10), null);
@@ -43,7 +50,7 @@ describe('R-05: cuánto lleva cada unidad', () => {
     assert.equal(laborMinutesPerUnit(r.labor[0], r.sellablePerBatch), 6);
     assert.equal(laborMinutesPerUnit({ people: 1, minutesPerBatch: 0 }, 30), null);
     assert.match(editor, /min de trabajo por \$\{saleUnit\(\)\} que vendés/);
-    assert.match(editor, /por \$\{saleUnit\(\)\} que vendés\./);
+    assert.match(editor, /por \$\{saleUnit\(\)\} que vendés\$\{waste\}\./);
   });
 });
 
@@ -87,9 +94,31 @@ describe('R-04, R-10, R-12, R-13', () => {
     assert.match(editor, /href: '#\/configuracion\/parametros' \}, 'Configuración → Parámetros económicos'/);
   });
   test('R-10: "Agregar algo que va en cada unidad", sin "¿Dónde va?" y con "Mover a…"', () => {
-    assert.match(editor, /'Agregar algo que va en cada unidad'/);
+    assert.match(editor, /`Agregar algo que va en cada \$\{saleUnit\(\)\}`/);
     assert.doesNotMatch(editor, /label: '¿Dónde va\?'/);
     assert.match(editor, /Mover a la receta \(por tanda\)/);
+    // Revisión 0.25.0 (UX C9): "Mover a…" convierte la cantidad; sin el dato, avisa.
+    assert.match(editor, /onClick: \(\) => moveMaterial\(i\)/);
+    assert.match(editor, /toUnit \? qty \/ sellable : qty \* sellable/);
+    assert.match(editor, /revisala \(antes: /);
+  });
+  test('UX C9: "Mover a…" con la cantidad convertida da el mismo costo por unidad', () => {
+    const p = product({ unitsPerBatch: 40, materials: [ingredient({ unit: 'kg', useUnit: 'kg', quantity: 14, unitCost: 1000 })] });
+    const a = computeProduct(p);
+    const moved = structuredClone(p);
+    moved.materials[0].per = 'unit';
+    moved.materials[0].quantity = 14 / a.sellablePerBatch;
+    assert.ok(Math.abs(computeProduct(moved).unitCost - a.unitCost) < 1e-9);
+  });
+  test('COSTOS 4 y 5: textos del no remunerativo y de la factura C', () => {
+    assert.match(editor, /Si tu convenio les aplica obra social o cuota sindical, va en el % del convenio\./);
+    assert.match(editor, /de cargas del convenio\)/);
+    assert.match(editor, /Si te dan factura C o ticket \(monotributistas, minoristas\), ese IVA no lo recuperás: cargá el precio completo\./);
+    assert.doesNotMatch(editor, /no llevan aguinaldo, vacaciones ni cargas patronales/);
+  });
+  test('P-5: en un producto de demostración no se marca nada como propio', () => {
+    assert.match(editor, /wholeIllustrative: demoProduct/);
+    assert.match(editor, /if \(!line \|\| state\.product\.illustrative === true\) return;/);
   });
   test('R-10: una línea nueva nace sin nombre', () => {
     assert.equal(blankProductMaterialLine({ per: 'batch' }).description, '');
@@ -112,8 +141,9 @@ describe('R-04, R-10, R-12, R-13', () => {
 });
 
 describe('W-23: equilibrio 0', () => {
-  test('"Cualquier venta te deja ganancia" en lugar de "0 por mes"', () => {
-    assert.equal(BREAK_EVEN_ZERO_TEXT, 'Cualquier venta te deja ganancia');
+  test('"Sin gastos fijos cargados" en lugar de "0 por mes" (revisión: no "cualquier venta te deja ganancia")', () => {
+    assert.equal(BREAK_EVEN_ZERO_TEXT, 'Sin gastos fijos cargados');
+    assert.match(BREAK_EVEN_ZERO_HINT, /cargalos en Gastos fijos/);
     assert.equal(breakEvenIsZero(0), true);
     assert.equal(breakEvenIsZero(0.5), false);
     assert.equal(breakEvenIsZero(null), false);

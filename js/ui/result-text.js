@@ -998,7 +998,12 @@ export function longClosedJobNote(r) {
  */
 export const BILLABLE_HOURS_LABEL = '¿Cuántas horas por mes trabaja para clientes, entre todos tus trabajos?';
 export const BILLABLE_HOURS_HINT = 'Opcional. Las horas que de verdad trabaja para clientes en un mes. Ejemplo: de 176 h normales, 140. Con esto se calcula la hora para cotizar trabajos: las horas sin cliente (esperas, taller, días flojos) quedan cubiertas en cada hora. Vacío = las horas normales. Si son más que las normales, esas horas son extra: no las cargues acá.';
-/** Ayuda del mismo campo en un equipo (0.25.0): no es un costo más, es con cuántas horas se reparte su mes. */
+/**
+ * Ayuda del mismo campo en un equipo de Recursos (0.25.0, revisión UX C5): ahí la respuesta es un
+ * dato del equipo, y en una cotización por día o por mes esas horas no se usan.
+ */
+export const EQUIPMENT_LIBRARY_HOURS_HINT = 'Con estas horas se reparte su costo del mes: valor hora = costo del mes ÷ horas. Se usa al cotizar por hora o por trabajo; en una cotización por día o por mes cuentan los días de esa cotización.';
+/** Ayuda del mismo campo en un equipo de la cotización (0.25.0): no es un costo más, es con cuántas horas se reparte su mes. */
 export const EQUIPMENT_BILLABLE_HOURS_HINT = 'No es un costo más ni cambia los datos del equipo: es con cuántas horas se reparte su costo del mes. Valor hora = costo del mes (amortización, seguro, patente…) ÷ estas horas. Si trabaja menos horas por mes, cada hora cuesta más.';
 /** Aviso (M7): cargaron más horas facturables que las normales. */
 export const BILLABLE_OVER_NORMAL_NOTE = 'Cargaste más horas que las normales: la hora para cotizar queda más barata que la normal. Las horas de más son horas extra.';

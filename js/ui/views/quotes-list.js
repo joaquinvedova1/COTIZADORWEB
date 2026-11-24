@@ -240,7 +240,7 @@ function serviceCell({ quote, summary }, href) {
     'div',
     { class: 'cell-main' },
     h('a', { href, class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
-    h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${componentsServiceLabel(quote) || billingUnitPhrase(quote)}`),
+    h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${quote.unitPending === true ? 'Unidad sin elegir' : componentsServiceLabel(quote) || billingUnitPhrase(quote)}`),
     summaryFailed(summary) ? failedBadge(quote) : null,
     illustrativeQuoteTag(quote),
   );
@@ -287,7 +287,7 @@ export function quoteColumns({ statusCell = null } = {}) {
           'div',
           { class: 'cell-main' },
           h('a', { href: quoteHref(quote), class: 'cell-title' }, textOf(quote.name, 'Sin nombre')),
-          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${componentsServiceLabel(quote) || billingUnitPhrase(quote)}`),
+          h('span', { class: 'cell-sub' }, h('span', { class: 'mono' }, textOf(quote.code, EMPTY)), ` · ${quote.unitPending === true ? 'Unidad sin elegir' : componentsServiceLabel(quote) || billingUnitPhrase(quote)}`),
           failed ? failedBadge(quote) : null,
           illustrativeQuoteTag(quote),
         );
@@ -767,9 +767,10 @@ export async function renderNewQuote(root, app) {
       b.disabled = true;
     });
     try {
-      const quote = await ctx.quotes.createQuote({ templateId, unit });
+      const quote = await ctx.quotes.createQuote({ templateId, unit, unitPending: pickUnit });
       markFreshQuote(quote.id);
-      app.toast(`Cotización ${quote.code || ''} creada.`, 'success');
+      // "Otra unidad…": sin aviso (en celular tapaba el encabezado); el paso 1 dice que falta la unidad.
+      if (!pickUnit) app.toast(`Cotización ${quote.code || ''} creada.`, 'success');
       // "Otra unidad…": se abre el paso 1 con el buscador de la unidad enfocado.
       app.navigate(pickUnit ? `${quoteHref(quote, 'service')}?campo=unit` : quoteHref(quote, 'service'));
     } catch (error) {
@@ -790,7 +791,7 @@ export async function renderNewQuote(root, app) {
     onChoose: () => create(null, { unit: u.unit }),
   })), choiceCard({
     title: 'Otra unidad…',
-    text: 'Viaje, m³, km, tonelada, hora-hombre… La elegís o la escribís en el paso 1.',
+    text: 'Viaje, m³, km, tonelada… La elegís en el paso siguiente.',
     className: 'quote-choice-blank quote-unit-choice',
     data: { unit: 'other' },
     onChoose: () => create(null, { pickUnit: true }),
@@ -828,7 +829,7 @@ export async function renderNewQuote(root, app) {
       'div',
       { class: 'view-narrow stack-lg' },
       pageIntro({
-        title: '¿Qué servicio vas a cotizar?',
+        title: 'Empezá tu cotización',
         text: services.length
           ? 'Empezá en blanco por cómo le cobrás o desde una plantilla parecida a tu servicio (arrancás con su actividad típica y sus recursos, si los tiene). Después podés cambiar todo.'
           : 'Empezá en blanco por cómo le cobrás: RATEOS te va preguntando paso a paso. Si querés ver antes cómo queda una cotización completa, mirá el ejemplo.',
@@ -838,7 +839,7 @@ export async function renderNewQuote(root, app) {
       first.length ? h('div', { class: 'quote-choice-grid' }, ...first) : null,
       rest.length
         ? disclosure(
-            { summary: `Ver todas las plantillas (${services.length})`, hint: `${rest.length === 1 ? 'Una plantilla más' : `${rest.length} plantillas más`}, con su tipo de servicio y actividad.`, className: 'disclosure-plain quote-choice-more' },
+            { summary: `Ver todas las plantillas (${services.length})`, hint: `${rest.length === 1 ? 'Una plantilla más' : `${rest.length} plantillas más`}, con su unidad de cobro y su actividad típica.`, className: 'disclosure-plain quote-choice-more' },
             h('div', { class: 'quote-choice-grid' }, ...rest),
           )
         : null,

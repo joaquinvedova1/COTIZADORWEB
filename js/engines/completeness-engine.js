@@ -1345,6 +1345,18 @@ export function evaluateCompleteness(quoteInput = {}) {
   const pending = items.filter((i) => i.status !== 'ok').sort((a, b) => (a.severity === 'critical' ? 0 : 1) - (b.severity === 'critical' ? 0 : 1) || order[a.status] - order[b.status]);
   // Informativos: no participan del puntaje ni de los pendientes.
   const notices = [];
+  // Revisión 0.25.0 (UX C1): creada con "Otra unidad…" y todavía sin elegir. Se calcula por día (como
+  // siempre); el aviso es informativo y desaparece al elegir la unidad.
+  if (quote.unitPending === true) {
+    notices.push({
+      id: 'unit_pending',
+      step: 'service',
+      severity: 'info',
+      label: 'Unidad sin elegir',
+      message: 'Todavía no elegiste la unidad. Si no elegís, queda por día.',
+      focus: 'unit',
+    });
+  }
   // Unidad "viaje" con un "Viajes por llamado" anterior distinto (PLAN-2026-012).
   if (route.storedDiffers) {
     const fmt = (n) => formatNumber(n, { decimals: 2 });
@@ -1408,41 +1420,66 @@ export function evaluateCompleteness(quoteInput = {}) {
       const mode = externalFuelMode(x);
       const value = mode === 'per_hour' ? x.fuelLitersPerHour : mode === 'per_100km' ? x.fuelLitersPer100Km : x.fuelKmPerLiter;
       if (!(nonNegative(value) > 0)) return;
+      // En L/100 km o km/L el consumo sale de los km de la ruta: sin km no habría nada que sumar.
+      if (mode !== 'per_hour' && !(routeKmPerActivation > 0)) return;
       const name = lineName(e, 'Externo');
       notices.push({
         id: 'client_fuel_external_not_summed',
         step: 'equipment',
         severity: 'info',
         label: 'Combustible del cliente',
-        message: `El combustible de «${name}» no se está sumando: en "Movilización y viajes" el combustible lo pone el cliente. Si el cliente no se lo da al proveedor, cambialo ahí; si se lo da, está bien así.`,
+        message: `«${name}»: en «¿Quién paga el combustible?» (Movilización y viajes) elegiste el cliente, así que este consumo no se suma. Si al proveedor se lo pagás vos, cambialo ahí.`,
         focus: `equipment.${index}.external.fuelIncluded`,
         targets: [{ list: 'equipment', index, name }],
       });
     });
   }
   // P-22 (0.25.0): por tiempo usado el control de horas del mes está apagado (arriba). Si los días
-  // por las horas por día de un puesto superan sus horas normales del mes y el trabajo no lleva
-  // horas extra, se avisa: con los datos cargados, sin constantes. Informativo, sin puntaje.
+  // por las horas por día de un puesto superan las horas normales que cubren sus personas en el
+  // mes y el trabajo no lleva horas extra, se avisa: con los datos cargados, sin constantes.
+  // Mismo criterio que el control de siempre: personas por posición (relevos), meses del trabajo
+  // (`mf`, un trabajo de 44 días en meses de 30) y horas extra cargadas en el puesto (sin aviso).
+  // Los puestos iguales (mismo nombre y mismas horas, "Agregar otra persona igual") van en un
+  // solo aviso. Informativo, sin puntaje.
   if (timeBasisHours && ow.mode === 'none' && D > 0 && !activeGuard) {
     const fmt = (n) => formatNumber(n, { decimals: Math.abs(n - Math.round(n)) < 1e-9 ? 0 : 1 });
+    const groups = new Map();
     labor.forEach((l, index) => {
       const normal = nonNegative(l.normalHoursPerMonth);
       if (!(nonNegative(l.positions) > 0) || !(normal > 0)) return;
+      if (overtimeItemsOf(l).some((o) => o.hours > 0) || resourceOvertimeHoursOf(l) > 0) return;
       const own = nonNegative(l.coverageHoursPerDay) > 0
         ? nonNegative(l.coverageHoursPerDay)
         : isPlainObject(l.rotation) ? nonNegative(l.rotation.hoursPerShift) : 0;
       const perDay = own > 0 ? Math.min(own, H) : H;
+      const ppp = laborPeoplePerPositionOf(l);
       const total = D * perDay;
-      if (!(perDay > 0) || total <= normal + 1e-9) return;
+      if (!(perDay > 0) || !(ppp > 0) || total <= ppp * normal * mf + 1e-9) return;
+      const perPersonMonth = total / (ppp * mf);
       const name = (typeof l.role === 'string' && l.role.trim()) || 'Personal';
+      const key = `${name}|${perDay}|${normal}|${ppp}`;
+      const g = groups.get(key);
+      if (g) {
+        g.targets.push({ list: 'labor', index, name });
+        g.people += nonNegative(l.positions) * ppp;
+      } else {
+        groups.set(key, { name, perDay, normal, ppp, total, perPersonMonth, people: nonNegative(l.positions) * ppp, targets: [{ list: 'labor', index, name }] });
+      }
+    });
+    groups.forEach((g) => {
+      const who = g.targets.length > 1 ? `«${g.name}» (${fmt(g.people)} personas)` : `«${g.name}»`;
+      const simple = Math.abs(g.ppp - 1) < 1e-9 && Math.abs(mf - 1) < 1e-9;
+      const per = simple
+        ? `${fmt(D)} días × ${fmt(g.perDay)} h por día son ${fmt(g.total)} h, más que sus ${fmt(g.normal)} horas normales del mes`
+        : `${fmt(D)} días × ${fmt(g.perDay)} h por día son ${fmt(g.perPersonMonth)} h por persona y por mes${Math.abs(g.ppp - 1) < 1e-9 ? '' : ` (${fmt(g.ppp)} personas por puesto)`}${mf > 1 + 1e-9 ? ` (el trabajo dura ${fmt(mf)} meses)` : ''}, más que sus ${fmt(g.normal)} horas normales del mes`;
       notices.push({
         id: 'overtime_hours_over_month',
         step: 'labor',
         severity: 'info',
         label: 'Más horas que las normales del mes',
-        message: `«${name}»: ${fmt(D)} días × ${fmt(perDay)} h por día son ${fmt(total)} h, más que sus ${fmt(normal)} horas normales del mes, y el trabajo no lleva horas extra. Si las horas de más se pagan como extra, elegilo en "Horas extra del trabajo" (al final de Personal); si no, revisá los días o las horas por día.`,
+        message: `${who}: ${per}, y el trabajo no lleva horas extra. Si las horas de más se pagan como extra, elegilo en "Horas extra del trabajo" (al final de Personal); si no, revisá los días o las horas por día.`,
         focus: 'overtimeWork.mode',
-        targets: [{ list: 'labor', index, name }],
+        targets: g.targets,
       });
     });
   }

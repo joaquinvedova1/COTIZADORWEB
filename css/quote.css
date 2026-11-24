@@ -827,6 +827,8 @@
 .qe-unit-first { display: grid; gap: 12px; }
 .qe-unit-first .form-grid { margin-top: 4px; }
 .qe-quoted-item { margin: 0; font-size: 1rem; }
+/* Revisión 0.25.0 (UX C1): la unidad todavía no se eligió. */
+.qe-quoted-item.qe-unit-pending { color: var(--orange-text); font-weight: 600; font-size: 0.95rem; }
 .qe-component-section .qe-toolbar { margin-top: 8px; }
 
 /* 0.20.0: el ritmo de trabajo en el paso 1, como una tarjeta más (título chico, con aire). */

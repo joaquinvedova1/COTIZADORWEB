@@ -940,6 +940,20 @@ async function runMode(mode) {
     }
   }
   {
+    // E2E-33 (revisión de la 0.25.0, UX C1): "Otra unidad…" no nace "por día" elegida: el buscador
+    // arranca vacío y dice que falta la unidad (se guarda por día con la marca unitPending).
+    const before = new Set((ws.state.quotes || []).map((q) => q.id));
+    await go('#/cotizaciones/nueva', 1200);
+    await tap(page.locator('.quote-unit-choice[data-unit="other"]').first());
+    await page.waitForTimeout(3000);
+    const other = (ws.state.quotes || []).find((q) => !before.has(q.id));
+    const view = await page.evaluate(() => ({
+      value: (document.querySelector('input[name="unit"]') || {}).value ?? null,
+      text: document.body.innerText,
+    }));
+    check('E2E-33', '"Otra unidad…": buscador vacío, "Todavía no elegiste la unidad" y la marca unitPending', Boolean(other) && other.unitPending === true && view.value === '' && norm(view.text).includes('Todavía no elegiste la unidad'), JSON.stringify({ pending: other && other.unitPending, value: view.value }));
+  }
+  {
     // E2E-35 (0.25.0, PR 7): con responsable inscripto (E2E-31), los precios de compra dicen "sin IVA";
     // cada ingrediente por tanda dice cuánto lleva cada unidad.
     await go(`#/productos/${encodeURIComponent(prod.id)}/insumos`, 1200);

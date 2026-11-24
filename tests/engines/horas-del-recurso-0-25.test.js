@@ -16,7 +16,7 @@ import { equipmentLineFromLibrary, equipmentBillableHours, createBlankQuote, wit
 import { createDemoState } from '../../js/domain/demo-data.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
 import { equipmentFullHourRate, BILLABLE_HOURS_LABEL } from '../../js/ui/result-text.js';
-import { legacyEquipmentHours, withEquipmentHours } from '../../js/ui/views/library.js';
+import { legacyEquipmentHours, withEquipmentHours, isOurHoursCopy } from '../../js/ui/views/library.js';
 import { retiredHoursLabels } from '../lab/lib/ux-audit.js';
 
 const source = (p) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
@@ -80,7 +80,9 @@ describe('la línea de cotización y el valor hora', () => {
       q.equipment = [equipmentLineFromLibrary(eq, { id: 'l', now: '2026-11-01T00:00:00.000Z' })];
       const r = computeQuote(q, { settings: demo.settings });
       const shown = equipmentFullHourRate(r.model.equipment[0]);
-      assert.ok(Math.abs(shown - card.rates.costPerUsedHour) < 0.5, `${hours}: cotización ${shown} vs Recursos ${card.rates.costPerUsedHour}`);
+      // Con el campo la diferencia es 0; sin él sólo puede haber la del redondeo a 2 decimales de las
+      // horas (equipmentBillableHours), y con los datos enteros de la demo tampoco hay.
+      assert.ok(Math.abs(shown - card.rates.costPerUsedHour) <= 1e-6, `${hours}: cotización ${shown} vs Recursos ${card.rates.costPerUsedHour}`);
     }
   });
 });
@@ -107,12 +109,34 @@ describe('Recursos › Equipos: una pregunta', () => {
     assert.equal(saved.utilizationPct, eq.utilizationPct);
     assert.equal(saved.availableDaysPerMonth, eq.availableDaysPerMonth);
   });
+  test('un equipo creado en la 0.25 y editado después: la copia de las horas se vuelve a escribir', () => {
+    const created = withEquipmentHours({ ...crane(), availableHoursPerMonth: null, utilizationPct: null, billableHoursPerMonth: 100 });
+    assert.equal(isOurHoursCopy(created), true);
+    const edited = withEquipmentHours({ ...structuredClone(created), billableHoursPerMonth: 200 }, created);
+    assert.equal(edited.availableHoursPerMonth, 200);
+    assert.equal(edited.utilizationPct, 100);
+    const { billableHoursPerMonth, ...asOldTab } = edited;
+    close(computeEquipmentUnit(asOldTab, FUEL).rates.costPerUsedHour, computeEquipmentUnit(edited, FUEL).rates.costPerUsedHour, 'una pestaña 0.24 lee el mismo $/hora');
+    assert.ok(computeEquipmentUnit(edited, FUEL).capacity.usedDaysPerMonth <= edited.availableDaysPerMonth);
+  });
+  test('un equipo con datos propios de antes no se trata como copia', () => {
+    const eq = crane();
+    assert.equal(isOurHoursCopy({ ...eq, billableHoursPerMonth: 150 }), false);
+    const saved = withEquipmentHours({ ...structuredClone(eq), billableHoursPerMonth: 150 }, { ...eq, billableHoursPerMonth: 120 });
+    assert.equal(saved.availableHoursPerMonth, eq.availableHoursPerMonth);
+    assert.equal(saved.utilizationPct, eq.utilizationPct);
+  });
+  test('con más horas para clientes que disponibles, los días usados no pasan de los del mes', () => {
+    const u = computeEquipmentUnit({ ...crane(), availableHoursPerMonth: 100, availableDaysPerMonth: 30, billableHoursPerMonth: 200 }, FUEL);
+    assert.equal(u.capacity.usedDaysPerMonth, 30);
+    assert.equal(u.capacity.usedHoursPerMonth, 200);
+  });
   test('la tabla de Equipos: sin "Costo por día usado" ni "Utilización"', () => {
     const lib = source('js/ui/views/library.js');
     assert.doesNotMatch(lib, /label: 'Costo por día usado'/);
     assert.doesNotMatch(lib, /key: 'util', label: 'Utilización'/);
   });
-  test('la ficha en la cotización no toma las horas de Recursos (usa las de la cotización)', () => {
-    assert.match(source('js/ui/views/quote-steps/equipment.js'), /utilizationPct: activity\.utilizationPct,\n\s+\/\/[^\n]*\n\s+billableHoursPerMonth: null,/);
+  test('a la utilización (no por tiempo usado), la ficha va a los días de la cotización: las horas por mes de la línea no rigen', () => {
+    assert.match(source('js/ui/views/quote-steps/equipment.js'), /utilizationPct: activity\.utilizationPct,\n(\s+\/\/[^\n]*\n)+\s+billableHoursPerMonth: null,/);
   });
 });

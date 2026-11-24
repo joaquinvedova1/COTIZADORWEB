@@ -128,7 +128,7 @@ const PAINS = Object.freeze([
 ]);
 
 const STEPS = Object.freeze([
-  { n: '01', title: 'Elegí qué querés calcular.', text: 'Un servicio (on-call, cuadrilla, equipo, transporte, llave en mano…) o un producto (por unidad, docena o kilo).' },
+  { n: '01', title: 'Elegí qué querés calcular.', text: 'Un servicio (por hora, por día, por mes o por trabajo) o un producto (por unidad, docena o kilo).' },
   { n: '02', title: 'Cargá los recursos y condiciones.', text: 'Personal, equipos, materiales, viajes y condiciones comerciales.' },
   { n: '03', title: 'Conocé tu precio.', text: 'Costo, precio mínimo, margen, punto de equilibrio y escenarios.' },
 ]);

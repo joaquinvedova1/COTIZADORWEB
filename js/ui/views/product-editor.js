@@ -24,7 +24,7 @@ import {
 } from '../components.js';
 import { formatMoney, formatNumber, formatPercent, formatDateTime, EMPTY } from '../../core/format.js';
 import { deepClone, getPath, setPath } from '../../core/object.js';
-import { isFiniteNumber } from '../../core/money.js';
+import { isFiniteNumber, nonNegative } from '../../core/money.js';
 import { logger } from '../../core/logger.js';
 import { CURRENCY } from '../../config.js';
 import { computeProduct, laborMinutesPerUnit, materialQuantityPerUnit, PRODUCT_FINANCE_NET_NOTE } from '../../engines/product-engine.js';
@@ -180,8 +180,12 @@ function emptyHint(text) {
   return h('p', { class: 'pe-empty muted' }, text);
 }
 
-/** W-23 (0.25.0): con equilibrio 0 (sin gastos fijos) no hay "0 unidades por mes". */
-export const BREAK_EVEN_ZERO_TEXT = 'Cualquier venta te deja ganancia';
+/**
+ * W-23 (0.25.0): con equilibrio 0 (sin gastos fijos) no hay "0 unidades por mes". Revisión UX C9: no
+ * se dice "cualquier venta te deja ganancia" (el dueño paga los sueldos igual).
+ */
+export const BREAK_EVEN_ZERO_TEXT = 'Sin gastos fijos cargados';
+export const BREAK_EVEN_ZERO_HINT = 'Si pagás alquiler, luz o sueldos aunque no vendas, cargalos en Gastos fijos y vas a ver cuánto tenés que vender.';
 export function breakEvenIsZero(value) {
   return isFiniteNumber(value) && Math.abs(value) < 1e-9;
 }
@@ -201,7 +205,8 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
   const purchaseNoVat = settings && settings.vatCondition === 'registered';
   const purchaseVatUnknown = !purchaseVatHint && !purchaseNoVat;
   const purchaseLabel = (text) => (purchaseVatHint ? `${text} (con IVA)` : purchaseNoVat ? `${text} (sin IVA)` : text);
-  const purchaseHint = purchaseVatHint || (purchaseNoVat ? 'Como responsable inscripto, el IVA de lo que comprás lo recuperás: cargá el precio sin IVA.' : null);
+  // Revisión 0.25.0 (COSTOS 5): la factura C o el ticket no dan crédito fiscal.
+  const purchaseHint = purchaseVatHint || (purchaseNoVat ? 'Como responsable inscripto, cargá el precio sin IVA cuando te dan factura A. Si te dan factura C o ticket (monotributistas, minoristas), ese IVA no lo recuperás: cargá el precio completo.' : null);
   const productId = product.id;
   const readOnly = Boolean(app.ctx && app.ctx.init && app.ctx.init.readOnly);
   // Sin almacenamiento persistente (modo memoria) no hay que decir "Guardado".
@@ -669,7 +674,11 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
   /** R-05 (0.25.0): "= 350 g por unidad" (cuánto lleva cada unidad que vendés). */
   function perUnitQuantityText(i, r) {
     const q = materialQuantityPerUnit(i, r && r.sellablePerBatch);
-    return q ? `= ${num(q.quantity, q.quantity < 10 ? 2 : 0)} ${q.unit} por ${saleUnit()} que vendés.` : '';
+    if (!q) return '';
+    const shown = (x) => num(x, x < 10 ? 2 : 0);
+    // Revisión 0.25.0 (P-4): la cantidad por unidad no incluye la merma; se dice cuánto se compra.
+    const waste = i.wastePct > 0 ? ` (sin la merma; comprás ${shown(q.quantity * (1 + i.wastePct / 100))} ${q.unit})` : '';
+    return `= ${shown(q.quantity)} ${q.unit} por ${saleUnit()} que vendés${waste}.`;
   }
 
   function materialCard(i) {
@@ -726,10 +735,37 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         readOnly ? null : h('div', { class: 'qe-toolbar pe-move' }, button(per === 'unit' ? 'Mover a la receta (por tanda)' : `Mover a "En cada ${saleUnit()}"`, {
           variant: 'ghost',
           size: 'sm',
-          onClick: () => mutate((p) => { p.materials[i].per = per === 'unit' ? 'batch' : 'unit'; }),
+          onClick: () => moveMaterial(i),
         })),
       ],
     });
+  }
+
+  /**
+   * "Mover a…" (revisión 0.25.0, UX C9): la cantidad se convierte (÷ o × las unidades para vender de
+   * una tanda) y el costo por unidad queda igual. Sin ese dato no se puede convertir: se mueve y se
+   * avisa que la cantidad quedó igual, para revisarla.
+   */
+  function moveMaterial(i) {
+    const line = state.product.materials[i];
+    if (!line) return;
+    const toUnit = line.per !== 'unit';
+    const sellable = state.result && state.result.sellablePerBatch > 0 ? state.result.sellablePerBatch : null;
+    const qty = Number(line.quantity);
+    const has = Number.isFinite(qty) && qty > 0;
+    const useUnit = line.useUnit || line.unit || '';
+    const from = `${num(qty, 3)} ${useUnit}`.trim();
+    const next = has && sellable ? (toUnit ? qty / sellable : qty * sellable) : null;
+    mutate((p) => {
+      const l = p.materials[i];
+      l.per = toUnit ? 'unit' : 'batch';
+      if (next !== null) l.quantity = next;
+    });
+    const where = toUnit ? `por ${saleUnit()}` : 'por tanda';
+    const before = toUnit ? 'por tanda' : `por ${saleUnit()}`;
+    if (!has) return;
+    if (next !== null) notify(`La cantidad ahora es ${where}: ${num(next, 3)} ${useUnit} (antes: ${from} ${before}). El costo no cambia.`, 'success');
+    else notify(`La cantidad ahora es ${where}: revisala (antes: ${from} ${before}).`, 'warning');
   }
 
   function addMaterialFromLibrary(id) {
@@ -754,7 +790,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
       : h(
         'div',
         { class: 'qe-toolbar pe-toolbar' },
-        button(per === 'unit' ? 'Agregar algo que va en cada unidad' : 'Agregar ingrediente', { variant: 'primary', icon: 'plus', onClick: () => addBlankMaterial(per), attrs: { 'data-edit': 'true' } }),
+        button(per === 'unit' ? `Agregar algo que va en cada ${saleUnit()}` : 'Agregar ingrediente', { variant: 'primary', icon: 'plus', onClick: () => addBlankMaterial(per), attrs: { 'data-edit': 'true' } }),
         per === 'batch' && library.length
           ? selectField({
             label: 'O traelo de Recursos → Insumos y materiales',
@@ -786,7 +822,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         { class: 'pe-section stack' },
         h('h3', { class: 'pe-section-title' }, `En cada ${saleUnit()} que vendés`),
         h('p', { class: 'muted small pe-section-text' }, 'Bolsita, etiqueta, caja o bandeja: lo que va en cada unidad.'),
-        perUnit.length ? h('div', { class: 'qe-lines' }, ...perUnit.map(materialCard)) : emptyHint('Sin empaques por unidad.'),
+        perUnit.length ? h('div', { class: 'qe-lines' }, ...perUnit.map(materialCard)) : emptyHint(`Todavía no cargaste nada que vaya en cada ${saleUnit()}.`),
         toolbar('unit'),
       ),
       exchangeRatesBlock(),
@@ -809,7 +845,9 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
     const line = state.product.labor[i];
     const base = `labor.${i}`;
     const agreement = agreements.find((a) => a.id === line.agreementId) || null;
-    const ill = (key) => isIllustrativeAgreementParam(line, key, { agreement });
+    // Revisión 0.25.0 (P-5): en un producto de demostración todo es ILUSTRATIVO (como en una cotización).
+    const demoProduct = state.product.illustrative === true;
+    const ill = (key) => isIllustrativeAgreementParam(line, key, { agreement, wholeIllustrative: demoProduct });
     const anyIll = ['normalHoursPerMonth', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct'].some(ill);
     return lineCard({
       listKey: 'labor',
@@ -839,7 +877,8 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
           kit.num(`${base}.basicMonthly`, { label: 'Sueldo básico mensual (por persona)', unit: '$', illustrative: line.illustrative === true }),
           kit.num(`${base}.additionalsMonthly`, { label: 'Adicionales mensuales', unit: '$', hint: 'Presentismo, antigüedad u otros adicionales remunerativos.' }),
           // R-07 (0.25.0): el motor ya lo leía; vacío = 0 = el número de siempre.
-          kit.num(`${base}.nonRemunerativeMonthly`, { label: 'No remunerativo por mes', unit: '$', hint: 'Sumas no remunerativas del convenio (por persona). Se suman tal cual: no llevan aguinaldo, vacaciones ni cargas patronales.' }),
+          // Revisión 0.25.0 (COSTOS 4, UX C9): el motor suma el % de cargas del convenio sobre el no remunerativo.
+          kit.num(`${base}.nonRemunerativeMonthly`, { label: 'No remunerativo por mes', unit: '$', hint: `Sumas no remunerativas (por persona). No llevan aguinaldo, vacaciones ni contribuciones patronales. Si tu convenio les aplica obra social o cuota sindical, va en el % del convenio.${nonNegative(line.nonRemunerativeChargesPct) > 0 ? ` (+ ${pctText(nonNegative(line.nonRemunerativeChargesPct))} de cargas del convenio)` : ''}` }),
           kit.num(`${base}.minutesPerBatch`, { label: 'Minutos por tanda (cada persona)', rule: 'minutes', unit: 'min', hint: 'Su tiempo de trabajo en una tanda: preparar, hornear, empaquetar.' }),
         ),
         calc((r) => {
@@ -864,7 +903,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
           { summary: 'Cargas sociales y horas del mes', hint: anyIll ? 'Valores ILUSTRATIVOS: reemplazalos por los de tu convenio' : 'Aguinaldo, vacaciones, contribuciones, ART' },
           anyIll ? h('p', { class: 'small' }, 'Estos valores son genéricos e ILUSTRATIVOS: no son los de ningún convenio real. Cargá los vigentes de tu CCT o elegí un convenio con tus valores.') : null,
           // R-06 (0.25.0): si ya son los tuyos (aunque coincidan con el ejemplo), se marcan como propios.
-          anyIll && !readOnly && !(agreement && agreement.illustrative) && line.illustrative !== true
+          anyIll && !readOnly && !demoProduct && !(agreement && agreement.illustrative) && line.illustrative !== true
             ? h('div', { class: 'qe-toolbar' }, button('Son mis valores', { variant: 'secondary', size: 'sm', icon: 'check', onClick: () => markOwnParams(i) }))
             : null,
           formGrid(
@@ -887,7 +926,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
   const OWN_PARAM_KEYS = ['normalHoursPerMonth', 'sacPct', 'vacationPct', 'employerContributionsPct', 'artPct'];
   function markOwnParam(i, key) {
     const line = state.product.labor[i];
-    if (!line) return;
+    if (!line || state.product.illustrative === true) return;
     const own = Array.isArray(line.ownParams) ? line.ownParams : [];
     if (!own.includes(key)) line.ownParams = [...own, key];
   }
@@ -1372,7 +1411,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
     const beHint = be === null
       ? (pr.suggestedPrice === null ? 'Faltan datos.' : `Con este precio cada ${u} no cubre lo que cuesta hacerla.`)
       : !(r.fixedMonthly > 0)
-        ? 'Sin gastos fijos asignados: cada venta ya deja ganancia.'
+        ? BREAK_EVEN_ZERO_HINT
         : N > 0
           ? (N >= be ? `Vendés ${num(N, 0)} por mes: estás por encima.` : `Vendés ${num(N, 0)} por mes: todavía no llegás.`)
           : 'Para cubrir los gastos fijos del mes.';
@@ -1568,9 +1607,9 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
       h(
         'dl',
         { class: 'pe-aside-list' },
-        asideRow('Costo por unidad', (r) => unitMoney(r.unitCost)),
+        asideRow(`Costo por ${saleUnit()}`, (r) => unitMoney(r.unitCost)),
         asideRow('Precio sugerido', (r) => unitMoney(r.pricing.suggestedPrice), { strong: true }),
-        asideRow('Ganás por unidad', (r) => unitMoney(r.pricing.gainPerUnit)),
+        asideRow(`Ganás por ${saleUnit()}`, (r) => unitMoney(r.pricing.gainPerUnit)),
         asideRow('Para no perder', (r) => (r.pricing.breakEvenUnits === null ? (r.pricing.suggestedPrice === null ? EMPTY : 'No se alcanza') : breakEvenIsZero(r.pricing.breakEvenUnits) ? BREAK_EVEN_ZERO_TEXT : `${formatNumber(Math.ceil(r.pricing.breakEvenUnits))} por mes`)),
       ),
       out((r) => (r.unitCost > 0 ? barList(r.breakdown.filter((b) => b.displayPct > 0).map((b) => ({ label: b.label, value: b.displayPct }))) : h('p', { class: 'small muted' }, 'A medida que cargues datos, acá vas a ver cómo se forma el costo.')), { tag: 'div', className: 'pe-aside-bars', fixed: true }),

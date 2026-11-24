@@ -39,15 +39,16 @@ const TEMPLATE_CONDITIONS = Object.freeze([
  */
 export function templateUnitLabel(service) {
   const defaults = service && service.defaults && typeof service.defaults === 'object' ? service.defaults : null;
-  return defaults && typeof defaults.unit === 'string' && defaults.unit ? billingUnitPhrase(defaults) : null;
+  // Sin unidad guardada la cotización nace por día (revisión 0.25.0): se dice así.
+  return defaults ? billingUnitPhrase({ ...defaults, unit: typeof defaults.unit === 'string' && defaults.unit ? defaults.unit : 'day' }) : null;
 }
 
 /**
  * Resumen legible del contenido precargado de una plantilla: qué líneas trae
  * ("Incluye 1 puesto · 2 equipos · 3 materiales · 2 vehículos"), qué
  * condiciones copia (gastos de estructura, financiación, imprevistos, margen
- * y precio) y la actividad sugerida. "Sólo tipo de servicio y actividad"
- * únicamente si no trae nada de eso.
+ * y precio) y la actividad sugerida. "Sólo la unidad de cobro y la actividad"
+ * (o "Sólo la actividad típica" sin unidad) únicamente si no trae nada de eso.
  * @returns {{ resources: string, conditions: string|null, activity: string|null, hasContent: boolean }}
  */
 export function templateContents(service) {
@@ -64,7 +65,8 @@ export function templateContents(service) {
     .map(([n, one, many]) => plural(n, one, many));
   const steps = [...new Set(TEMPLATE_CONDITIONS.filter((c) => isPlainObject(d[c.key])).map((c) => labelOf(QUOTE_STEPS, c.step).toLowerCase()))];
   const days = isPlainObject(d.activity) && Number.isFinite(d.activity.activeDaysPerMonth) ? d.activity.activeDaysPerMonth : null;
-  let resources = 'Sólo tipo de servicio y actividad';
+  // W-13 (revisión 0.25.0, C4): sin "tipo de servicio".
+  let resources = isPlainObject(d) && typeof d.unit === 'string' && d.unit ? 'Sólo la unidad de cobro y la actividad' : 'Sólo la actividad típica';
   let conditions = null;
   if (lines.length) {
     resources = `Incluye ${lines.join(' · ')}`;

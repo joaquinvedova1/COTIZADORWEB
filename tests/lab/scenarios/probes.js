@@ -304,7 +304,7 @@ export const PROBES = [
     }),
     respond: (q, r) => {
       const n = (r.completeness.notices || []).find((x) => x.id === 'client_fuel_external_not_summed');
-      return n && /«Retro alquilada» no se está sumando/.test(n.message) ? { how: 'warn', evidence: n.message } : { how: 'silent', evidence: 'sin el aviso del combustible del cliente' };
+      return n && /«Retro alquilada»: .*este consumo no se suma/.test(n.message) ? { how: 'warn', evidence: n.message } : { how: 'silent', evidence: 'sin el aviso del combustible del cliente' };
     },
   },
   {

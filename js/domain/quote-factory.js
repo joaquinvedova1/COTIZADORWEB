@@ -608,7 +608,7 @@ export function createExtra({ id = createId(), label = 'Adicional', unitName = '
  *     junto a los días. No mueve ningún número (sólo el aviso de relevos, que pide 24/7).
  * Las cotizaciones guardadas sin contrato siguen leyéndose como antes (legacy).
  */
-export function createBlankQuote(options = {}, { unit = null } = {}) {
+export function createBlankQuote(options = {}, { unit = null, unitPending = false } = {}) {
   const quote = createEmptyQuote(options);
   // 0.25.0 (PR 4, W-12): la unidad de cobro se elige antes de crear la cotización. Da lo mismo que
   // crear en blanco y elegir la unidad en el paso 1 (applyQuoteUnit, que no se muda al dominio
@@ -622,6 +622,9 @@ export function createBlankQuote(options = {}, { unit = null } = {}) {
   if (chosen === 'job' && (quote.activity.billableQuantityPerMonth === null || quote.activity.billableQuantityPerMonth === undefined)) {
     quote.activity.billableQuantityPerMonth = 1;
   }
+  // Revisión 0.25.0 (UX C1): "Otra unidad…" crea la cotización sin unidad elegida. Se guarda por día,
+  // como siempre (el modelo exige una unidad), con una marca que se borra al elegirla. No mueve números.
+  if (unitPending === true && !chosen) quote.unitPending = true;
   return quote;
 }
 

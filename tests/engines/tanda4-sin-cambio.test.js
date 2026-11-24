@@ -28,6 +28,8 @@ import { computeProduct } from '../../js/engines/product-engine.js';
 import { computeEquipmentUnit } from '../../js/engines/equipment-engine.js';
 import { exampleProduct } from '../../js/domain/product-factory.js';
 import { equipmentLineFromLibrary } from '../../js/domain/quote-factory.js';
+import { equipmentCardAtQuote } from '../../js/ui/views/quote-steps/equipment.js';
+import { quoteCardCases } from '../fixtures/equipment-card-cases.js';
 
 const PHOTO_URL = new URL('../fixtures/tanda4-sin-cambio.json', import.meta.url);
 const FIXTURES_DIR = new URL('../fixtures/', import.meta.url);
@@ -183,6 +185,9 @@ function equipmentCases() {
     out.push({ id: `equipo:${eq.name}:combustible-del-cliente`, run: () => computeEquipmentUnit(structuredClone(eq), { fuelPricePerLiter: fuel, fuelPaidByUs: false }) });
     out.push({ id: `linea:${eq.name}`, run: () => equipmentLineFromLibrary(structuredClone(eq), { id: 'l1', now: '2026-11-01T00:00:00.000Z' }) });
   });
+  // Revisión 0.25.0 (P-6): la ficha en la cotización (equipmentCardAtQuote). Agregada a la foto
+  // después, con el motor de la 0.24.0 (origin/main 2d5d483); los demás casos no cambiaron.
+  out.push(...quoteCardCases({ computeQuote, createDemoState, equipmentCardAtQuote, cot0009Quote, cot0010Quote, cot0011Quote, baselineCases, serviceScenarios: SERVICE_SCENARIOS, resetIds }));
   return out;
 }
 
@@ -207,6 +212,7 @@ describe('0.25.0: la segunda parte de la tanda 4 no cambia ningún número', () 
     assert.deepEqual(Object.keys(expectedB).sort(), allB.map((c) => c.id).sort());
     assert.ok(allB.filter((c) => c.id.startsWith('product:')).length >= 10);
     assert.ok(allB.filter((c) => c.id.startsWith('equipo:')).length >= 40);
+    assert.ok(allB.filter((c) => c.id.startsWith('ficha-cotizacion:')).length >= 40);
   });
   for (const c of allB) {
     test(c.id, () => close(clean(c.run()), expectedB[c.id], c.id));

@@ -13,7 +13,7 @@ import { createId } from '../../../core/ids.js';
 import { deepClone } from '../../../core/object.js';
 import { card, formGrid, selectField, confirmDialog, emptyState, badge } from '../../components.js';
 import { illustrativeTag } from '../../layout.js';
-import { hasNumber, plural, stepName } from './shared.js';
+import { hasNumber, plural, stepName, laborOptionLabels } from './shared.js';
 import { ILLUSTRATIVE_AGREEMENT_PARAMS, isIllustrativeAgreementParam } from '../../../domain/catalogs.js';
 import { laborLineFromProfile, createContractedStaff } from '../../../domain/quote-factory.js';
 import { vatIsCost } from '../../../domain/catalogs.js';
@@ -283,6 +283,18 @@ export function render(container, ctx) {
       q.labor.splice(index + 1, 0, copy);
     });
     ctx.toast(`Se agregó otra persona como "${line.role || 'Puesto'}".`, 'success');
+    // Revisión 0.25.0 (UX C8): en celular la copia quedaba fuera de la vista; se la muestra y enfoca.
+    setTimeout(() => {
+      const cards = typeof document !== 'undefined' ? document.querySelectorAll('.qe-labor-line') : [];
+      const added = cards[index + 1];
+      if (!added) return;
+      if (typeof added.scrollIntoView === 'function') added.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      const title = added.querySelector('.qe-line-title');
+      if (title) {
+        title.setAttribute('tabindex', '-1');
+        try { title.focus({ preventScroll: true }); } catch { title.focus(); }
+      }
+    }, 0);
   };
 
   const toolbar = h(
@@ -535,7 +547,13 @@ export function render(container, ctx) {
     }
     const card = kit.lineCard(
       {
-        title: kit.out(() => (quote.labor[i] && quote.labor[i].role) || 'Puesto sin nombre'),
+        // Revisión 0.25.0 (UX C8): el mismo rótulo que el selector de operador ("Chofer 1", "Chofer 2").
+        title: kit.out(() => {
+          const l = quote.labor[i];
+          const named = l && laborOptionLabels(quote.labor).find((o) => o.value === l.id);
+          return named ? named.label : (l && l.role) || 'Puesto sin nombre';
+        }),
+        className: 'qe-labor-line',
         subtitle: kit.out((r) => {
           const l = at(r);
           if (!l) return '';
@@ -549,7 +567,11 @@ export function render(container, ctx) {
         badges: [ill.tag, agreement && agreement.illustrative ? badge('Convenio ilustrativo', 'orange') : null].filter(Boolean),
         actions: [
           line.agreementId ? kit.action('Usar las cargas del convenio', () => applyAgreement(i), { icon: 'check', title: 'Copia horas normales, recargo de horas extra, SAC, vacaciones, cargas y ART del convenio elegido' }) : null,
-          legacyStaff(line) ? null : kit.action('Agregar otra persona igual', () => duplicateLine(i), { icon: 'plus', title: 'Copia este puesto con el mismo sueldo, cargas y horas: otra persona que hace lo mismo' }),
+          legacyStaff(line) ? null
+            : !hasNumber(line.positions) || singleUnit(line.positions)
+              ? kit.action('Agregar otra persona igual', () => duplicateLine(i), { icon: 'plus', title: 'Copia este puesto con el mismo sueldo, cargas y horas: otra persona que hace lo mismo' })
+              // Revisión 0.25.0 (P-2): una línea de antes con varias personas se copia entera; se dice cuántas.
+              : kit.action(`Agregar otro puesto igual (${formatNumber(laborHeadcountOf(line), { decimals: 2 })} personas)`, () => duplicateLine(i), { icon: 'plus', title: 'Copia este puesto con la misma cantidad de personas, sueldo, cargas y horas' }),
           kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' }),
         ],
       },
