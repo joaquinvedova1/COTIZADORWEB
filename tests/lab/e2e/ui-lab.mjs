@@ -820,15 +820,27 @@ async function runMode(mode) {
     await go('#/cotizaciones/nueva', 1200);
     const card = page.locator('.company-setup').first();
     check('E2E-31', 'también en "Nuevo servicio"', await card.isVisible().catch(() => false), 'sin la tarjeta');
-    const placeholders = await page.evaluate(() => [...document.querySelectorAll('.company-setup input')].map((i) => ({ value: i.value, placeholder: i.placeholder })));
+    const placeholders = await page.evaluate(() => [...document.querySelectorAll('.company-setup input')].filter((i) => !i.closest('.company-setup-vat')).map((i) => ({ value: i.value, placeholder: i.placeholder })));
+    // C8 (revisión de la 0.24.0): en "Nuevo servicio", "Empezar en blanco" va antes que la tarjeta.
+    const order = await page.evaluate(() => {
+      const blank = document.querySelector('.quote-choice-blank');
+      const company = document.querySelector('.company-setup');
+      return Boolean(blank && company && (blank.compareDocumentPosition(company) & Node.DOCUMENT_POSITION_FOLLOWING));
+    });
+    check('E2E-31', '"Empezar en blanco" antes que "Datos de tu empresa"', order, 'la tarjeta va primero');
     check('E2E-31', 'los valores de ejemplo van como texto de muestra, no cargados', placeholders.length === 5 && placeholders.every((x) => x.value === '' && /^Ej\.:/.test(x.placeholder)), JSON.stringify(placeholders));
     const values = { fuelPricePerLiter: '1850', defaultPaymentTermDays: '45', financeMonthlyRatePct: '4', defaultContingencyPct: '3', defaultTargetMarginPct: '15' };
     for (const [key, value] of Object.entries(values)) await page.locator(`[name="company.${key}"]`).fill(value);
     await page.locator('[name="company.vatCondition"]').selectOption('registered');
+    // C7 (revisión de la 0.24.0): con responsable inscripto, la tarjeta pide el IVA y los días.
+    const vatVisible = await page.locator('[name="company.vatRatePct"]').isVisible().catch(() => false);
+    check('E2E-31', 'con responsable inscripto, la tarjeta pide el IVA que facturás y los días hasta pagarlo', vatVisible && await page.locator('[name="company.vatPayLagDays"]').isVisible().catch(() => false), 'sin los campos del IVA');
+    await page.locator('[name="company.vatRatePct"]').fill('21');
+    await page.locator('[name="company.vatPayLagDays"]').fill('20');
     await tap(card.getByRole('button', { name: 'Guardar', exact: true }));
     await page.waitForTimeout(2500);
     const saved = ws.state.settings || {};
-    check('E2E-31', '"Guardar" guarda los datos como propios (illustrative: false)', saved.illustrative === false && saved.fuelPricePerLiter === 1850 && saved.defaultPaymentTermDays === 45 && saved.vatCondition === 'registered', JSON.stringify({ illustrative: saved.illustrative, fuel: saved.fuelPricePerLiter, term: saved.defaultPaymentTermDays, vat: saved.vatCondition }));
+    check('E2E-31', '"Guardar" guarda los datos como propios (illustrative: false)', saved.illustrative === false && saved.fuelPricePerLiter === 1850 && saved.defaultPaymentTermDays === 45 && saved.vatCondition === 'registered' && saved.defaultVat && saved.defaultVat.ratePct === 21 && saved.defaultVat.payLagDays === 20, JSON.stringify({ illustrative: saved.illustrative, fuel: saved.fuelPricePerLiter, term: saved.defaultPaymentTermDays, vat: saved.vatCondition, defaultVat: saved.defaultVat }));
     const before = new Set((ws.state.quotes || []).map((q) => q.id));
     await go('#/cotizaciones/nueva', 1200);
     check('E2E-31', 'después de guardar, la tarjeta ya no aparece', !(await page.locator('.company-setup').first().isVisible().catch(() => false)), 'sigue la tarjeta');
@@ -844,10 +856,7 @@ async function runMode(mode) {
   }
   {
     // E2E-32 (P-11): responsable inscripto con el IVA completo: la cotización nueva no pregunta.
-    ws.state.settings = { ...(ws.state.settings || {}), vatCondition: 'registered', defaultVat: { ratePct: 21, payLagDays: 20 }, illustrative: false };
-    ws.revision += 1;
-    await page.reload();
-    await page.waitForTimeout(2500);
+    // Revisión de la 0.24.0 (C7): la condición y el IVA vienen de la tarjeta de E2E-31, no se siembran.
     const before = new Set((ws.state.quotes || []).map((q) => q.id));
     await go('#/cotizaciones/nueva', 1200);
     await tap(page.locator('.quote-choice-blank').first());

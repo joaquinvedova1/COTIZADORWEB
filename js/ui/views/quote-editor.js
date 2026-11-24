@@ -2429,7 +2429,8 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     // ejemplo: un botón quita la marca del combustible y de la tasa. El número no cambia.
     const ownCompany = Boolean(settings) && settings.illustrative !== true && !readOnly;
     const companyExample = ownCompany && isResult && (info.fuel || info.finance);
-    const key = JSON.stringify([info.quote, fuelHere, companyExample, info.finance, shownGroups.map((g) => [g.label, g.n])]);
+    const company = companyExample ? companyValuesDiff(q, settings, info) : null;
+    const key = JSON.stringify([info.quote, fuelHere, companyExample, info.finance, shownGroups.map((g) => [g.label, g.n]), company && company.key]);
     if (key === illustrativeKey) return;
     illustrativeKey = key;
     const hide = () => {
@@ -2470,20 +2471,36 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       notices.push(el);
     }
     if (companyExample) {
+      // Revisión de la 0.24.0 (C-4 de costos): el aviso muestra el valor de la cotización y el de
+      // la empresa. Si son iguales, un botón confirma (el número no cambia). Si difieren, dos:
+      // "Usar los de mi empresa" (cambia los números y lo dice) y "Dejar estos" (no cambia nada).
       const what = [info.fuel ? 'el precio del combustible' : null, info.finance ? 'la tasa de financiamiento' : null].filter(Boolean).join(' y ');
-      const el = banner(h('span', {}, `Esta cotización se creó antes de que cargaras los datos de tu empresa: ${what} ${info.fuel && info.finance ? 'son' : 'es'} de ejemplo. Si ya son los tuyos, confirmalo; si no, cambialos en la cotización.`, illustrativeTag('Valores de ejemplo de antes de cargar los datos de tu empresa')), 'warning');
+      const el = banner(h('span', {}, `Esta cotización se creó antes de que cargaras los datos de tu empresa: ${what} ${info.fuel && info.finance ? 'son' : 'es'} de ejemplo (${company.quoteText}). ${company.same ? 'Son los mismos que guardaste para tu empresa.' : `Tu empresa tiene ${company.companyText}.`}`, illustrativeTag('Valores de ejemplo de antes de cargar los datos de tu empresa')), 'warning');
       el.classList.add('qe-illustrative-line', 'qe-company-example');
       const body = el.lastElementChild || el;
-      body.appendChild(button('Son los valores de mi empresa', {
+      const keep = (label) => button(label, {
         variant: 'link',
         size: 'sm',
         attrs: { class: 'btn btn-link btn-sm qe-illustrative-go' },
-        onClick: () => mutate((q) => {
+        onClick: () => mutate((qq) => {
           // Lo mismo que "Es mi precio vigente" en Viajes.
-          if (isPlainObject(q.fuel)) q.fuel.illustrative = false;
-          if (isPlainObject(q.finance)) q.finance.illustrative = false;
+          if (isPlainObject(qq.fuel)) qq.fuel.illustrative = false;
+          if (isPlainObject(qq.finance)) qq.finance.illustrative = false;
         }),
-      }));
+      });
+      if (company.same) body.appendChild(keep('Son los valores de mi empresa'));
+      else {
+        body.appendChild(button(`Usar los de mi empresa (${company.companyText})`, {
+          variant: 'link',
+          size: 'sm',
+          attrs: { class: 'btn btn-link btn-sm qe-illustrative-go qe-company-use' },
+          onClick: () => {
+            mutate((qq) => applyCompanyValues(qq, settings, info));
+            notify('Listo: la cotización usa los valores de tu empresa. Cambian sus números.', 'info');
+          },
+        }));
+        body.appendChild(keep(`Dejar estos (${company.quoteText})`));
+      }
       notices.push(el);
     } else if (fuelHere) {
       const el = banner(h('span', {}, 'El precio del combustible es de ejemplo: cargá el tuyo o confirmá que es tu precio vigente.', illustrativeTag('Precio del combustible por defecto: reemplazalo por tu precio actual')), 'warning');
@@ -3246,4 +3263,41 @@ export function recoverAllVatConfirm(quote, settings, apply, count) {
     message = `${lines} a «Sí, lo recupero». En esta cotización el costo no cambia (${formatMoney(kb.totalCost || 0)} por mes). ${correct}`;
   }
   return { title: '¿Recuperás el IVA de todos los externos?', message, confirmLabel: 'Sí, lo recupero', cancelLabel: 'Cancelar', drop, before: kb.totalCost, after: ka.totalCost };
+}
+
+/**
+ * Valores de ejemplo de la cotización contra los de la empresa (revisión de la 0.24.0, C-4): sólo
+ * las partes marcadas de ejemplo (combustible, tasa). Textos "$ 1.500/L · 4 %".
+ */
+export function companyValuesDiff(quote, settings, info) {
+  const q = isPlainObject(quote) ? quote : {};
+  const st = isPlainObject(settings) ? settings : {};
+  const rows = [];
+  if (info && info.fuel) rows.push({ id: 'fuel', here: Number(q.fuel && q.fuel.pricePerLiter), company: Number(st.fuelPricePerLiter), text: (v) => `${formatMoney(v)}/L` });
+  if (info && info.finance) rows.push({ id: 'finance', here: Number(q.finance && q.finance.monthlyRatePct), company: Number(st.financeMonthlyRatePct), text: (v) => `${formatPercent(v)} por mes` });
+  const shown = (v, row) => (isFiniteNumber(v) ? row.text(v) : EMPTY);
+  const same = rows.every((row) => !isFiniteNumber(row.company) || Math.abs(row.here - row.company) < 1e-9);
+  return {
+    same,
+    rows,
+    quoteText: rows.map((row) => shown(row.here, row)).join(' · '),
+    companyText: rows.map((row) => shown(row.company, row)).join(' · '),
+    key: rows.map((row) => [row.id, row.here, row.company]),
+  };
+}
+
+/** "Usar los de mi empresa": copia el combustible y la tasa de la empresa (acción de la persona). */
+export function applyCompanyValues(quote, settings, info) {
+  const st = isPlainObject(settings) ? settings : {};
+  if (info && info.fuel && isFiniteNumber(st.fuelPricePerLiter)) {
+    if (!isPlainObject(quote.fuel)) quote.fuel = {};
+    quote.fuel.pricePerLiter = st.fuelPricePerLiter;
+    quote.fuel.illustrative = false;
+  }
+  if (info && info.finance && isFiniteNumber(st.financeMonthlyRatePct)) {
+    if (!isPlainObject(quote.finance)) quote.finance = {};
+    quote.finance.monthlyRatePct = st.financeMonthlyRatePct;
+    quote.finance.illustrative = false;
+  }
+  return quote;
 }

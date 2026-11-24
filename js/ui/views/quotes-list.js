@@ -810,7 +810,6 @@ export async function renderNewQuote(root, app) {
           ? 'Elegí un servicio parecido al tuyo: arrancás con su tipo de servicio y su actividad típica (y sus recursos, si la plantilla los tiene). Después podés cambiar todo.'
           : 'Empezá en blanco: RATEOS te va preguntando paso a paso. Si querés ver antes cómo queda una cotización completa, mirá el ejemplo.',
       }),
-      companyCard,
       h('div', { class: 'quote-choice-grid' }, blank, ...first),
       rest.length
         ? disclosure(
@@ -818,6 +817,9 @@ export async function renderNewQuote(root, app) {
             h('div', { class: 'quote-choice-grid' }, ...rest),
           )
         : null,
+      // C8 (revisión de la 0.24.0): quien entró a cotizar ve primero "Empezar en blanco" y las
+      // plantillas; la tarjeta de la empresa va debajo (en Inicio sigue arriba).
+      companyCard,
       services.length
         ? h('p', { class: 'muted small' }, 'Las plantillas marcadas ILUSTRATIVO traen valores de ejemplo: reemplazalos por los tuyos. Gestioná tus plantillas en ', h('a', { href: '#/servicios' }, 'Servicios'), '.')
         : h('p', { class: 'muted small' }, 'Todavía no tenés plantillas de servicio. Podés guardar cualquier cotización como plantilla desde su resultado.'),

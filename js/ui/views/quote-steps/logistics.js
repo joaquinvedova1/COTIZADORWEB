@@ -20,7 +20,7 @@
 import { h, mount } from '../../dom.js';
 import { badge, button, card, disclosure, formGrid, infoTip, numberField, selectField, emptyState, table, icon, checkboxField } from '../../components.js';
 import { lodgingFromDetail } from '../../../domain/lodging.js';
-import { ACQUISITION_MODES, DRIVER_OPTIONS, FUEL_PROVIDERS, MOBILIZATION_MODES, labelOf } from '../../../domain/catalogs.js';
+import { ACQUISITION_MODES, DRIVER_OPTIONS, FUEL_PROVIDERS, MOBILIZATION_MODES, labelOf, vatIsCost } from '../../../domain/catalogs.js';
 import { acquisitionOf } from '../../../domain/quote-factory.js';
 import { fieldHref } from '../../field-links.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
@@ -37,7 +37,7 @@ import { transportOf, providerActivityList, routeText, tripsText } from './trans
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 import { closedJobsPerMonth, unitAmountText, costPlaceLabel } from '../../result-text.js';
 import { render as renderCharge } from './modality.js';
-import { COMPANY_LABELS, saveAsCompanyAction } from '../../company-defaults.js';
+import { saveAsCompanyAction, fuelPriceLabel, fuelPriceVatHint } from '../../company-defaults.js';
 
 /**
  * Texto que va EN LUGAR del campo "Consumo en ruta" de un equipo que llega por
@@ -718,7 +718,9 @@ export function render(container, ctx) {
     if (fuelConfirm) fuelConfirm.hidden = true;
   };
   const fuelPriceField = kit.num('fuel.pricePerLiter', {
-    label: COMPANY_LABELS.fuelPricePerLiter,
+    // C-5 (revisión de la 0.24.0): "con IVA" para monotributo y exento (fuelPriceLabel).
+    label: fuelPriceLabel(ctx.settings),
+    hint: vatIsCost(ctx.settings) ? fuelPriceVatHint(ctx.settings) : null,
     rule: 'money',
     unit: '$/L',
     illustrative: fuelMarked,

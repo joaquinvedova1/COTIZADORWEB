@@ -262,7 +262,7 @@ export function render(container, ctx) {
     formGrid(
       2,
       kit.num('pricing.targetMarginPct', {
-        label: 'Margen que querés ganar (sobre el precio)',
+        label: COMPANY_LABELS.targetMarginPct,
         rule: 'margin',
         unit: '%',
         requiredMark: true,

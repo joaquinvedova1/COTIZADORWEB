@@ -33,7 +33,7 @@ import { billingTaxConfigInfo } from '../../engines/billing-taxes-engine.js';
 import { setPath, isPlainObject } from '../../core/object.js';
 import { isExampleQuote } from './quotes-list.js';
 import { companyAllowsVatFinance, companyVatDefaults } from '../../domain/vat-finance.js';
-import { COMPANY_LABELS } from '../company-defaults.js';
+import { COMPANY_LABELS, fuelPriceLabel, fuelPriceVatHint } from '../company-defaults.js';
 
 const MAX_MATRIX_DAYS = 12;
 
@@ -665,7 +665,7 @@ export async function render(root, app, params = {}) {
         h('h3', { class: 'params-group-title', id: 'params-costs' }, 'Costos y cobro'),
         formGrid(
           2,
-          num('fuelPricePerLiter', COMPANY_LABELS.fuelPricePerLiter, 'money', '$/L', 'Se usa en equipos, vehículos y logística; en cada cotización se cambia en "Movilización y viajes". Si el surtidor te da el precio con IVA, descontalo.'),
+          num('fuelPricePerLiter', fuelPriceLabel(settings), 'money', '$/L', `Se usa en equipos, vehículos y logística; en cada cotización se cambia en "Movilización y viajes". ${fuelPriceVatHint(settings)}`),
           num('defaultPaymentTermDays', COMPANY_LABELS.paymentTermDays, 'paymentDays', 'días', '¿A cuántos días te paga el cliente normalmente?'),
           num('financeMonthlyRatePct', COMPANY_LABELS.monthlyRatePct, 'percent', '%', 'Lo que te cuesta la plata que adelantás hasta cobrar (capital de trabajo).'),
           num('defaultContingencyPct', COMPANY_LABELS.contingencyPct, 'percent', '%', 'Colchón sobre el costo para lo que no se puede prever.'),
@@ -677,7 +677,7 @@ export async function render(root, app, params = {}) {
         h('h3', { class: 'params-group-title', id: 'params-price' }, 'Precio y resultado'),
         formGrid(
           2,
-          num('defaultTargetMarginPct', 'Margen objetivo', 'margin', '%', 'Sobre el precio de venta (no es markup).'),
+          num('defaultTargetMarginPct', COMPANY_LABELS.targetMarginPct, 'margin', '%', 'Sobre el precio de venta (no es markup).'),
           num('roundingStep', COMPANY_LABELS.roundingStep, 'money', '$', 'Las tarifas sugeridas se redondean hacia arriba a este múltiplo. 0 = sin redondeo.'),
           matrixField.el,
           ladderField.el,

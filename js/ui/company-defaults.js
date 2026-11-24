@@ -15,8 +15,10 @@ import { h } from './dom.js';
 import { button, card, confirmDialog, formGrid, numberField, selectField } from './components.js';
 import { formatNumber } from '../core/format.js';
 import { isFiniteNumber } from '../core/money.js';
-import { VAT_CONDITIONS } from '../domain/catalogs.js';
+import { VAT_CONDITIONS, vatIsCost } from '../domain/catalogs.js';
 import { defaultSettings } from '../domain/quote-factory.js';
+import { isValidVatRatePct, isValidPayLagDays } from '../domain/vat-finance.js';
+import { onSessionReset, sessionOwner } from './session-memory.js';
 import { userErrorMessage } from './layout.js';
 
 /** Rótulos iguales en los dos lados (P-19). */
@@ -25,10 +27,26 @@ export const COMPANY_LABELS = Object.freeze({
   paymentTermDays: 'Plazo de cobro',
   monthlyRatePct: 'Tasa de financiamiento mensual',
   contingencyPct: 'Imprevistos (contingencia)',
-  targetMarginPct: 'Margen objetivo',
+  // C9 (revisión de la 0.24.0): el mismo texto que el campo de "El precio".
+  targetMarginPct: 'Margen que querés ganar (sobre el precio)',
   roundingStep: 'Redondeo',
   vatCondition: 'Tu condición frente al IVA',
 });
+
+/**
+ * Rótulo y ayuda del precio del combustible según la condición frente al IVA (revisión de la
+ * 0.24.0, C-5): como monotributista o exento el IVA del gasoil es costo, así que se carga con IVA
+ * (como en materiales). El motor no le suma IVA al combustible.
+ */
+export function fuelPriceLabel(settings) {
+  return vatIsCost(settings) ? 'Precio del combustible (con IVA)' : COMPANY_LABELS.fuelPricePerLiter;
+}
+
+export function fuelPriceVatHint(settings) {
+  return vatIsCost(settings)
+    ? 'Como monotributista o exento, el IVA del combustible es costo: cargá el precio con IVA.'
+    : 'Si el surtidor te da el precio con IVA, descontalo.';
+}
 
 /** ¿La Configuración todavía es la de ejemplo? */
 export function companyIsExample(settings) {
@@ -46,7 +64,9 @@ export const COMPANY_SETUP_FIELDS = Object.freeze([
 
 /**
  * Lo que guarda "Guardar" de la tarjeta (función pura): los cinco números y la condición frente
- * al IVA, con illustrative: false. Null si falta o no vale un número.
+ * al IVA, con illustrative: false. Null si falta o no vale un número. Con responsable inscripto
+ * (C7 de la revisión de la 0.24.0) también el IVA que facturás y los días hasta pagarlo, que van a
+ * `defaultVat`: con los dos, la cotización nueva ya no pregunta el IVA.
  */
 export function companySetupPatch(values = {}) {
   const patch = {};
@@ -57,7 +77,26 @@ export function companySetupPatch(values = {}) {
     patch[f.key] = v;
   }
   const condition = VAT_CONDITIONS.some((c) => c.id === values.vatCondition) ? values.vatCondition : null;
+  if (condition === 'registered') {
+    if (!isValidVatRatePct(values.vatRatePct) || !isValidPayLagDays(values.vatPayLagDays)) return null;
+    patch.defaultVat = { ratePct: values.vatRatePct, payLagDays: values.vatPayLagDays };
+  }
   return { ...patch, vatCondition: condition, illustrative: false };
+}
+
+/** Campos del IVA de la tarjeta, sólo con responsable inscripto (C7). Sin valores precargados. */
+export const COMPANY_VAT_FIELDS = Object.freeze([
+  { key: 'vatRatePct', label: 'IVA que facturás (%)', rule: 'vatRate', unit: '%', hint: 'El que le cobrás a tus clientes. Te lo dice tu contador.' },
+  { key: 'vatPayLagDays', label: '¿A cuántos días pagás el IVA?', rule: 'paymentDays', unit: 'días', hint: 'Entre que facturás y pagás el IVA. Si facturás a fin de mes y vence el 20, son 20.' },
+]);
+
+// "Ahora no" se recuerda en la sesión (C8): la tarjeta no vuelve en cada visita a Inicio o a Nuevo.
+const dismissedBy = new Set();
+onSessionReset(() => dismissedBy.clear());
+
+/** ¿La persona tocó "Ahora no" en esta sesión? */
+export function companySetupDismissed(ctx) {
+  return dismissedBy.has(sessionOwner(ctx));
 }
 
 /**
@@ -66,10 +105,11 @@ export function companySetupPatch(values = {}) {
  */
 export function companySetupCard({ app, settings, readOnly = false, onSaved = null, level = 2 } = {}) {
   if (!companyIsExample(settings) || readOnly || !app || !app.ctx || !app.ctx.settings) return null;
+  if (companySetupDismissed(app.ctx)) return null;
   const example = defaultSettings();
   const values = { vatCondition: null };
   const error = h('p', { class: 'field-error company-setup-error', role: 'alert', hidden: true });
-  const fields = COMPANY_SETUP_FIELDS.map((f) => numberField({
+  const numField = (f) => numberField({
     label: f.label,
     name: `company.${f.key}`,
     value: null,
@@ -79,7 +119,14 @@ export function companySetupCard({ app, settings, readOnly = false, onSaved = nu
     required: true,
     placeholder: isFiniteNumber(example[f.key]) ? `Ej.: ${formatNumber(example[f.key])}` : '',
     onChange: (v) => { values[f.key] = v; error.hidden = true; },
-  }));
+  });
+  const fields = COMPANY_SETUP_FIELDS.map(numField);
+  // C-5: el rótulo del combustible sigue a la condición elegida acá ("con IVA" en monotributo y exento).
+  const fuelField = fields[COMPANY_SETUP_FIELDS.findIndex((f) => f.key === 'fuelPricePerLiter')];
+  const fuelLabel = fuelField ? fuelField.querySelector('.field-label') : null;
+  const fuelLabelText = fuelLabel ? [...fuelLabel.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim()) : null;
+  // C7: con responsable inscripto, el IVA que facturás y los días hasta pagarlo.
+  const vatFields = h('div', { class: 'company-setup-vat', hidden: true }, formGrid(2, ...COMPANY_VAT_FIELDS.map(numField)));
   const vatField = selectField({
     label: COMPANY_LABELS.vatCondition,
     name: 'company.vatCondition',
@@ -87,8 +134,13 @@ export function companySetupCard({ app, settings, readOnly = false, onSaved = nu
     includeEmpty: true,
     emptyLabel: 'Sin definir',
     options: VAT_CONDITIONS.map((c) => ({ value: c.id, label: c.label })),
-    hint: 'Si sos responsable inscripto, los externos nuevos nacen con "Sí, lo recupero".',
-    onChange: (v) => { values.vatCondition = v; },
+    hint: 'Con responsable inscripto, cargá también tu IVA: así cada cotización nueva ya lo tiene.',
+    onChange: (v) => {
+      values.vatCondition = v;
+      error.hidden = true;
+      vatFields.hidden = v !== 'registered';
+      if (fuelLabelText) fuelLabelText.textContent = fuelPriceLabel({ vatCondition: v });
+    },
   });
   let el = null;
   const save = button('Guardar', {
@@ -97,7 +149,9 @@ export function companySetupCard({ app, settings, readOnly = false, onSaved = nu
     onClick: async () => {
       const patch = companySetupPatch(values);
       if (!patch) {
-        error.textContent = 'Completá los cinco números para guardar (o tocá "Ahora no").';
+        error.textContent = values.vatCondition === 'registered'
+          ? 'Completá los cinco números, el IVA que facturás y los días hasta pagarlo (o tocá "Ahora no").'
+          : 'Completá los cinco números para guardar (o tocá "Ahora no").';
         error.hidden = false;
         return;
       }
@@ -114,7 +168,13 @@ export function companySetupCard({ app, settings, readOnly = false, onSaved = nu
       }
     },
   });
-  const later = button('Ahora no', { variant: 'secondary', onClick: () => { if (el) el.hidden = true; } });
+  const later = button('Ahora no', {
+    variant: 'secondary',
+    onClick: () => {
+      dismissedBy.add(sessionOwner(app.ctx));
+      if (el) el.hidden = true;
+    },
+  });
   el = card(
     {
       title: 'Datos de tu empresa',
@@ -123,6 +183,7 @@ export function companySetupCard({ app, settings, readOnly = false, onSaved = nu
       level,
     },
     formGrid(2, ...fields, vatField),
+    vatFields,
     error,
     h('div', { class: 'company-setup-actions' }, save, later),
     h('p', { class: 'small muted' }, 'Las cotizaciones que ya tenés no cambian. El resto de los valores está en ', h('a', { href: '#/configuracion/parametros' }, 'Configuración → Parámetros económicos'), '.'),

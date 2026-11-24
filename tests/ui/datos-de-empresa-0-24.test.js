@@ -14,8 +14,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { COMPANY_LABELS, COMPANY_SETUP_FIELDS, companySetupPatch, companyIsExample } from '../../js/ui/company-defaults.js';
-import { undefinedVatRecoveryRows, recoverAllVatConfirm } from '../../js/ui/views/quote-editor.js';
+import { COMPANY_LABELS, COMPANY_SETUP_FIELDS, COMPANY_VAT_FIELDS, companySetupPatch, companyIsExample, fuelPriceLabel, fuelPriceVatHint, companySetupDismissed } from '../../js/ui/company-defaults.js';
+import { undefinedVatRecoveryRows, recoverAllVatConfirm, companyValuesDiff, applyCompanyValues } from '../../js/ui/views/quote-editor.js';
 import { resetIds, service, external } from '../lab/lib/build.js';
 import { defaultSettings, createEmptyQuote } from '../../js/domain/quote-factory.js';
 
@@ -38,10 +38,45 @@ describe('"Datos de tu empresa" (W-10)', () => {
   });
 
   test('"Guardar" guarda los cinco números con illustrative: false; con uno vacío no guarda', () => {
-    const values = { fuelPricePerLiter: 1850, defaultPaymentTermDays: 45, financeMonthlyRatePct: 4, defaultContingencyPct: 3, defaultTargetMarginPct: 15, vatCondition: 'registered' };
+    const values = { fuelPricePerLiter: 1850, defaultPaymentTermDays: 45, financeMonthlyRatePct: 4, defaultContingencyPct: 3, defaultTargetMarginPct: 15, vatCondition: 'monotributo' };
     assert.deepEqual(companySetupPatch(values), { ...values, illustrative: false });
     assert.equal(companySetupPatch({ ...values, defaultContingencyPct: null }), null);
     assert.equal(companySetupPatch({ ...values, vatCondition: 'otra' }).vatCondition, null);
+  });
+
+  test('C7: con responsable inscripto también guarda el IVA y los días en defaultVat; sin ellos no guarda', () => {
+    const base = { fuelPricePerLiter: 1850, defaultPaymentTermDays: 45, financeMonthlyRatePct: 4, defaultContingencyPct: 3, defaultTargetMarginPct: 15, vatCondition: 'registered' };
+    assert.equal(companySetupPatch(base), null);
+    const patch = companySetupPatch({ ...base, vatRatePct: 21, vatPayLagDays: 20 });
+    assert.deepEqual(patch.defaultVat, { ratePct: 21, payLagDays: 20 });
+    assert.equal(patch.vatCondition, 'registered');
+    assert.equal(patch.vatRatePct, undefined);
+    // La cotización nueva nace con el IVA de la empresa (no pregunta).
+    const q = createEmptyQuote({ organizationId: 'org', settings: { ...defaultSettings('org'), ...patch }, id: 'q-c7', now: '2026-11-20T00:00:00.000Z' });
+    assert.deepEqual(q.finance.vat, { applies: true, ratePct: 21, payLagDays: 20 });
+    assert.deepEqual(COMPANY_VAT_FIELDS.map((f) => f.key), ['vatRatePct', 'vatPayLagDays']);
+  });
+
+  test('C9: "Margen que querés ganar (sobre el precio)" en la tarjeta, en Configuración y en "El precio"', () => {
+    assert.equal(COMPANY_LABELS.targetMarginPct, 'Margen que querés ganar (sobre el precio)');
+    assert.match(code('js/ui/views/quote-steps/margin.js'), /label: COMPANY_LABELS\.targetMarginPct/);
+    assert.match(code('js/ui/views/settings.js'), /num\('defaultTargetMarginPct', COMPANY_LABELS\.targetMarginPct/);
+  });
+
+  test('C-5: el combustible "con IVA" para monotributo y exento', () => {
+    assert.equal(fuelPriceLabel({ vatCondition: 'monotributo' }), 'Precio del combustible (con IVA)');
+    assert.equal(fuelPriceLabel({ vatCondition: 'exempt' }), 'Precio del combustible (con IVA)');
+    assert.equal(fuelPriceLabel({ vatCondition: 'registered' }), 'Precio del combustible (sin IVA)');
+    assert.equal(fuelPriceLabel(null), 'Precio del combustible (sin IVA)');
+    assert.match(fuelPriceVatHint({ vatCondition: 'monotributo' }), /cargá el precio con IVA/);
+    assert.match(fuelPriceVatHint({ vatCondition: 'registered' }), /descontalo/);
+  });
+
+  test('C8: "Ahora no" se recuerda en la sesión; en "Nuevo servicio" la tarjeta va después de las opciones', () => {
+    assert.equal(companySetupDismissed({ mode: 'demo-x' }), false);
+    assert.match(code('js/ui/company-defaults.js'), /dismissedBy\.add\(sessionOwner\(app\.ctx\)\)/);
+    const list = code('js/ui/views/quotes-list.js');
+    assert.ok(list.indexOf("h('div', { class: 'quote-choice-grid' }, blank, ...first)") < list.indexOf('      companyCard,'));
   });
 
   test('la cotización siguiente nace con esos valores y sin marca de ejemplo', () => {
@@ -69,8 +104,26 @@ describe('"Datos de tu empresa" (W-10)', () => {
   test('"Son los valores de mi empresa" quita la marca del combustible y la tasa (el número no cambia)', () => {
     const editor = code('js/ui/views/quote-editor.js');
     assert.match(editor, /'Son los valores de mi empresa'/);
-    assert.match(editor, /if \(isPlainObject\(q\.fuel\)\) q\.fuel\.illustrative = false;/);
-    assert.match(editor, /if \(isPlainObject\(q\.finance\)\) q\.finance\.illustrative = false;/);
+    assert.match(editor, /if \(isPlainObject\(qq\.fuel\)\) qq\.fuel\.illustrative = false;/);
+    assert.match(editor, /if \(isPlainObject\(qq\.finance\)\) qq\.finance\.illustrative = false;/);
+  });
+
+  test('C-4: el aviso muestra los dos valores; si difieren, "Usar los de mi empresa" y "Dejar estos"', () => {
+    const info = { fuel: true, finance: true };
+    const q = { fuel: { pricePerLiter: 1500, illustrative: true }, finance: { monthlyRatePct: 4, illustrative: true } };
+    const differ = companyValuesDiff(q, { fuelPricePerLiter: 1300, financeMonthlyRatePct: 3 }, info);
+    assert.equal(differ.same, false);
+    assert.match(differ.quoteText, /1\.500\/L · 4 %/);
+    assert.match(differ.companyText, /1\.300\/L · 3 %/);
+    assert.equal(companyValuesDiff(q, { fuelPricePerLiter: 1500, financeMonthlyRatePct: 4 }, info).same, true);
+    const used = applyCompanyValues(structuredClone(q), { fuelPricePerLiter: 1300, financeMonthlyRatePct: 3 }, info);
+    assert.deepEqual([used.fuel.pricePerLiter, used.fuel.illustrative, used.finance.monthlyRatePct, used.finance.illustrative], [1300, false, 3, false]);
+    // Sólo la parte marcada de ejemplo.
+    const fuelOnly = applyCompanyValues(structuredClone(q), { fuelPricePerLiter: 1300, financeMonthlyRatePct: 3 }, { fuel: true, finance: false });
+    assert.equal(fuelOnly.finance.monthlyRatePct, 4);
+    const editor = code('js/ui/views/quote-editor.js');
+    assert.match(editor, /`Usar los de mi empresa \(\$\{company\.companyText\}\)`/);
+    assert.match(editor, /keep\(`Dejar estos \(\$\{company\.quoteText\}\)`\)/);
   });
 });
 
@@ -119,10 +172,12 @@ describe('IVA (P-11)', () => {
 describe('textos iguales en los dos lados (P-19)', () => {
   test('Configuración y la cotización usan los mismos rótulos', () => {
     const settings = code('js/ui/views/settings.js');
-    for (const key of ['fuelPricePerLiter', 'paymentTermDays', 'monthlyRatePct', 'contingencyPct', 'roundingStep']) {
+    for (const key of ['paymentTermDays', 'monthlyRatePct', 'contingencyPct', 'roundingStep']) {
       assert.match(settings, new RegExp(`COMPANY_LABELS\\.${key}`), key);
     }
-    assert.match(code('js/ui/views/quote-steps/logistics.js'), /label: COMPANY_LABELS\.fuelPricePerLiter/);
+    // C-5: el combustible, según la condición frente al IVA, con la misma función en los tres lados.
+    assert.match(settings, /num\('fuelPricePerLiter', fuelPriceLabel\(settings\)/);
+    assert.match(code('js/ui/views/quote-steps/logistics.js'), /label: fuelPriceLabel\(ctx\.settings\)/);
     assert.match(code('js/ui/views/quote-steps/finance.js'), /label: COMPANY_LABELS\.paymentTermDays/);
     assert.match(code('js/ui/views/quote-steps/finance.js'), /label: COMPANY_LABELS\.monthlyRatePct/);
     assert.match(code('js/ui/views/quote-steps/risk.js'), /label: COMPANY_LABELS\.contingencyPct/);
