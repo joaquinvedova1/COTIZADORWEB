@@ -24,7 +24,7 @@ import { findBreakEvenDays, findLossWindows, traceBreakEven } from './break-even
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
 import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers } from './commercial-rules-engine.js';
 import { isValidMarginPct, isValidMarginAndTaxes, suggestedRateRound, effectiveRoundingStep, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
-import { evaluateCompleteness, activationRoundingNotice, fixedCostsAbsorbedNotice, idleCapacityNotice, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
+import { evaluateCompleteness, activationRoundingNotice, fixedCostsAbsorbedNotice, capacityNotices, capacityRows, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
@@ -605,8 +605,7 @@ export function computeQuote(quoteInput = {}, { settings = {}, listRateOverride 
   const absorbed = fixedCostsAbsorbedNotice(quote, model, D);
   if (absorbed) completeness.notices.push(absorbed);
   // Horas del mes de los recursos propios que esta cotización no paga (0.23.0): sólo avisa.
-  const idle = idleCapacityNotice(quote, model, D);
-  if (idle) completeness.notices.unshift(idle);
+  completeness.notices.unshift(...capacityNotices(quote, model, D));
   // Mínimo en unidades por encima de la estimación con la sugerida (revisión de costos tanda B, B-3).
   const aboveEstimate = guaranteeAboveEstimateNotice({ ctx, D, estimate, commercialSource, targetRates, targetMarginPct, roundingStep, maxDays });
   if (aboveEstimate) completeness.notices.push(aboveEstimate);
@@ -1129,4 +1128,15 @@ function structureFollowsDirect(indirect) {
 export function summarizeQuote(quote, options = {}) {
   const r = computeQuote(quote, options);
   return { ...r.kpis, issuesCount: r.issues.length, rateUpdate: rateUpdateOf(quote, r) };
+}
+
+/**
+ * Parte del mes de cada recurso propio que paga una cotización por tiempo usado, con las MISMAS
+ * horas que usa el costo (0.23.1): la leen "Usado en" (Recursos) y la tarjeta de cada recurso, para
+ * que el aviso de la cotización y Recursos no cuenten horas distintas.
+ * @returns {{ list: string, index: number, used: number, month: number, pct: number, fullMonth: boolean, paidAmount: number, fullAmount: number, idleAmount: number }[]}
+ */
+export function quoteCapacityRows(quote = {}, { settings = {} } = {}) {
+  const r = computeQuote(quote, { settings });
+  return capacityRows(r.quote || quote, r.model, r.activity ? r.activity.activeDaysPerMonth : 0);
 }

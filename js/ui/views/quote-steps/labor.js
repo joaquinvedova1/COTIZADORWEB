@@ -24,7 +24,7 @@ import { createTrace } from '../../../core/trace.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { onSessionReset } from '../../session-memory.js';
 import { baseText } from '../../economic-base-ui.js';
-import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
+import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct, fullMonthField } from './assignment.js';
 import { billableHoursOf, serviceMonthHours, monthBaseHoursOf } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { laborHeadcountOf } from '../../../engines/labor-engine.js';
@@ -552,6 +552,8 @@ export function render(container, ctx) {
         // 0.18.0 (Joaco, 2026-11-20): un recurso asignado es ese recurso. Primero sus horas; la
         // cantidad ya viene en 1 y sólo se cambia si van varias personas con ese mismo sueldo.
         legacyStaff(line) ? null : dedicationField(i, line),
+        // 0.23.1: la decisión "sólo tiene este trabajo" va en la tarjeta de cada puesto (una por recurso, se deshace destildando).
+        timeBasis && !legacyStaff(line) ? fullMonthField(kit, { path: p, kind: 'labor', list: 'labor', index: i, quote }) : null,
         // 0.19.0 (Joaco, 2026-11-20): sin "Cantidad". Si van dos choferes, el puesto se asigna dos
         // veces. Una línea que ya tiene otra cantidad la sigue mostrando (mismos números).
         !legacyStaff(line) && singleUnit(line.positions) ? null : kit.num(`${p}.positions`, {

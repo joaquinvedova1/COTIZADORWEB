@@ -43,6 +43,7 @@ import { sanitizeText } from '../../core/validation.js';
 import { AGREEMENT_TYPES, AGREEMENT_TYPES_SORTED, ILLUSTRATIVE_AGREEMENT_PARAMS, MATERIAL_UNIT_PRESETS, MATERIAL_PROVIDERS, ACQUISITION_MODES, EXTERNAL_UNITS, EXTERNAL_TRIP_BASES, EXTERNAL_FUEL_MODES, VAT_RECOVERY, MAINTENANCE_MODES, BUDGET_PERIODS, TIRE_MODES, QUOTE_STATUSES, externalUnitShort, labelOf, vatIsCost } from '../../domain/catalogs.js';
 import { conversionFactor, currencyOfBase } from '../../engines/currency-engine.js';
 import { maintenanceOf } from '../../engines/equipment-engine.js';
+import { quoteCapacityRows } from '../../engines/quote-engine.js';
 import { wearNote } from '../equipment-wear-ui.js';
 import { EQUIPMENT_FAMILIES, familyById, familyIdOf, familyVariants, isVehicleFamily, modelLabel, suggestedMobility } from '../../domain/equipment-catalog.js';
 import { emptyBase } from '../../domain/economic-base.js';
@@ -1696,7 +1697,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
     const statusLabel = labelOf(QUOTE_STATUSES, row.status, row.status);
     const who = row.code || row.name ? `${row.code}${row.code && row.name ? ' · ' : ''}${row.name}` : 'Cotización sin nombre';
     const unitsWord = type === 'laborProfiles' ? (Math.abs(row.units - 1) < 1e-9 ? 'persona' : 'personas') : Math.abs(row.units - 1) < 1e-9 ? 'unidad' : 'unidades';
-    const detail = row.assignedPct === null
+    const detail = row.fullMonth
+      ? `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} · cobra su mes completo (marcado "sólo tiene este trabajo") = ${formatPercent(row.assignedPct)}`
+      : row.assignedPct === null
       ? (row.external ? `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} · se paga por uso (sin % de costos fijos)` : `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} · se cobra por horas (falta estimar cuánto trabajo hay por mes)`)
       : row.byHours
         ? `${formatNumber(row.units, { decimals: 2 })} ${unitsWord} × ${formatNumber(row.hoursPerMonth, { decimals: 1 })} h de ${formatNumber(row.monthHours, { decimals: 1 })} h por mes = ${formatPercent(row.assignedPct)}`
@@ -1721,15 +1724,36 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         committed.length ? h('ul', {}, ...committed.map((r) => usageRowNode(r, type))) : h('p', { class: 'small muted' }, 'Ninguna cotización ganada lo usa.'),
         h('h4', {}, `Borradores y enviadas (uso potencial): ${formatPercent(usage.potentialPct)}`),
         potential.length ? h('ul', {}, ...potential.map((r) => usageRowNode(r, type))) : h('p', { class: 'small muted' }, 'Ninguna cotización en curso lo usa.'),
+        usage.fullMonthCount > 1
+          ? h('p', { class: 'banner banner-warning' }, `${formatNumber(usage.fullMonthCount)} cotizaciones cobran su mes completo. Si son para el mismo mes y se hacen todas, el mismo ${type === 'laborProfiles' ? 'sueldo' : 'equipo'} se cobra más de una vez: dejá "sólo tiene este trabajo" en una sola.`)
+          : usage.fullMonthCount === 1 && usage.rows.length > 1
+            ? h('p', { class: 'banner banner-warning' }, `Una cotización cobra su mes completo y además figura en otras. Si se hacen el mismo mes, lo que cobran las otras se cobra dos veces: revisá cuál lo paga.`)
+            : null,
         usage.overCommitted
-          ? h('p', { class: 'banner banner-warning' }, `Lo adjudicado suma ${formatPercent(usage.committedPct)}: más del 100 %. Si es ${type === 'laborProfiles' ? 'una sola persona' : 'un solo equipo'}, está asignado de más (no se bloquea: revisalo).`)
+          ? h('p', { class: 'banner banner-warning' }, `Lo adjudicado suma ${formatPercent(usage.committedPct)}: más del 100 %. RATEOS no sabe en qué mes se hace cada trabajo: si se hacen el mismo mes y es ${type === 'laborProfiles' ? 'una sola persona' : 'un solo equipo'}, está asignado de más (no se bloquea: revisalo). Si son de meses distintos, no hay problema.`)
           : usage.overWithPotential
-            ? h('p', { class: 'small' }, `Si se adjudican las que están en curso, sumaría ${formatPercent(usage.committedPct + usage.potentialPct)}.`)
+            ? h('p', { class: 'small' }, `Si se adjudican todas las que están en curso y se hacen el mismo mes, sumaría ${formatPercent(usage.committedPct + usage.potentialPct)}. Las propuestas alternativas para un mismo trabajo no se suman en la realidad.`)
             : null,
         h('p', { class: 'small muted' }, 'Las perdidas y archivadas no cuentan.')),
       actions: [button('Cerrar', { variant: 'secondary', onClick: () => close() })],
     });
   }
+
+  /**
+   * Horas por tiempo usado con las MISMAS cuentas que el costo de la cotización (0.23.1): antes
+   * "Usado en" las rehacía con datos crudos y podía decir 17 % donde la cotización cobraba 45 %.
+   * Una vez por cotización (se guarda mientras dure la pantalla).
+   */
+  const capacityCache = new WeakMap();
+  const engineTimeShare = (q, line, kind, index) => {
+    if (!capacityCache.has(q)) {
+      let rows = [];
+      try { rows = quoteCapacityRows(q, { settings: data.settings || {} }); } catch { rows = []; }
+      capacityCache.set(q, rows);
+    }
+    const row = capacityCache.get(q).find((r) => r.list === kind && r.index === index);
+    return row && row.month > 0 ? { hoursPerMonth: row.used, monthHours: row.month, sharePct: row.pct } : null;
+  };
 
   /** Celda "Usado en": cuántas cotizaciones, % adjudicado y aviso si supera el 100 %. */
   function usageColumn(type) {
@@ -1737,13 +1761,14 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       key: 'usage',
       label: 'Usado en',
       render: ({ item }) => {
-        const usage = resourceUsage(type, item.id, data.quotes);
+        const usage = resourceUsage(type, item.id, data.quotes, { timeShare: engineTimeShare });
         if (!usage.rows.length) return h('span', { class: 'muted small' }, 'Sin cotizaciones');
         const count = `${formatNumber(usage.quotesCount)} ${usage.quotesCount === 1 ? 'cotización' : 'cotizaciones'}`;
         const withPct = usage.rows.some((r) => r.assignedPct !== null);
         return h('div', { class: 'cell-stack' },
           button(count, { variant: 'link', size: 'sm', onClick: () => openUsage(item, type, usage), attrs: { 'aria-label': `Usado en: ${count} (${item.role || item.name || 'recurso'})` } }),
           withPct ? h('span', { class: 'cell-sub nowrap' }, `Adjudicado ${formatPercent(usage.committedPct)} · en curso ${formatPercent(usage.potentialPct)}`) : null,
+          usage.fullMonthCount > 1 ? badge('Mes completo en más de una', 'orange') : null,
           usage.overCommitted ? badge('Más del 100 % adjudicado', 'orange') : null);
       },
     };

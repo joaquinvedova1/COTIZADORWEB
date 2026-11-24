@@ -1779,14 +1779,13 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
     return goButton(`Usar ${formatMoney(n.listRateWithMinimum)} como tarifa ofrecida`, () => onUseOfferedRate(n.listRateWithMinimum));
   };
   /**
-   * Horas del mes que la cotización no paga (0.23.0, elección del dueño "avisar y dejar elegir"):
-   * un toque pone, en cada recurso del aviso, las horas que esta cotización le paga como las horas
-   * que trabaja por mes. Su valor hora pasa a cubrir el mes entero. Sin cuentas acá: las horas
-   * vienen del motor (`rows[].used`).
+   * Horas del mes que la cotización no paga (0.23.1): un botón POR RECURSO de este paso. Marca la
+   * decisión "sólo tiene este trabajo" (`fullMonth`) en esa línea; el motor cobra su mes completo
+   * como costo fijo. No escribe horas ni montos. Se deshace destildando la casilla de su tarjeta.
    */
-  const fullMonthAction = (n) => {
-    if (n.id !== 'idle_capacity' || typeof onChargeFullMonth !== 'function' || !Array.isArray(n.rows) || !n.rows.length) return null;
-    return goButton(n.rows.length === 1 ? 'Sólo tiene este trabajo: cobrar su mes completo acá' : 'Sólo tienen este trabajo: cobrar su mes completo acá', () => onChargeFullMonth(n.rows));
+  const fullMonthActions = (n) => {
+    if (n.id !== 'idle_capacity' || typeof onChargeFullMonth !== 'function' || !Array.isArray(n.rows)) return [];
+    return n.rows.filter((row) => row.list === stepId).map((row) => goButton(`"${row.name}" sólo tiene este trabajo: cobrar su mes completo acá`, () => onChargeFullMonth(row)));
   };
   return {
     el,
@@ -1829,7 +1828,7 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
           'li',
           { class: ['qe-notice', n.severity === 'warning' ? 'is-orange' : 'is-info'] },
           h('span', { class: ['dot', n.severity === 'warning' ? 'dot-orange' : 'dot-blue'], 'aria-hidden': 'true' }),
-          h('span', {}, h('strong', {}, `${n.label}: `), n.message, ' ', offeredRateAction(n) || fullMonthAction(n) || actionFor(n, quote)),
+          h('span', {}, h('strong', {}, `${n.label}: `), n.message, ' ', ...(fullMonthActions(n).length ? fullMonthActions(n).flatMap((b) => [b, ' ']) : [offeredRateAction(n) || actionFor(n, quote)])),
         )),
       );
     },
@@ -2287,12 +2286,10 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       if (!isPlainObject(q.pricing)) q.pricing = {};
       q.pricing.offeredRateOverride = value;
     }, { focus: 'pricing.offeredRateOverride' }),
-    onChargeFullMonth: (rows) => mutate((q) => {
-      rows.forEach((row) => {
-        const line = Array.isArray(q[row.list]) ? q[row.list][row.index] : null;
-        if (isPlainObject(line) && row.used > 0) line.billableHoursPerMonth = Math.round(row.used * 100) / 100;
-      });
-    }),
+    onChargeFullMonth: (row) => mutate((q) => {
+      const line = Array.isArray(q[row.list]) ? q[row.list][row.index] : null;
+      if (isPlainObject(line)) line.fullMonth = true;
+    }, { focus: `${row.list}.${row.index}.fullMonth` }),
     hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
     stepHref,
     didactic: state.quote.illustrative === true,

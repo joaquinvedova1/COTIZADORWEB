@@ -12,6 +12,20 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-11-24
+
+**Auditoría de la 0.23.0: el mes completo de un recurso se guarda como decisión, no como horas.** Informe en project files `auditoria-0-23-0/INFORME.md` (ingeniería económica, auditor independiente con oráculo propio, prestador y QA en navegador). Sin cambio de esquema. Ninguna cotización guardada cambia sus números: la fórmula nueva sólo se usa donde alguien marca la casilla. Reglas: docs/CALCULATION_RULES.md §36.5.
+
+### Corregido
+
+- **"Sólo tiene este trabajo: cobrar su mes completo acá"** ahora es una casilla en la tarjeta de cada puesto y de cada equipo propio (y un botón por recurso en el aviso). Guarda la decisión (`fullMonth`) y el recurso se costea como dedicado: su mes entero como costo fijo. Antes el botón escribía las horas de la cotización como "horas que trabaja por mes": si después cambiaban los días, la cotización cobraba dos sueldos (de 2 a 4 días) o medio (de 2 a 1, sin aviso), y el equilibrio y el margen por día dejaban de ser ciertos. Se deshace destildando.
+- El botón era uno solo para todos los recursos del aviso (técnico y grúa juntos): ahora se elige recurso por recurso.
+- El aviso "Más horas que las del mes del recurso" ya no tapa al de "Horas del mes que esta cotización no paga", y su texto no manda a "sumar otro recurso igual" cuando el problema son horas del mes mal cargadas.
+- Puestos con relevos (más personas que puestos): el mes del puesto es el de todas sus personas (sin exceso falso) y lo que queda sin cobrar cuenta todas las nóminas.
+- **Recursos › Usado en** cuenta las mismas horas que cobra la cotización (antes podía decir 17 % donde el costo cobraba 45 %), muestra "cobra su mes completo" y avisa si más de una cotización cobra el mes completo del mismo recurso. Los avisos de más del 100 % aclaran que RATEOS no sabe en qué mes se hace cada trabajo ni qué propuestas son alternativas.
+- "Actualizar en esta cotización" desde Recursos conserva la decisión de mes completo.
+- Traslados: la ayuda del desgaste por km ya no pide cargar la amortización si el vehículo también está en Equipos (se contaba dos veces).
+
 ## [0.23.0] - 2026-11-23
 
 **Horas del mes que la cotización no paga.** Sale de la evaluación contra la ruta y de la simulación E-01 de la beta (hidrogrúa y operador cobrando por día: el costo por día era igual con 20 o con 2 días de trabajo y no se avisaba). Sin cambio de fórmulas ni de esquema: ninguna cotización cambia sus números.

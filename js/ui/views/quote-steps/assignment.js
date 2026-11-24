@@ -14,6 +14,7 @@ import { LABOR_ASSIGNMENTS, EQUIPMENT_ASSIGNMENTS } from '../../../domain/assign
 import { formatMoney, formatNumber, formatPercent } from '../../../core/format.js';
 import { roundRate } from '../../../core/money.js';
 import { h } from '../../dom.js';
+import { capacityRows } from '../../../engines/completeness-engine.js';
 
 export const ASSIGNMENT_HELP = 'Compartida / compartido: el recurso también trabaja para otros servicios o contratos y esta cotización carga sólo un % de sus costos fijos. Esto no depende de cuántos días trabaje: un equipo on-call puede trabajar 15 días y aun así quedar reservado 100 % para este contrato. El uso real mueve sólo los costos variables.';
 
@@ -224,4 +225,30 @@ export function monthHoursField(kit, ctx, { path, baseHours, kind, serviceHours 
     notes.push(rest);
   }
   return h('div', { class: 'qe-month-hours' }, field, ...notes);
+}
+
+/**
+ * "Sólo tiene este trabajo: cobrar su mes completo acá" (0.23.1, CALCULATION_RULES §36.5), en la
+ * tarjeta de cada recurso propio de una cotización por tiempo usado. Guarda la DECISIÓN
+ * (`fullMonth`), no un número: el motor cobra su mes entero como costo fijo aunque cambien los
+ * días. Se deshace destildando. Abajo dice, con las cifras del motor, qué paga hoy la cotización.
+ */
+export function fullMonthField(kit, { path, kind, list, index, quote }) {
+  const hours = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 0.05 ? 0 : 1 });
+  const rowOf = (r) => (r && r.model && r.activity ? capacityRows(quote, r.model, r.activity.activeDaysPerMonth).find((x) => x.list === list && x.index === index) : null);
+  const field = kit.check(`${path}.fullMonth`, {
+    structural: true,
+    label: 'Sólo tiene este trabajo: cobrar su mes completo acá',
+    hint: kind === 'labor'
+      ? 'Sin marcar, esta cotización paga sólo sus horas en el trabajo y el resto de su mes lo pagan tus otros trabajos. Marcado, paga su sueldo del mes entero, haga las horas que haga. Marcalo en una sola cotización por persona.'
+      : 'Sin marcar, esta cotización paga tenerlo sólo por las horas del trabajo y el resto del mes lo pagan tus otros trabajos. Marcado, paga tenerlo el mes entero (amortización, seguro, patente), se use lo que se use. Marcalo en una sola cotización por equipo.',
+  });
+  const note = kit.out((r) => {
+    const row = rowOf(r);
+    if (!row) return kit.get(`${path}.fullMonth`) === true ? 'Esta cotización cobra su mes completo.' : '';
+    if (row.fullMonth) return `Esta cotización cobra su mes completo: ${formatMoney(row.fullAmount)} por mes, aunque trabaje ${hours(row.used)} h. Si tiene otros trabajos, desmarcalo.`;
+    return `Hoy esta cotización paga ${hours(row.used)} de sus ${hours(row.month)} h del mes: ${formatMoney(row.paidAmount)} de ${formatMoney(row.fullAmount)}.`;
+  }, { tag: 'p', className: 'qe-note qe-full-month-note', allowEmpty: true });
+  note.setAttribute('aria-live', 'polite');
+  return h('div', { class: 'qe-full-month' }, field, note);
 }

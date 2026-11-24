@@ -39,7 +39,7 @@ import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSy
 import { baseText } from '../../economic-base-ui.js';
 import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
 import { fieldHref } from '../../field-links.js';
-import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
+import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct, fullMonthField } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
 import { closedJobsPerMonth, quoteUnitPlace, unitAmountText, costPlaceLabel, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText, equipmentFullHourRate } from '../../result-text.js';
 import { usesTimeBasis, unitHoursConversion, showsPerUnit, unitHoursFactor, serviceMonthHours } from '../../../domain/cost-basis.js';
@@ -944,6 +944,8 @@ export function render(container, ctx) {
         timeBasis ? (assignedKey(line) === 'assignedHoursPerUnit' ? unitField() : jobHoursField()) : monthField(),
         // 0.20.0: en un vehículo por tiempo usado las horas con el motor andando van a la vista (0 = sólo viaja).
         vehicle ? (timeBasis ? hoursField() : null) : (timeBasis ? null : hoursField()),
+        // 0.23.1: la decisión "sólo tiene este trabajo" va en la tarjeta de cada equipo propio.
+        timeBasis ? fullMonthField(kit, { path: p, kind: 'equipment', list: 'equipment', index: i, quote }) : null,
         // Sin "Cantidad" (Joaco, 2026-11-20): si hay otro equipo igual, se agrega otra vez. Una línea con otra cantidad la sigue mostrando.
         line.quantity !== null && line.quantity !== undefined && line.quantity !== '' && Math.abs(Number(line.quantity) - 1) < 1e-9 ? null : kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true, hint: 'Cargada antes. Para sumar otro equipo igual, agregalo otra vez.' }),
         operatorField(i),

@@ -2209,6 +2209,30 @@ sin cobrar acá  = (horas del mes − horas pagadas) × valor hora × personas o
 - "Usado en" (Recursos): la parte del mes de cada cotización por tiempo usado es ese mismo % × personas o unidades, con los datos crudos de la cotización (`timeShareOf`). Sin actividad estimada no hay %.
 - No aplica cobrando por mes ni con el método anterior (ahí rige el % asignado).
 
+### 36.5 Mes completo en esta cotización (0.23.1, auditoría de la 0.23.0)
+
+La decisión "este recurso sólo tiene este trabajo" se guarda por recurso (`fullMonth: true` en la línea de personal o de equipo propio), no como un número de horas. Sólo aplica por tiempo usado; cobrando por mes o con el método anterior no hace nada. Sin el dato, todo calcula como antes.
+
+```
+personal con mes completo  = costo del mes por persona × personas (con relevos)     → costo FIJO del mes
+equipo con mes completo    = tenerlo en el mes (amortización, seguro, capital…) × unidades → costo FIJO del mes
+uso (mantenimiento y combustible por hora, viandas, horas extra por día)           → sigue por día, como siempre
+```
+
+Es el mismo cálculo que el método de siempre con el recurso dedicado al 100 % (§13, §29). Por qué no un número: el botón de la 0.23.0 escribía en "horas que trabaja por mes" las horas de la cotización (16 h), y el sueldo pasaba a ser costo por día. Caso: técnico de $ 3.200.000 y 160 h, 2 días de 8 h.
+
+| | 0.23.0 (16 h escritas) | 0.23.1 (`fullMonth`) |
+|---|---|---|
+| 2 días | $ 3.200.000, equilibrio 0 días | $ 3.200.000 fijo, equilibrio con sentido |
+| después se cambia a 4 días | $ 6.400.000 (dos sueldos) | $ 3.200.000 |
+| después se cambia a 1 día | $ 1.600.000 (medio sueldo), sin aviso | $ 3.200.000 |
+
+- `idle_capacity` no incluye a un recurso con mes completo; `over_capacity` sí, si el trabajo le pide más horas que las de su mes. Los dos avisos se devuelven juntos (antes el de exceso tapaba al otro).
+- Relevos: un puesto con más personas que puestos tiene el mes de todas (`horas del mes × personas ÷ puestos`) y "sin cobrar acá" = costo del mes de todas las personas − lo que paga la cotización.
+- Estructura por empleado: las personas con mes completo cuentan enteras (fijo); el resto, por sus horas.
+- "Usado en": una línea con mes completo suma 100 % × personas o unidades. Las horas de las demás salen del motor (`quoteCapacityRows`), las mismas que cobra la cotización. Más de una cotización con el mes completo del mismo recurso se avisa.
+- Las líneas que quedaron con horas escritas por el botón de la 0.23.0 no se tocan (no se pueden distinguir de un dato cargado a mano): si las horas del mes quedan por debajo de las del trabajo, `over_capacity` lo dice.
+
 ## 37. Una sola lista "Insumos y materiales" (0.22.0, PLAN-2026-027)
 
 **Sin cambio de fórmula.** Lo que cambia es dónde y cómo se carga; ningún total de una cotización guardada cambia (verificado con `computeQuote` antes y después en la demo, `tests/fixtures`, las plantillas y los escenarios del Test Lab: total, EECC con sus hijos, pesos de Actualizar tarifa y estado de completitud).
