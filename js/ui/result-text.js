@@ -992,9 +992,14 @@ export function longClosedJobNote(r) {
 
 // ------------------------------------------------- por tiempo usado (2026-11-18)
 
-/** Campo de las horas facturables de un puesto (M7): igual en Recursos, en la cotización y en el aviso. */
-export const BILLABLE_HOURS_LABEL = 'Horas que le cobrás a clientes por mes (opcional)';
-export const BILLABLE_HOURS_HINT = 'Las horas que de verdad trabaja para clientes en un mes. Ejemplo: de 176 h normales, 140. Con esto se calcula la hora para cotizar trabajos: las horas sin cliente (esperas, taller, días flojos) quedan cubiertas en cada hora. Vacío = las horas normales. Si son más que las normales, esas horas son extra: no las cargues acá.';
+/**
+ * Campo de las horas facturables de un puesto o de un equipo (M7; 0.25.0, P-08): el mismo texto en
+ * Recursos, en la cotización y en el aviso, para personas y equipos.
+ */
+export const BILLABLE_HOURS_LABEL = '¿Cuántas horas por mes trabaja para clientes, entre todos tus trabajos?';
+export const BILLABLE_HOURS_HINT = 'Opcional. Las horas que de verdad trabaja para clientes en un mes. Ejemplo: de 176 h normales, 140. Con esto se calcula la hora para cotizar trabajos: las horas sin cliente (esperas, taller, días flojos) quedan cubiertas en cada hora. Vacío = las horas normales. Si son más que las normales, esas horas son extra: no las cargues acá.';
+/** Ayuda del mismo campo en un equipo (0.25.0): no es un costo más, es con cuántas horas se reparte su mes. */
+export const EQUIPMENT_BILLABLE_HOURS_HINT = 'No es un costo más ni cambia los datos del equipo: es con cuántas horas se reparte su costo del mes. Valor hora = costo del mes (amortización, seguro, patente…) ÷ estas horas. Si trabaja menos horas por mes, cada hora cuesta más.';
 /** Aviso (M7): cargaron más horas facturables que las normales. */
 export const BILLABLE_OVER_NORMAL_NOTE = 'Cargaste más horas que las normales: la hora para cotizar queda más barata que la normal. Las horas de más son horas extra.';
 

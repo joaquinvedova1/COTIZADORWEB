@@ -145,18 +145,32 @@ export function computeOperation(eq = {}, { fuelPricePerLiter = 0, fuelPaidByUs 
   };
 }
 
+/** Horas por mes que el equipo trabaja para clientes, si la ficha las tiene (0.25.0); si no, null. */
+export function ownBillableHoursOf(eq = {}) {
+  const v = Number(eq && eq.billableHoursPerMonth);
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
 /**
  * Ficha completa de un equipo de biblioteca a su utilización esperada:
  * $/hora, $/día y $/mes.
+ *
+ * 0.25.0 (PLAN-2026-029, PR 6, P-08/P-09): si el equipo trae `billableHoursPerMonth` (horas por mes
+ * que trabaja para clientes, entre todos tus trabajos), ésas son las horas usadas; los días usados
+ * salen de las horas por día del equipo (disponibles ÷ días), si las tiene. Sin el campo, igual que
+ * siempre: horas disponibles × utilización. Sólo la usa la ficha de Recursos (no entra en computeQuote).
  */
 export function computeEquipmentUnit(eq = {}, { fuelPricePerLiter = 0, fuelPaidByUs = true } = {}) {
   const ownership = computeOwnership(eq);
   const operation = computeOperation(eq, { fuelPricePerLiter, fuelPaidByUs });
   const availableHours = nonNegative(eq.availableHoursPerMonth);
   const availableDays = nonNegative(eq.availableDaysPerMonth);
-  const utilizationPct = Math.min(nonNegative(eq.utilizationPct), 100);
-  const usedHours = availableHours * pct(utilizationPct);
-  const usedDays = availableDays * pct(utilizationPct);
+  const own = ownBillableHoursOf(eq);
+  const utilizationPct = own === null
+    ? Math.min(nonNegative(eq.utilizationPct), 100)
+    : availableHours > 0 ? Math.min((own / availableHours) * 100, 100) : 100;
+  const usedHours = own === null ? availableHours * pct(utilizationPct) : own;
+  const usedDays = own === null ? availableDays * pct(utilizationPct) : availableHours > 0 ? availableDays * (own / availableHours) : 0;
   const operationMonthly = operation.totalPerHour * usedHours;
   const costPerMonth = ownership.totalMonthly + operationMonthly;
   return {
@@ -169,6 +183,8 @@ export function computeEquipmentUnit(eq = {}, { fuelPricePerLiter = 0, fuelPaidB
       usedHoursPerMonth: usedHours,
       usedDaysPerMonth: usedDays,
       hoursPerDay: safeDivide(availableHours, availableDays, 0),
+      // Sólo con el campo nuevo (sin él, la ficha tiene las mismas claves de siempre).
+      ...(own === null ? {} : { ownBillableHours: true, billableHoursPerMonth: own }),
     },
     rates: {
       costPerMonth,

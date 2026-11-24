@@ -234,8 +234,8 @@ describe('Revisión UX (2026-11-18): textos por tiempo usado', () => {
     assert.equal(norm(timeStaffHoursText(r, l)), norm(`2 personas × 8 h por día × ${formatMoney(l.time.hourlyCost)} la hora`));
   });
 
-  test('M7: el rótulo de las horas facturables', () => {
-    assert.equal(BILLABLE_HOURS_LABEL, 'Horas que le cobrás a clientes por mes (opcional)');
+  test('M7: el rótulo de las horas facturables (0.25.0, P-08: el mismo para personas y equipos)', () => {
+    assert.equal(BILLABLE_HOURS_LABEL, '¿Cuántas horas por mes trabaja para clientes, entre todos tus trabajos?');
   });
 
   test('cotización guardada: los textos nuevos no dicen nada', () => {

@@ -290,6 +290,9 @@ export function auditTerminology() {
   for (const hit of retiredFloorNames()) {
     findings.push(finding('UX-TERM-FLOOR', 'P1', 'P1 UX', 'Texto que dice "piso"', `${hit.file}: ${hit.text} — desde 0.24.0 es "Precio mínimo" o "tarifa mínima" (no ganás ni perdés), y "por debajo de la mínima" en vez de "bajo piso" (o agregarlo a FLOOR_NAMES_ALLOWED con su motivo).`, hit));
   }
+  for (const hit of retiredHoursLabels()) {
+    findings.push(finding('UX-TERM-HOURS', 'P1', 'P1 UX', 'Rótulo retirado de las horas del recurso', `${hit.file}: ${hit.text} — desde 0.25.0 personas y equipos preguntan una sola cosa: "¿Cuántas horas por mes trabaja para clientes, entre todos tus trabajos?" (BILLABLE_HOURS_LABEL; o agregarlo a HOURS_LABELS_ALLOWED con su motivo).`, hit));
+  }
   for (const hit of jornadaWords()) {
     findings.push(finding('UX-TERM-JORNADA', 'P1', 'P1 UX', 'Texto que habla de "jornada" sin un dato de jornada diaria', `${hit.file}: ${hit.text} — el control de horas del personal es de cobertura mensual: "horas de cobertura" / "horas cargadas para este puesto".`, hit));
   }
@@ -411,6 +414,32 @@ export function retiredFloorNames() {
       hits.push({ file: rel, text: lit.slice(0, 140) });
     }
   }
+  return hits;
+}
+
+/**
+ * Rótulos retirados de las horas del recurso (UX-TERM-HOURS, 0.25.0, P-08/P-09): la ficha de equipos
+ * pedía "Horas disponibles por mes", "Días disponibles por mes" y "¿Qué parte de ese tiempo…?".
+ * Se busca el rótulo de campo (`label: '…'`) en js/ui.
+ */
+const RETIRED_HOURS_LABEL = /label:\s*'(Horas disponibles por mes|Días disponibles por mes|¿Qué parte de ese tiempo[^']*)'/g;
+export const HOURS_LABELS_ALLOWED = Object.freeze({});
+
+export function retiredHoursLabels() {
+  const hits = [];
+  const root = new URL('../../../js/ui/', import.meta.url);
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).forEach((d) => {
+    const url = new URL(`${d.name}${d.isDirectory() ? '/' : ''}`, dir);
+    if (d.isDirectory()) return walk(url);
+    if (!d.name.endsWith('.js')) return undefined;
+    const rel = `ui/${url.pathname.slice(root.pathname.length)}`;
+    const allowed = HOURS_LABELS_ALLOWED[rel] || [];
+    for (const m of readFileSync(url, 'utf8').matchAll(RETIRED_HOURS_LABEL)) {
+      if (!allowed.includes(m[1])) hits.push({ file: rel, text: m[0].slice(0, 140) });
+    }
+    return undefined;
+  });
+  walk(root);
   return hits;
 }
 

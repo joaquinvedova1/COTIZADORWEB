@@ -50,7 +50,7 @@ import { emptyBase } from '../../domain/economic-base.js';
 import { createExternalTerms, createEquipmentMobility, acquisitionOf } from '../../domain/quote-factory.js';
 import { externalFiscal } from '../../engines/external-engine.js';
 import { baseTag, baseFormFields } from '../economic-base-ui.js';
-import { BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT, BILLABLE_OVER_NORMAL_NOTE } from '../result-text.js';
+import { BILLABLE_HOURS_LABEL, BILLABLE_HOURS_HINT, BILLABLE_OVER_NORMAL_NOTE, EQUIPMENT_BILLABLE_HOURS_HINT } from '../result-text.js';
 import { CURRENCY } from '../../config.js';
 import { laborLoadFactor } from '../../engines/labor-engine.js';
 import { computeMaterialLine } from '../../engines/materials-engine.js';
@@ -274,7 +274,7 @@ function equipmentTrace(eq, c) {
     id: 'equipment_card',
     title: `Costo de equipo — ${eq.name || 'equipo'}`,
     formula:
-      'Posesión/mes = amortización + seguro + patente + certificaciones + otros + mantenimiento fijo (presupuesto) + costo de capital · Operación/h = mantenimiento/h + neumáticos/h + litros/h × precio combustible (service = costo / horas entre services; juego = costo / vida útil en horas) · $/mes = posesión + operación/h × horas usadas · $/hora = $/mes / horas usadas · $/día = $/mes / días usados',
+      'Por tenerlo/mes = amortización + seguro + patente + certificaciones + otros + mantenimiento fijo (presupuesto) + costo de capital · Por usarlo/h = mantenimiento/h + neumáticos/h + litros/h × precio combustible (service = costo / horas entre services; juego = costo / vida útil en horas) · $/mes = por tenerlo + por usarlo/h × horas por mes · $/hora = $/mes / horas por mes',
     inputs: [
       { label: 'Valor de reposición', value: o.replacement, format: 'money' },
       { label: 'Valor residual', value: o.residual, format: 'money' },
@@ -291,26 +291,28 @@ function equipmentTrace(eq, c) {
         ? { label: 'Combustible', value: 'No usa combustible', format: 'text' }
         : { label: 'Consumo de combustible', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
       op.fuelNotApplicable ? null : { label: 'Precio del combustible (de Configuración; en cada cotización se cambia en "Movilización y viajes")', value: op.fuelPricePerLiter, format: 'rate' },
-      { label: 'Horas disponibles por mes', value: cap.availableHoursPerMonth, format: 'hours' },
-      { label: 'Días disponibles por mes', value: cap.availableDaysPerMonth, format: 'number', unit: 'días' },
-      { label: 'Utilización esperada', value: cap.utilizationPct, format: 'percent' },
+      // 0.25.0 (PR 6): las horas por mes que trabaja para clientes; un equipo de antes, sus datos de antes.
+      ...(cap.ownBillableHours
+        ? [{ label: 'Horas por mes que trabaja para clientes', value: cap.billableHoursPerMonth, format: 'hours' }]
+        : [
+          { label: 'Horas del mes (cargadas antes)', value: cap.availableHoursPerMonth, format: 'hours' },
+          { label: 'Uso esperado (cargado antes)', value: cap.utilizationPct, format: 'percent' },
+        ]),
     ],
     steps: [
       { label: 'Amortización mensual', value: o.depreciationMonthly, format: 'money' },
       { label: 'Seguro + patente + certificaciones + otros + mantenimiento fijo (mensual)', value: o.cashMonthly, format: 'money' },
       { label: 'Costo de capital mensual', value: o.capitalCostMonthly, format: 'money' },
-      { label: 'COSTO DE POSESIÓN mensual', value: o.totalMonthly, format: 'money' },
-      { label: 'COSTO DE OPERACIÓN por hora', value: op.totalPerHour, format: 'rate' },
-      { label: 'Horas usadas por mes', value: cap.usedHoursPerMonth, format: 'hours' },
-      { label: 'Días usados por mes', value: cap.usedDaysPerMonth, format: 'number', unit: 'días' },
-      { label: 'Operación mensual', value: r.operationMonthly, format: 'money' },
-      { label: '$/hora usada', value: r.costPerUsedHour, format: 'rate' },
-      { label: '$/día usado', value: r.costPerUsedDay, format: 'money' },
+      { label: 'Por tenerlo, por mes', value: o.totalMonthly, format: 'money' },
+      { label: 'Por usarlo, por hora', value: op.totalPerHour, format: 'rate' },
+      { label: 'Horas por mes', value: cap.usedHoursPerMonth, format: 'hours' },
+      { label: 'Por usarlo, en el mes', value: r.operationMonthly, format: 'money' },
+      { label: '$/hora', value: r.costPerUsedHour, format: 'rate' },
     ],
-    result: { label: 'Costo mensual a la utilización configurada', value: r.costPerMonth, format: 'money' },
+    result: { label: 'Costo del mes con esas horas', value: r.costPerMonth, format: 'money' },
     notes: [
       'La amortización y el costo de capital no son salidas de caja mensuales, pero sí son costo: el equipo se desgasta y la plata invertida tiene un costo.',
-      'Con menos utilización, el costo de posesión se reparte en menos horas y sube el $/hora.',
+      'Con menos horas por mes, lo de tenerlo se reparte en menos horas y sube el $/hora.',
     ],
   });
 }
@@ -1148,17 +1150,24 @@ function equipmentSections(models = [], settings = {}) {
           ],
         },
         {
-          title: 'Disponibilidad y uso',
+          // 0.25.0 (PR 6, P-08/P-09): una sola pregunta en lugar de horas disponibles, días disponibles
+          // y utilización. Un equipo guardado con esos tres datos los conserva (sin tocarlos) y muestra
+          // como sugerido lo que daban; uno nuevo guarda además las horas disponibles = este número y
+          // 100 % de uso, para que una pestaña con una versión anterior lea lo mismo.
+          title: 'Horas de trabajo',
+          cols: 2,
           fields: [
-            { key: 'availableHoursPerMonth', label: 'Horas disponibles por mes', rule: 'hours', unit: 'h', required: true },
-            { key: 'availableDaysPerMonth', label: 'Días disponibles por mes', rule: 'daysInMonth', unit: 'días', required: true },
             {
-              key: 'utilizationPct',
-              label: '¿Qué parte de ese tiempo esperás que trabaje y facture?',
-              rule: 'utilization',
-              unit: '%',
-              required: true,
-              hint: 'Utilización esperada. Con menos uso, cada hora y cada día cuestan más.',
+              key: 'billableHoursPerMonth',
+              label: BILLABLE_HOURS_LABEL,
+              rule: 'hours',
+              unit: 'h/mes',
+              nullable: true,
+              required: legacyEquipmentHours(draft) === null,
+              placeholder: legacyEquipmentHours(draft) !== null ? `Sugerido: ${formatNumber(legacyEquipmentHours(draft), { decimals: 2 })}` : 'Ej.: 120',
+              hint: legacyEquipmentHours(draft) !== null
+                ? `${EQUIPMENT_BILLABLE_HOURS_HINT} Vacío = ${formatNumber(legacyEquipmentHours(draft), { decimals: 2 })} h, lo que daban los datos que cargaste antes (${formatNumber(toNumber(draft.availableHoursPerMonth, 0), { decimals: 2 })} h disponibles × ${formatNumber(toNumber(draft.utilizationPct, 0), { decimals: 2 })} % de uso).`
+                : EQUIPMENT_BILLABLE_HOURS_HINT,
             },
           ],
         },
@@ -1167,6 +1176,32 @@ function equipmentSections(models = [], settings = {}) {
     sections.push(mobilitySection({ vehicle }), { title: 'Marca', cols: 2, fields: [illustrativeField] });
     return sections;
   };
+}
+
+/**
+ * Horas por mes que daban los datos de antes de la 0.25.0 (disponibles × utilización), o null si el
+ * equipo no los tiene completos. Es lo mismo que usa la ficha mientras no se carguen las horas nuevas.
+ */
+export function legacyEquipmentHours(eq = {}) {
+  const hours = toNumber(eq && eq.availableHoursPerMonth, 0);
+  const util = Math.min(toNumber(eq && eq.utilizationPct, 0), 100);
+  return hours > 0 && util > 0 ? (hours * util) / 100 : null;
+}
+
+/**
+ * Al guardar un equipo propio (0.25.0): si no tenía los datos de antes completos, las horas nuevas se
+ * escriben también como horas disponibles con 100 % de uso (una pestaña anterior lee lo mismo). Un
+ * equipo que ya los tenía los conserva sin tocar. MUTA y devuelve `entity`.
+ */
+export function withEquipmentHours(entity) {
+  if (!entity || typeof entity !== 'object' || isExternalDraft(entity)) return entity;
+  const own = toNumber(entity.billableHoursPerMonth, 0);
+  if (own > 0 && legacyEquipmentHours(entity) === null) {
+    entity.availableHoursPerMonth = own;
+    entity.utilizationPct = 100;
+    if (!(toNumber(entity.availableDaysPerMonth, 0) > 0)) entity.availableDaysPerMonth = 30;
+  }
+  return entity;
 }
 
 /** Al cambiar a alquilado / tercerizado se arman sus condiciones; nunca se borran datos del propio. */
@@ -1200,6 +1235,7 @@ function newEquipment() {
     maintenancePerHour: 0,
     tiresPerHour: 0,
     fuelLitersPerHour: 0,
+    billableHoursPerMonth: null,
     availableHoursPerMonth: null,
     availableDaysPerMonth: 30,
     utilizationPct: null,
@@ -1652,16 +1688,16 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
             }
             return previewKpis(
               [
-                { label: 'Posesión por mes', value: formatMoney(c.ownership.totalMonthly), hint: 'COSTO DE POSESIÓN' },
-                { label: 'Operación por hora', value: formatValue(c.operation.totalPerHour, 'rate'), hint: 'COSTO DE OPERACIÓN' },
+                { label: 'Por tenerlo, por mes', value: formatMoney(c.ownership.totalMonthly), hint: 'Amortización, seguro, patente y demás, lo uses o no' },
+                { label: 'Por usarlo, por hora', value: formatValue(c.operation.totalPerHour, 'rate'), hint: 'Combustible, mantenimiento y neumáticos' },
                 { label: '$/hora', value: formatValue(c.rates.costPerUsedHour, 'rate') },
-                { label: '$/día', value: formatMoney(c.rates.costPerUsedDay) },
                 { label: '$/mes', value: formatMoney(c.rates.costPerMonth), emphasis: true },
               ],
               equipmentTrace(draft, c),
             );
           },
-          onSave,
+          // 0.25.0 (PR 6): un equipo nuevo guarda también las horas como disponibles al 100 %.
+          onSave: (entity) => onSave(withEquipmentHours(entity)),
         });
         break;
       case 'materials':
@@ -1894,7 +1930,8 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
         columns: [
           nameCol,
           acqCol,
-          { key: 'perDay', label: 'Costo por día usado', align: 'right', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : money(c && c.rates.costPerUsedDay)) },
+          // 0.25.0 (PR 6): $/hora y $/mes, como en Personal (sin "Costo por día usado" ni "Utilización").
+          { key: 'perHour', label: 'Costo por hora', align: 'right', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : rate(c && c.rates.costPerUsedHour)) },
           { key: 'perMonth', label: 'Costo por mes', align: 'right', render: ({ item, c, external }) => (external ? h('span', { class: 'muted small' }, 'Según uso en cada cotización') : noRate(c) ? EMPTY : withTrace(h('strong', { class: 'nowrap' }, formatMoney(c && c.rates.costPerMonth)), equipmentTrace(item, c))) },
           usageColumn('equipment'),
           actions,
@@ -1908,11 +1945,9 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       columns: [
         nameCol,
         acqCol,
-        { key: 'ownership', label: 'Posesión $/mes', align: 'right', className: 'col-ownership', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : money(c && c.ownership.totalMonthly)) },
-        { key: 'operation', label: 'Operación $/h', align: 'right', className: 'col-operation', render: ({ c, external }) => (external ? EMPTY : rate(c && c.operation.totalPerHour)) },
-        { key: 'util', label: 'Utilización', align: 'right', render: ({ c, external }) => (external ? EMPTY : percent(c && c.capacity.utilizationPct)) },
+        { key: 'ownership', label: 'Por tenerlo $/mes', align: 'right', className: 'col-ownership', render: ({ c, external, item }) => (external ? tariff(item) : noRate(c) ? noRateNote(c) : money(c && c.ownership.totalMonthly)) },
+        { key: 'operation', label: 'Por usarlo $/h', align: 'right', className: 'col-operation', render: ({ c, external }) => (external ? EMPTY : rate(c && c.operation.totalPerHour)) },
         { key: 'perHour', label: '$/hora', align: 'right', render: ({ c, external }) => (external || noRate(c) ? EMPTY : rate(c && c.rates.costPerUsedHour)) },
-        { key: 'perDay', label: '$/día', align: 'right', render: ({ c, external }) => (external || noRate(c) ? EMPTY : money(c && c.rates.costPerUsedDay)) },
         { key: 'perMonth', label: '$/mes', align: 'right', render: ({ item, c, external }) => (external || noRate(c) ? EMPTY : withTrace(h('strong', { class: 'nowrap' }, formatMoney(c && c.rates.costPerMonth)), equipmentTrace(item, c))) },
         usageColumn('equipment'),
         actions,

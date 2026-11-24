@@ -34,14 +34,14 @@ import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '..
 import { createTrace } from '../../../core/trace.js';
 import { nonNegative } from '../../../core/money.js';
 import { illustrativeTag } from '../../layout.js';
-import { hasNumber, moneyText, plural, stepName } from './shared.js';
+import { hasNumber, laborOptionLabels, moneyText, plural, stepName } from './shared.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { baseText } from '../../economic-base-ui.js';
 import { transportOf, providerActivityText, providerRouteText, routeName } from './transport.js';
 import { fieldHref } from '../../field-links.js';
 import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
 import { mobilizationEditor } from './logistics.js';
-import { closedJobsPerMonth, quoteUnitPlace, unitAmountText, costPlaceLabel, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText, equipmentFullHourRate } from '../../result-text.js';
+import { closedJobsPerMonth, quoteUnitPlace, unitAmountText, costPlaceLabel, timeEquipmentUseText, timeEquipmentOwnershipHint, equipmentPerActiveDay, timeEquipmentHourHint, timeEquipmentJobText, timeEquipmentTotalText, equipmentFullHourRate, BILLABLE_HOURS_LABEL, EQUIPMENT_BILLABLE_HOURS_HINT } from '../../result-text.js';
 import { usesTimeBasis, unitHoursConversion, showsPerUnit, unitHoursFactor, serviceMonthHours } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { workDaysText } from '../../unit-text.js';
@@ -127,6 +127,8 @@ export function equipmentCardAtQuote(result, index, source) {
       availableHoursPerMonth: activity.availableDaysPerMonth * hours,
       availableDaysPerMonth: activity.availableDaysPerMonth,
       utilizationPct: activity.utilizationPct,
+      // A la utilización de la cotización: las horas por mes de la ficha de Recursos no rigen acá (0.25.0).
+      billableHoursPerMonth: null,
     },
     { fuelPricePerLiter: result.model.fuel.pricePerLiter, fuelPaidByUs: result.model.fuel.paidByUs },
   );
@@ -633,9 +635,8 @@ export function render(container, ctx) {
     }, { tag: 'p' }),
   );
 
-  const operatorOptions = () => (Array.isArray(quote.labor) ? quote.labor : [])
-    .filter((l) => l && typeof l.id === 'string')
-    .map((l) => ({ value: l.id, label: l.role || 'Puesto sin nombre' }));
+  // D3 (0.25.0): un puesto asignado dos veces se numera ("Chofer 1", "Chofer 2").
+  const operatorOptions = () => laborOptionLabels(quote.labor);
   const acquisitionField = (i) => {
     const current = acquisitionOf(quote.equipment[i]);
     return selectField({
@@ -874,11 +875,12 @@ export function render(container, ctx) {
     // I7 (2026-11-18): por tiempo usado, con cuántas horas por mes se reparte lo de tenerlo (a la vista, junto a las horas de uso).
     const billableField = () => kit.num(`${p}.billableHoursPerMonth`, {
       // 0.20.1 (Joaco): no es otro costo; es con cuántas horas se reparte el costo del mes que ya sale de los datos del equipo.
-      label: '¿Cuántas horas por mes trabaja, entre todos tus trabajos?',
+      // 0.25.0 (P-08): el mismo texto que en Recursos y en Personal.
+      label: BILLABLE_HOURS_LABEL,
       rule: 'hours',
       unit: 'h/mes',
       placeholder: billablePlaceholder(i),
-      hint: 'No es un costo más ni cambia los datos del equipo: es sólo con cuántas horas se reparte su costo del mes. Valor hora = costo del mes (amortización, seguro, patente…) ÷ estas horas. Vacío = un mes completo de trabajo. Si el equipo trabaja menos horas por mes, cada hora cuesta más.',
+      hint: `${EQUIPMENT_BILLABLE_HOURS_HINT} Vacío = un mes completo de trabajo.`,
     });
     // Nombre: un equipo en blanco que resulta ser un vehículo arranca con 0 h en la locación.
     const nameField = () => {
@@ -949,6 +951,8 @@ export function render(container, ctx) {
         // Sin "Cantidad" (Joaco, 2026-11-20): si hay otro equipo igual, se agrega otra vez. Una línea con otra cantidad la sigue mostrando.
         line.quantity !== null && line.quantity !== undefined && line.quantity !== '' && Math.abs(Number(line.quantity) - 1) < 1e-9 ? null : kit.num(`${p}.quantity`, { label: 'Cantidad', rule: 'quantity', unit: 'u.', requiredMark: true, hint: 'Cargada antes. Para sumar otro equipo igual, agregalo otra vez.' }),
         operatorField(i),
+        // 0.25.0 (PR 6): un equipo en blanco pide a la vista con cuántas horas por mes se reparte su costo.
+        timeBasis && !fromResource ? billableField() : null,
         fromResource ? null : acquisitionField(i),
         ...(fromResource ? [] : valueFields()),
         ...(fromResource || (vehicle && !timeBasis) ? [] : fuelFields()),
@@ -1044,7 +1048,8 @@ export function render(container, ctx) {
           },
         },
         // 0.19.0: una sola pregunta a la vista; de qué horas sale el valor hora y el motor andando, acá.
-        timeBasis ? kit.group('Valor hora', formGrid(3, billableField(), vehicle ? null : hoursField())) : null,
+        // 0.25.0 (PR 6): las horas por mes de un equipo de Recursos van acá; en uno en blanco, a la vista.
+        timeBasis && (fromResource || !vehicle) ? kit.group('Valor hora', formGrid(3, fromResource ? billableField() : null, vehicle ? null : hoursField())) : null,
         fromResource
           ? h('p', { class: 'qe-note' }, 'Estos datos se cargan una sola vez en ', h('a', { href: '#/recursos' }, 'Recursos'), '. Si los cambiás acá, cambian sólo en esta cotización.')
           : null,

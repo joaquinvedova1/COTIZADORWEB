@@ -171,3 +171,22 @@ export function guaranteeLoaded(quote = {}) {
   const r = (quote && quote.rules) || {};
   return Number(r.minimumMonthlyGuarantee) > 0 || Number(r.minimumGuaranteeUnits) > 0;
 }
+
+/**
+ * D3 (0.25.0): rótulos de los puestos de Personal para elegirlos (operador de un equipo). Un puesto
+ * asignado más de una vez se numera ("Chofer 1", "Chofer 2"), así se distinguen en el selector.
+ * @returns {{ value: string, label: string }[]}
+ */
+export function laborOptionLabels(labor) {
+  const lines = (Array.isArray(labor) ? labor : []).filter((l) => l && typeof l.id === 'string');
+  const name = (l) => String(l.role || '').trim() || 'Puesto sin nombre';
+  const total = new Map();
+  lines.forEach((l) => total.set(name(l), (total.get(name(l)) || 0) + 1));
+  const seen = new Map();
+  return lines.map((l) => {
+    const n = name(l);
+    if (total.get(n) < 2) return { value: l.id, label: n };
+    seen.set(n, (seen.get(n) || 0) + 1);
+    return { value: l.id, label: `${n} ${seen.get(n)}` };
+  });
+}

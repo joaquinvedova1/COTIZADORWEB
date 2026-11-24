@@ -9,6 +9,8 @@
  */
 
 import { h, mount } from '../../dom.js';
+import { createId } from '../../../core/ids.js';
+import { deepClone } from '../../../core/object.js';
 import { card, formGrid, selectField, confirmDialog, emptyState, badge } from '../../components.js';
 import { illustrativeTag } from '../../layout.js';
 import { hasNumber, plural, stepName } from './shared.js';
@@ -128,7 +130,7 @@ function laborTrace(result, index, source) {
       { label: 'Dotación (personas)', value: line.headcount, format: 'number' },
       // Por tiempo usado (2026-11-18): el puesto cuesta sus horas en el trabajo × el valor de su hora.
       ...(line.timeBasis && line.time ? [
-        { label: line.time.ownBillableHours ? 'Horas que le cobrás a clientes por mes' : 'Horas por mes (las normales)', value: line.time.billableHoursPerMonth, format: 'hours' },
+        { label: line.time.ownBillableHours ? 'Horas por mes que trabaja para clientes' : 'Horas por mes (las normales)', value: line.time.billableHoursPerMonth, format: 'hours' },
         { label: 'Valor de la hora para cotizar (costo mensual por persona ÷ horas por mes)', value: line.time.hourlyCost, format: 'rate' },
         { label: 'Horas por día en el trabajo (de cada persona)', value: line.time.hoursPerDay, format: 'hours' },
         { label: 'Sus horas por día de trabajo (personas × horas × valor de la hora)', value: line.time.perActiveDay, format: 'money' },
@@ -268,6 +270,19 @@ export function render(container, ctx) {
       danger: true,
     });
     if (ok) ctx.mutate((q) => q.labor.splice(index, 1));
+  };
+
+  // D3 (0.25.0): sin "Cantidad". Para sumar otra persona con el mismo puesto se copia la línea
+  // (mismo sueldo, cargas y horas, con su propio id); queda justo debajo.
+  const duplicateLine = (index) => {
+    const line = quote.labor[index];
+    if (!line) return;
+    ctx.mutate((q) => {
+      const copy = deepClone(q.labor[index]);
+      copy.id = createId();
+      q.labor.splice(index + 1, 0, copy);
+    });
+    ctx.toast(`Se agregó otra persona como "${line.role || 'Puesto'}".`, 'success');
   };
 
   const toolbar = h(
@@ -534,6 +549,7 @@ export function render(container, ctx) {
         badges: [ill.tag, agreement && agreement.illustrative ? badge('Convenio ilustrativo', 'orange') : null].filter(Boolean),
         actions: [
           line.agreementId ? kit.action('Usar las cargas del convenio', () => applyAgreement(i), { icon: 'check', title: 'Copia horas normales, recargo de horas extra, SAC, vacaciones, cargas y ART del convenio elegido' }) : null,
+          legacyStaff(line) ? null : kit.action('Agregar otra persona igual', () => duplicateLine(i), { icon: 'plus', title: 'Copia este puesto con el mismo sueldo, cargas y horas: otra persona que hace lo mismo' }),
           kit.action('Quitar', () => removeLine(i), { variant: 'danger', icon: 'trash' }),
         ],
       },
@@ -562,7 +578,7 @@ export function render(container, ctx) {
           requiredMark: legacyStaff(line),
           unit: legacyStaff(line) ? null : 'pers.',
           placeholder: '1',
-          hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cargada antes. Para sumar otra persona, asigná el puesto otra vez.',
+          hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cargada antes. Para sumar otra persona, tocá «Agregar otra persona igual».',
         }),
         fromResource ? null : kit.num(`${p}.basicMonthly`, { label: 'Sueldo bruto por mes', rule: 'money', unit: '$/mes', requiredMark: true, illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }),
         // Horas extra: ya no se cargan en el puesto (Joaco, 2026-11-18). Van al final de Personal →
