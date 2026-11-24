@@ -289,7 +289,7 @@ function equipmentTrace(eq, c) {
       op.fuelNotApplicable
         ? { label: 'Combustible', value: 'No usa combustible', format: 'text' }
         : { label: 'Consumo de combustible', value: op.fuelLitersPerHour, format: 'number', unit: 'L/h' },
-      op.fuelNotApplicable ? null : { label: 'Precio del combustible (Configuración)', value: op.fuelPricePerLiter, format: 'rate' },
+      op.fuelNotApplicable ? null : { label: 'Precio del combustible (de Configuración; en cada cotización se cambia en "Movilización y viajes")', value: op.fuelPricePerLiter, format: 'rate' },
       { label: 'Horas disponibles por mes', value: cap.availableHoursPerMonth, format: 'hours' },
       { label: 'Días disponibles por mes', value: cap.availableDaysPerMonth, format: 'number', unit: 'días' },
       { label: 'Utilización esperada', value: cap.utilizationPct, format: 'percent' },
@@ -1149,8 +1149,9 @@ function equipmentSections(models = [], settings = {}) {
 }
 
 /** Al cambiar a alquilado / tercerizado se arman sus condiciones; nunca se borran datos del propio. */
-function prepareEquipmentDraft(draft) {
-  if (isExternalDraft(draft) && !(draft.external && typeof draft.external === 'object')) draft.external = createExternalTerms({ unit: 'day' });
+function prepareEquipmentDraft(draft, settings = null) {
+  // 0.24.0 (P-11): un externo nuevo de una empresa responsable inscripta nace con "Sí, lo recupero".
+  if (isExternalDraft(draft) && !(draft.external && typeof draft.external === 'object')) draft.external = createExternalTerms({ unit: 'day' }, { settings });
   if (!draft.mobility || typeof draft.mobility !== 'object') draft.mobility = createEquipmentMobility({});
   if (!draft.base || typeof draft.base !== 'object') draft.base = emptyBase({ currency: CURRENCY });
   if (!draft.costsBase || typeof draft.costsBase !== 'object') draft.costsBase = emptyBase({ currency: CURRENCY });
@@ -1205,8 +1206,8 @@ function externalServiceSections() {
   ];
 }
 
-function newExternalService() {
-  return { name: '', acquisition: 'outsourced', familyId: null, external: createExternalTerms({ unit: 'day' }), base: emptyBase({ currency: CURRENCY }), notes: '', illustrative: false };
+function newExternalService(settings = null) {
+  return { name: '', acquisition: 'outsourced', familyId: null, external: createExternalTerms({ unit: 'day' }, { settings }), base: emptyBase({ currency: CURRENCY }), notes: '', illustrative: false };
 }
 
 /** Modelo del catálogo de la empresa (descriptivo: sin precios). */
@@ -1619,7 +1620,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
           title: isNew ? 'Nuevo equipo' : `Legajo del equipo — ${item.internalCode ? `${item.internalCode} · ` : ''}${item.name || ''}`,
           initial: isNew ? newEquipment() : { ...newEquipment(), ...item, familyId: familyIdOf(item) },
           sections: equipmentSections(list('equipmentModels'), data.settings),
-          prepare: prepareEquipmentDraft,
+          prepare: (draft) => prepareEquipmentDraft(draft, data.settings),
           validate: (d) => (!isExternalDraft(d) && toNumber(d.residualValue) > toNumber(d.replacementValue) ? 'El valor residual no puede superar el valor de reposición.' : null),
           preview: async (draft) => {
             if (isExternalDraft(draft)) return externalPreview(draft);
@@ -1663,7 +1664,7 @@ async function renderLibraryTab(root, app, tab, { embedded = false } = {}) {
       case 'externalServices':
         openResourceForm(app, {
           title: isNew ? 'Nuevo servicio externo' : `Editar servicio externo — ${item.name || ''}`,
-          initial: isNew ? newExternalService() : { ...newExternalService(), ...item, external: createExternalTerms(item.external) },
+          initial: isNew ? newExternalService(data.settings) : { ...newExternalService(), ...item, external: createExternalTerms(item.external) },
           sections: externalServiceSections(),
           preview: (draft) => externalPreview(draft),
           onSave,

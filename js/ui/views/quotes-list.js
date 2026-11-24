@@ -28,6 +28,7 @@ import { completenessTone } from '../../engines/completeness-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
 import { templateContents } from './services.js';
 import { openRateUpdateDialog, ratePeriodNode } from '../rate-update-ui.js';
+import { companySetupCard } from '../company-defaults.js';
 
 export { completenessTone };
 
@@ -744,7 +745,10 @@ export async function renderNewQuote(root, app) {
     ],
   });
 
-  const services = orderTemplates(await ctx.resources.listServices());
+  const [rawServices, settings] = await Promise.all([ctx.resources.listServices(), app.getSettings ? app.getSettings() : null]);
+  const services = orderTemplates(rawServices);
+  // 0.24.0 (W-10): mientras la Configuración sea de ejemplo, los datos de la empresa se piden una vez acá.
+  const companyCard = companySetupCard({ app, settings, readOnly: Boolean(ctx.init && ctx.init.readOnly) });
   const choices = [];
   let busy = false;
 
@@ -806,6 +810,7 @@ export async function renderNewQuote(root, app) {
           ? 'Elegí un servicio parecido al tuyo: arrancás con su tipo de servicio y su actividad típica (y sus recursos, si la plantilla los tiene). Después podés cambiar todo.'
           : 'Empezá en blanco: RATEOS te va preguntando paso a paso. Si querés ver antes cómo queda una cotización completa, mirá el ejemplo.',
       }),
+      companyCard,
       h('div', { class: 'quote-choice-grid' }, blank, ...first),
       rest.length
         ? disclosure(
@@ -818,7 +823,7 @@ export async function renderNewQuote(root, app) {
         : h('p', { class: 'muted small' }, 'Todavía no tenés plantillas de servicio. Podés guardar cualquier cotización como plantilla desde su resultado.'),
       h('p', { class: 'muted small' }, '¿Vendés unidades que hacés vos (por unidad, docena o kilo)? ', h('a', { href: '#/productos/nuevo' }, 'Calculá un producto'), ' en lugar de un servicio.'),
       disclosure(
-        { summary: '¿Cómo sigue?', hint: 'Seis etapas, de la descripción del servicio a la tarifa.', className: 'disclosure-plain' },
+        { summary: '¿Cómo sigue?', hint: 'Cinco etapas, de la descripción del servicio a la tarifa.', className: 'disclosure-plain' },
         h(
           'ol',
           { class: 'stage-list' },

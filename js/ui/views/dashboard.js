@@ -22,6 +22,7 @@ import { DEMO_IDS } from '../../domain/demo-data.js';
 import { COMPLETENESS_RISK_THRESHOLD } from '../../engines/completeness-engine.js';
 import { priceFromMargin, priceFromMarkup, markupToMargin, marginToMarkup, traceMarginVsMarkup } from '../../engines/pricing-engine.js';
 import { illustrativeTag, userErrorMessage } from '../layout.js';
+import { companySetupCard } from '../company-defaults.js';
 import { NEW_PRODUCT_HREF, NEW_SERVICE_HREF } from './new-calc.js';
 import { productHref, unitMoney } from './products.js';
 import {
@@ -580,6 +581,8 @@ export async function render(root, app) {
       'div',
       { class: 'home' },
       heroSection({ hasQuotes: hasQuotes || products.length > 0, name: greetingName(ctx.account && ctx.account.user ? ctx.account.user.fullName : '') }),
+      // 0.24.0 (W-10): mientras la Configuración sea de ejemplo, los datos de la empresa se piden una vez acá.
+      companySetupCard({ app, settings, readOnly: Boolean(ctx.init && ctx.init.readOnly) }),
       hasQuotes ? continueSection(draft) : null,
       hasQuotes ? indicatorsSection(indicators, settings, scope) : null,
       // Sin cotizaciones, el saludo ya es el estado vacío (sin botones repetidos).

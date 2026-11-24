@@ -848,3 +848,10 @@
 .qe-type-subtotals { list-style: none; margin: var(--sp-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
 .qe-type-subtotals li { display: flex; justify-content: space-between; gap: var(--sp-3); padding: 0.25rem 0; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
 .qe-type-subtotals li .mono { white-space: nowrap; }
+
+/* 0.24.0 (PLAN-2026-028, PR 3) · "Datos de tu empresa" e IVA de la empresa en una línea */
+.company-setup { border-left: 4px solid var(--blue-600); }
+.company-setup-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.company-setup-error { margin: 0.5rem 0 0; }
+.qe-vat-company-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem; }
+.qe-company-save { margin-top: 0.5rem; }

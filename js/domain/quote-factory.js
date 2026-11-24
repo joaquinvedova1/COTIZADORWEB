@@ -85,9 +85,13 @@ export function isExternal(item = {}) {
  * (sin definir). El tratamiento fiscal lo define la empresa: RATEOS no trae
  * alícuotas (vatPct null = sin definir).
  */
-export function createExternalTerms(src = {}) {
+export function createExternalTerms(src = {}, { settings = null } = {}) {
   const s = isPlainObject(src) ? src : {};
   const f = isPlainObject(s.fiscal) ? s.fiscal : {};
+  // 0.24.0 (P-11): una línea NUEVA de una empresa responsable inscripta nace con "Sí, lo recupero".
+  // Da el mismo costo que "sin definir" (external-engine: recoverableShare = 1); sólo se pasa
+  // `settings` al crear una línea, nunca al normalizar una guardada (decisión D6).
+  const vatRecoverable = VAT_RECOVERY_IDS.includes(f.vatRecoverable) ? f.vatRecoverable : newExternalVatRecoverable(settings);
   const opt = (v) => finiteOr(v, null);
   return {
     supplier: shortText(s.supplier),
@@ -109,13 +113,18 @@ export function createExternalTerms(src = {}) {
     insuranceIncluded: boolOrNull(s.insuranceIncluded),
     fiscal: {
       vatPct: opt(f.vatPct),
-      vatRecoverable: VAT_RECOVERY_IDS.includes(f.vatRecoverable) ? f.vatRecoverable : null,
+      vatRecoverable,
       vatRecoverablePct: opt(f.vatRecoverablePct),
       perceptionsPct: opt(f.perceptionsPct),
       nonRecoverablePct: opt(f.nonRecoverablePct),
       paymentTermDays: opt(f.paymentTermDays),
     },
   };
+}
+
+/** ¿Con qué "¿Recuperás ese IVA?" nace un externo nuevo? 'yes' en una empresa responsable inscripta; si no, sin definir. */
+export function newExternalVatRecoverable(settings) {
+  return isPlainObject(settings) && settings.vatCondition === 'registered' ? 'yes' : null;
 }
 
 /**

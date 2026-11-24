@@ -799,6 +799,65 @@ async function runMode(mode) {
     await scan('E2E-P01', 'producto');
   }
 
+  // ---- 0.24.0 (PLAN-2026-028, PR 3): datos de la empresa una sola vez, IVA incluido.
+  // Al final del modo: E2E-31 deja la Configuración propia (las anteriores usan la de ejemplo).
+  {
+    await go('#/inicio', 1200);
+    const home = await page.evaluate(() => Boolean(document.querySelector('.company-setup')));
+    check('E2E-31', 'con la Configuración de ejemplo, Inicio muestra "Datos de tu empresa"', home, 'sin la tarjeta');
+    await go('#/cotizaciones/nueva', 1200);
+    const card = page.locator('.company-setup').first();
+    check('E2E-31', 'también en "Nuevo servicio"', await card.isVisible().catch(() => false), 'sin la tarjeta');
+    const placeholders = await page.evaluate(() => [...document.querySelectorAll('.company-setup input')].map((i) => ({ value: i.value, placeholder: i.placeholder })));
+    check('E2E-31', 'los valores de ejemplo van como texto de muestra, no cargados', placeholders.length === 5 && placeholders.every((x) => x.value === '' && /^Ej\.:/.test(x.placeholder)), JSON.stringify(placeholders));
+    const values = { fuelPricePerLiter: '1850', defaultPaymentTermDays: '45', financeMonthlyRatePct: '4', defaultContingencyPct: '3', defaultTargetMarginPct: '15' };
+    for (const [key, value] of Object.entries(values)) await page.locator(`[name="company.${key}"]`).fill(value);
+    await page.locator('[name="company.vatCondition"]').selectOption('registered');
+    await tap(card.getByRole('button', { name: 'Guardar', exact: true }));
+    await page.waitForTimeout(2500);
+    const saved = ws.state.settings || {};
+    check('E2E-31', '"Guardar" guarda los datos como propios (illustrative: false)', saved.illustrative === false && saved.fuelPricePerLiter === 1850 && saved.defaultPaymentTermDays === 45 && saved.vatCondition === 'registered', JSON.stringify({ illustrative: saved.illustrative, fuel: saved.fuelPricePerLiter, term: saved.defaultPaymentTermDays, vat: saved.vatCondition }));
+    const before = new Set((ws.state.quotes || []).map((q) => q.id));
+    await go('#/cotizaciones/nueva', 1200);
+    check('E2E-31', 'después de guardar, la tarjeta ya no aparece', !(await page.locator('.company-setup').first().isVisible().catch(() => false)), 'sigue la tarjeta');
+    await tap(page.locator('.quote-choice-blank').first());
+    await page.waitForTimeout(3000);
+    const fresh = (ws.state.quotes || []).find((q) => !before.has(q.id));
+    check('E2E-31', 'la cotización siguiente nace sin "ILUSTRATIVO" (combustible y tasa de la empresa)', Boolean(fresh) && fresh.fuel.illustrative === false && fresh.finance.illustrative === false && fresh.fuel.pricePerLiter === 1850 && fresh.finance.paymentTermDays === 45, fresh ? JSON.stringify({ fuel: fresh.fuel.illustrative, finance: fresh.finance.illustrative, price: fresh.fuel.pricePerLiter }) : 'no se creó');
+    if (fresh) {
+      await go(`#/cotizaciones/${encodeURIComponent(fresh.id)}/result`, 1200);
+      const badge = await page.evaluate(() => (document.querySelector('.qr-summary') || document.body).innerText);
+      check('E2E-31', 'el Resultado de la cotización nueva no dice ILUSTRATIVO', !/ILUSTRATIV/.test(badge), norm(badge).slice(0, 200));
+    }
+  }
+  {
+    // E2E-32 (P-11): responsable inscripto con el IVA completo: la cotización nueva no pregunta.
+    ws.state.settings = { ...(ws.state.settings || {}), vatCondition: 'registered', defaultVat: { ratePct: 21, payLagDays: 20 }, illustrative: false };
+    ws.revision += 1;
+    await page.reload();
+    await page.waitForTimeout(2500);
+    const before = new Set((ws.state.quotes || []).map((q) => q.id));
+    await go('#/cotizaciones/nueva', 1200);
+    await tap(page.locator('.quote-choice-blank').first());
+    await page.waitForTimeout(3000);
+    const fresh = (ws.state.quotes || []).find((q) => !before.has(q.id));
+    check('E2E-32', 'la cotización nueva nace con "¿Facturás con IVA?" = Sí y los valores de la empresa', Boolean(fresh) && fresh.finance.vat && fresh.finance.vat.applies === true && fresh.finance.vat.ratePct === 21 && fresh.finance.vat.payLagDays === 20, fresh ? JSON.stringify(fresh.finance.vat) : 'no se creó');
+    if (fresh) {
+      await go(`#/cotizaciones/${encodeURIComponent(fresh.id)}/finance`, 1200);
+      await page.waitForSelector('.qe-step-finance', { timeout: 8000 }).catch(() => {});
+      const info = await page.evaluate(() => ({
+        question: document.querySelectorAll('[name="finance.vat.applies"]').length,
+        line: (document.querySelector('.qe-vat-company-line') || {}).innerText || '',
+        sum: (document.querySelector('.qe-vat-company .qe-vat-finance-sum:not([hidden])') || {}).innerText || '',
+      }));
+      check('E2E-32', 'sin la pregunta: una línea "Facturás con IVA 21 % y lo pagás a 20 días (tu empresa)"', info.question === 0 && /Facturás con IVA 21\s%\sy lo pagás a 20 días \(tu empresa\)/.test(norm(info.line)) && /Cambiar sólo acá/.test(info.line), JSON.stringify(info));
+      const r = computeQuote(structuredClone(fresh), { settings: ws.state.settings });
+      const same = r.kpis.vatFinanceActive === true && (!(r.kpis.vatFinancePct > 0) || norm(info.sum).includes(norm(formatMoney(r.kpis.vatFinance))));
+      check('E2E-32', 'el costo de adelantar el IVA es el del motor', same, `motor ${r.kpis.vatFinanceActive} ${r.kpis.vatFinance} · pantalla "${norm(info.sum)}"`);
+      await scan('E2E-32', 'Costo financiero');
+    }
+  }
+
   // Sesión (PLAN-2026-015): al cerrar sesión no queda nada de la empresa A en
   // pantalla ni en el menú oculto, y otra cuenta que ingresa en la MISMA
   // pestaña (sin recargar) no ve nada de A, ni con los ids de sus cotizaciones.

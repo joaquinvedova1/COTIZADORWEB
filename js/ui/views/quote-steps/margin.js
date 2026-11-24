@@ -35,6 +35,7 @@ import { activationTerms, activationFieldLabels } from '../../../domain/activati
 import { contractOf } from '../../../domain/contract.js';
 import { normalizePriceAdjustment, priceAdjustmentApplies } from '../../../domain/price-adjustment.js';
 import { render as renderCharge } from './modality.js';
+import { COMPANY_LABELS } from '../../company-defaults.js';
 
 const DISCOUNT_STATUS = Object.freeze({
   green: ['Mantiene el margen', 'green'],
@@ -522,7 +523,7 @@ export function render(container, ctx) {
         hint: 'Descuento sobre la tarifa de lista para este cliente.',
       }),
       kit.num('pricing.roundingStep', {
-        label: 'Redondeo comercial',
+        label: COMPANY_LABELS.roundingStep,
         rule: 'money',
         unit: '$',
         hint: 'La tarifa sugerida se redondea HACIA ARRIBA a múltiplos de este valor (nunca baja el margen). Si el paso es más del 1 % de la tarifa (p. ej. $ 1.000 sobre 100 $/kg), se usa un paso menor. 0 = sin redondeo.',

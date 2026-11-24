@@ -524,6 +524,8 @@ export function render(container, ctx) {
   };
   const addBlank = (acquisition = 'owned', { vehicle = false } = {}) => {
     const line = blankEquipmentLine({ acquisition, hoursPerActiveDay: null, currency });
+    // 0.24.0 (P-11): un externo nuevo de una empresa responsable inscripta nace con "Sí, lo recupero".
+    if (line.external) line.external = createExternalTerms(line.external, { settings: ctx.settings });
     if (vehicle) {
       // Vehículo nuevo: sólo viaja (0 h en la locación); el consumo se pide en ruta.
       line.name = 'Nuevo vehículo';
@@ -585,7 +587,7 @@ export function render(container, ctx) {
         line.base = { period: null, currency, source: null, note: '' };
         reset = true;
       }
-      if (line.acquisition !== 'owned') line.external = createExternalTerms(line.external);
+      if (line.acquisition !== 'owned') line.external = createExternalTerms(line.external, line.external && typeof line.external === 'object' ? {} : { settings: ctx.settings });
       if (!line.mobilization) line.mobilization = createMobilization();
     });
     if (reset) ctx.toast(`La fecha base y la moneda de esta línea se reiniciaron (${currency}, sin fecha): cargá las del nuevo valor en "¿De qué mes son estos valores?".`, 'info');
@@ -627,7 +629,7 @@ export function render(container, ctx) {
     kit.out((r) => {
       if (!r.model.fuel.paidByUs) return `El combustible lo provee el cliente: no se suma al costo de uso (se define en "${stepName('logistics')}").`;
       const fuelIllustrative = Boolean(quote.illustrative || (quote.fuel && quote.fuel.illustrative === true));
-      return `Combustible: ${formatValue(r.model.fuel.pricePerLiter, 'rate')} por litro (se edita en "${stepName('logistics')}").${fuelIllustrative ? ' Es un valor ILUSTRATIVO: confirmalo con tu precio actual.' : ''}`;
+      return `Combustible: ${formatValue(r.model.fuel.pricePerLiter, 'rate')} por litro (se cambia en "${stepName('logistics')}").${fuelIllustrative ? ' Es un valor ILUSTRATIVO: confirmalo con tu precio actual.' : ''}`;
     }, { tag: 'p' }),
   );
 
@@ -1194,7 +1196,7 @@ export function render(container, ctx) {
   const setExternalUnit = (index, value) => ctx.mutate((q) => {
     const line = q.equipment[index];
     if (!line) return;
-    if (!line.external || typeof line.external !== 'object') line.external = createExternalTerms({});
+    if (!line.external || typeof line.external !== 'object') line.external = createExternalTerms({}, { settings: ctx.settings });
     if (value === ROUND_TRIP) {
       line.external.unit = 'trip';
       line.external.tripBasis = 'round_trip';

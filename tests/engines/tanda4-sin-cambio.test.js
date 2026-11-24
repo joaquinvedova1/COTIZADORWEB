@@ -93,11 +93,14 @@ if (process.env.TANDA4_WRITE === '1') {
 const expected = JSON.parse(readFileSync(PHOTO_URL, 'utf8')).cases;
 
 describe('0.24.0: la tanda 4 no cambia ningún número', () => {
+  // Los casos que la tanda agrega después de la foto (p. ej. PRB-24) no tienen un "antes": se
+  // controlan en sus propios tests. Todos los de la foto tienen que seguir existiendo.
+  const NEW_IN_TANDA4 = new Set(['probe:PRB-24']);
   test('la foto cubre todos los casos', () => {
-    assert.deepEqual(Object.keys(expected).sort(), all.map((c) => c.id).sort());
+    assert.deepEqual(Object.keys(expected).sort(), all.map((c) => c.id).filter((id) => !NEW_IN_TANDA4.has(id)).sort());
     assert.ok(all.length > 150, `sólo ${all.length} casos`);
   });
-  for (const c of all) {
+  for (const c of all.filter((x) => !NEW_IN_TANDA4.has(x.id))) {
     test(c.id, () => close(clean(photo(c.run())), expected[c.id], c.id));
   }
 });

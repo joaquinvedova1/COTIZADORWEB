@@ -50,7 +50,7 @@ import {
   infoTip,
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
-import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
+import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES, vatIsCost } from '../../domain/catalogs.js';
 import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded, billingUnitPhrase } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
@@ -1744,7 +1744,17 @@ function chargeLoaded(quote) {
 /** Avisos informativos (completeness.notices) que también se muestran en su paso. */
 const STEP_NOTICE_IDS = new Set(['idle_capacity', 'over_capacity', 'fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate', 'no_fuel_travels']);
 
-function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null, onChargeFullMonth = null, chargeReady = () => true } = {}) {
+/** Índices de los externos (equipment) con "¿Recuperás ese IVA?" sin definir. */
+export function undefinedVatRecoveryRows(quote) {
+  const rows = isPlainObject(quote) && Array.isArray(quote.equipment) ? quote.equipment : [];
+  return rows
+    .map((e, index) => ({ e, index }))
+    .filter(({ e }) => isPlainObject(e) && (e.acquisition === 'rented' || e.acquisition === 'outsourced')
+      && !['yes', 'no', 'partial'].includes(e.external && e.external.fiscal && e.external.fiscal.vatRecoverable))
+    .map(({ index }) => index);
+}
+
+function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null, onChargeFullMonth = null, onRecoverAllVat = null, chargeReady = () => true } = {}) {
   const list = h('ul', { class: 'qe-notice-list' });
   // En la cotización de ejemplo, los puntos para revisar están a propósito (UX-3).
   const title = didactic ? 'Para revisar: el ejemplo lo deja a propósito' : 'Para revisar en este paso';
@@ -1782,6 +1792,17 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
     if (n.id !== 'idle_capacity' || typeof onChargeFullMonth !== 'function' || !Array.isArray(n.rows) || !n.rows.length) return null;
     return goButton(n.rows.length === 1 ? 'Sólo tiene este trabajo: cobrar su mes completo acá' : 'Sólo tienen este trabajo: cobrar su mes completo acá', () => onChargeFullMonth(n.rows));
   };
+  /**
+   * Externos guardados con "¿Recuperás ese IVA?" sin definir (0.24.0, P-11, decisión D6): un botón
+   * explícito los pasa a "Sí". Lo hace la persona; RATEOS nunca cambia solo las líneas guardadas.
+   * Mismo costo que "sin definir" (external-engine: recoverableShare = 1).
+   */
+  const recoverAllVatAction = (item, quote) => {
+    if (item.id !== 'external_terms' || typeof onRecoverAllVat !== 'function') return null;
+    const undefinedRows = undefinedVatRecoveryRows(quote);
+    if (!undefinedRows.length) return null;
+    return goButton('Recupero el IVA de todos (responsable inscripto)', () => onRecoverAllVat(undefinedRows));
+  };
   return {
     el,
     update(result) {
@@ -1816,7 +1837,7 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
           'li',
           { class: ['qe-notice', `is-${i.status === 'missing' ? 'red' : 'orange'}`] },
           h('span', { class: ['dot', `dot-${i.status === 'missing' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }),
-          h('span', {}, h('strong', {}, `${i.label}: `), i.message, ' ', actionFor(i, quote)),
+          h('span', {}, h('strong', {}, `${i.label}: `), i.message, ' ', actionFor(i, quote), recoverAllVatAction(i, quote) ? ' ' : null, recoverAllVatAction(i, quote)),
         )),
         ...issues.map((i) => h('li', { class: ['qe-notice', `is-${i.severity === 'error' ? 'red' : 'orange'}`] }, h('span', { class: ['dot', `dot-${i.severity === 'error' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }), h('span', {}, i.message))),
         ...infos.map((n) => h(
@@ -2285,6 +2306,15 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
         if (isPlainObject(line) && row.used > 0) line.billableHoursPerMonth = Math.round(row.used * 100) / 100;
       });
     }),
+    // D6: sólo si la empresa puede recuperar el IVA (no monotributo ni exento).
+    onRecoverAllVat: readOnly || vatIsCost(settings) ? null : (indexes) => mutate((q) => {
+      indexes.forEach((i) => {
+        const line = Array.isArray(q.equipment) ? q.equipment[i] : null;
+        if (!isPlainObject(line)) return;
+        line.external = createExternalTerms(line.external);
+        line.external.fiscal.vatRecoverable = 'yes';
+      });
+    }),
     hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
     stepHref,
     didactic: state.quote.illustrative === true,
@@ -2385,7 +2415,11 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     const shownGroups = isResult ? groups : groups.filter((g) => g.step === stepId);
     // En Viajes el aviso es uno solo, junto al campo del precio ("Es mi precio vigente").
     const fuelHere = info.fuel && isResult;
-    const key = JSON.stringify([info.quote, fuelHere, shownGroups.map((g) => [g.label, g.n])]);
+    // 0.24.0 (W-10): la empresa ya confirmó sus datos y esta cotización se creó antes con los de
+    // ejemplo: un botón quita la marca del combustible y de la tasa. El número no cambia.
+    const ownCompany = Boolean(settings) && settings.illustrative !== true && !readOnly;
+    const companyExample = ownCompany && isResult && (info.fuel || info.finance);
+    const key = JSON.stringify([info.quote, fuelHere, companyExample, info.finance, shownGroups.map((g) => [g.label, g.n])]);
     if (key === illustrativeKey) return;
     illustrativeKey = key;
     const hide = () => {
@@ -2408,7 +2442,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       mount(illustrativeHolder, el);
       return;
     }
-    if (shownGroups.length === 0 && !fuelHere) {
+    if (shownGroups.length === 0 && !fuelHere && !companyExample) {
       hide();
       return;
     }
@@ -2425,7 +2459,23 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       }
       notices.push(el);
     }
-    if (fuelHere) {
+    if (companyExample) {
+      const what = [info.fuel ? 'el precio del combustible' : null, info.finance ? 'la tasa de financiamiento' : null].filter(Boolean).join(' y ');
+      const el = banner(h('span', {}, `Esta cotización se creó antes de que cargaras los datos de tu empresa: ${what} ${info.fuel && info.finance ? 'son' : 'es'} de ejemplo. Si ya son los tuyos, confirmalo; si no, cambialos en la cotización.`, illustrativeTag('Valores de ejemplo de antes de cargar los datos de tu empresa')), 'warning');
+      el.classList.add('qe-illustrative-line', 'qe-company-example');
+      const body = el.lastElementChild || el;
+      body.appendChild(button('Son los valores de mi empresa', {
+        variant: 'link',
+        size: 'sm',
+        attrs: { class: 'btn btn-link btn-sm qe-illustrative-go' },
+        onClick: () => mutate((q) => {
+          // Lo mismo que "Es mi precio vigente" en Viajes.
+          if (isPlainObject(q.fuel)) q.fuel.illustrative = false;
+          if (isPlainObject(q.finance)) q.finance.illustrative = false;
+        }),
+      }));
+      notices.push(el);
+    } else if (fuelHere) {
       const el = banner(h('span', {}, 'El precio del combustible es de ejemplo: cargá el tuyo o confirmá que es tu precio vigente.', illustrativeTag('Precio del combustible por defecto: reemplazalo por tu precio actual')), 'warning');
       el.classList.add('qe-illustrative-line');
       const body = el.lastElementChild || el;

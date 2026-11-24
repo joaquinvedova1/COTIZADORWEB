@@ -491,6 +491,36 @@ export const QUOTE_INVARIANTS = [
       return diffs.length ? fail(`X = ${X}: ${diffs.map(([k, x, y]) => `${k} ${x} ≠ ${y}`).join('; ')}`) : ok(`X = ${X}: mismos números`);
     },
   },
+  {
+    // PLAN-2026-028 (0.24.0, P-11): un externo nuevo de una empresa responsable inscripta nace con
+    // "Sí, lo recupero" y el botón "Recupero el IVA de todos" pasa los guardados a "Sí". Tiene que
+    // dar el mismo costo y la misma caja que "sin definir" (recoverableShare = 1 en los dos).
+    id: 'INV-34', title: 'Un externo con "¿Recuperás ese IVA?" = Sí da el mismo costo, la misma caja y la misma tarifa que sin definir',
+    check(q) {
+      const external = (e) => e && (e.acquisition === 'rented' || e.acquisition === 'outsourced');
+      if (!(Array.isArray(q.equipment) && q.equipment.some(external))) return notApplicable;
+      const set = (value) => {
+        const c = clone(q);
+        let touched = 0;
+        c.equipment.forEach((e) => {
+          if (!external(e)) return;
+          const rec = e.external && e.external.fiscal ? e.external.fiscal.vatRecoverable : null;
+          if (rec && rec !== 'yes') return; // "No" o "parcial": otra cuenta, no se toca.
+          e.external = { ...(e.external || {}), fiscal: { ...((e.external && e.external.fiscal) || {}), vatRecoverable: value } };
+          touched += 1;
+        });
+        return { c, touched };
+      };
+      const a = set(null);
+      if (!a.touched) return notApplicable;
+      const ra = run(a.c);
+      const rb = run(set('yes').c);
+      const keys = ['totalCost', 'financialCost', 'workingCapital', 'suggestedListRate', 'commercialListRate', 'profit', 'marginPct'];
+      const diffs = keys.map((k) => [k, ra.kpis[k], rb.kpis[k]])
+        .filter(([, x, y]) => !(x === y || (num(x) !== null && num(y) !== null && Math.abs(x - y) <= TOL(x))));
+      return diffs.length ? fail(diffs.map(([k, x, y]) => `${k} ${x} ≠ ${y}`).join('; ')) : ok(`${a.touched} externo(s): mismos números`);
+    },
+  },
 ];
 
 /** Copia de la cotización con D días de trabajo (o la cantidad que los produce). */

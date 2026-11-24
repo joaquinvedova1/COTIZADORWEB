@@ -16,6 +16,7 @@ import { createTrace } from '../../../core/trace.js';
 import { nonNegative } from '../../../core/money.js';
 import { contractOf } from '../../../domain/contract.js';
 import { illustrativeTag } from '../../layout.js';
+import { COMPANY_LABELS } from '../../company-defaults.js';
 import { unitAmountText, perQuoteUnit, closedJobsPerMonth, costPlaceLabel } from '../../result-text.js';
 
 const RISK_HINTS = Object.freeze({
@@ -121,7 +122,7 @@ export function render(container, ctx) {
     {},
     closedNote,
     h('p', { class: 'qe-note' }, 'Para lo que no podés anticipar: clima, roturas, días perdidos. No reemplaza al margen.'),
-    formGrid(2, kit.num('risk.generalPct', { label: 'Contingencia general', rule: 'percent', unit: '%', hint: generalHint })),
+    formGrid(2, kit.num('risk.generalPct', { label: COMPANY_LABELS.contingencyPct, rule: 'percent', unit: '%', hint: generalHint })),
     zeroWarning,
     kit.keyline({
       label: (r) => costPlaceLabel(r, quote, 'Imprevistos'),

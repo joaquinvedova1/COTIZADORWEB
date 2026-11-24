@@ -37,6 +37,7 @@ import { transportOf, providerActivityList, routeText, tripsText } from './trans
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 import { closedJobsPerMonth, unitAmountText, costPlaceLabel } from '../../result-text.js';
 import { render as renderCharge } from './modality.js';
+import { COMPANY_LABELS, saveAsCompanyAction } from '../../company-defaults.js';
 
 /**
  * Texto que va EN LUGAR del campo "Consumo en ruta" de un equipo que llega por
@@ -717,7 +718,7 @@ export function render(container, ctx) {
     if (fuelConfirm) fuelConfirm.hidden = true;
   };
   const fuelPriceField = kit.num('fuel.pricePerLiter', {
-    label: 'Precio del combustible (sin IVA)',
+    label: COMPANY_LABELS.fuelPricePerLiter,
     rule: 'money',
     unit: '$/L',
     illustrative: fuelMarked,
@@ -753,6 +754,13 @@ export function render(container, ctx) {
       }),
     ),
     fuelConfirm,
+    // 0.24.0 (W-10): con la Configuración ya propia, el precio de esta cotización puede pasar a ser el de la empresa.
+    saveAsCompanyAction(ctx, {
+      settingsKey: 'fuelPricePerLiter',
+      getValue: () => (ctx.quote.fuel ? ctx.quote.fuel.pricePerLiter : null),
+      describe: (v) => `${formatMoney(v)}/L de combustible`,
+      focus: 'fuel.pricePerLiter',
+    }),
     kit.advanced(
       {
         key: 'fuel-base',
