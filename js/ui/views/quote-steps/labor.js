@@ -931,7 +931,7 @@ export function render(container, ctx) {
     (r) => anyStaff || Boolean(laborRow(r) && laborRow(r).amount > 0),
   );
 
-  // 0.24.0 (PLAN-2026-028): "Horas extra del trabajo" (antes en "Cómo se cobra"), al final.
+  // 0.24.0 (PLAN-2026-028): "Horas extra del trabajo" (antes en "Cómo se cobra"), al final, antes del total.
   const overtimeSlot = h('div', { class: 'qe-overtime-slot' });
   renderCharge(overtimeSlot, { ...ctx, part: 'overtime' });
   mount(
@@ -946,8 +946,9 @@ export function render(container, ctx) {
           : 'Creá tu primer puesto (queda guardado en Recursos) o, si lo contratás afuera, sumalo como personal tercerizado. Si el servicio no lleva personal, seguí al próximo paso.',
         icon: 'resources',
       }),
-    totals,
+    // P4 (revisión de la 0.24.0): las horas extra cambian el costo de Personal: van antes del total.
     overtimeSlot.dataset.empty === 'true' ? null : overtimeSlot,
+    totals,
   );
   return { update() {} };
 }

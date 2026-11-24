@@ -60,11 +60,12 @@ export function render(container, ctx) {
     ? h(
       'span',
       {},
-      `Días desde que presentás la factura hasta que cobrás. Sugerido en Configuración: ${formatNumber(suggested)} días`,
+      `¿A cuántos días te paga el cliente? Desde que presentás la factura hasta que cobrás. Sugerido en Configuración: ${formatNumber(suggested)} días`,
       settingsIllustrative ? illustrativeTag('Valor de la configuración de demostración: confirmalo con tu cliente') : null,
       settingsIllustrative ? ' (confirmalo con tu cliente).' : '.',
     )
-    : 'Días desde que presentás la factura hasta que cobrás.';
+    // P10 (revisión de la 0.24.0): la pregunta de la tarjeta de la empresa, como ayuda del campo.
+    : '¿A cuántos días te paga el cliente? Desde que presentás la factura hasta que cobrás.';
 
   // Un solo aviso para el plazo de pago (UX-1): éste, junto al campo. No se
   // repite como "Para revisar" arriba del formulario y no alarma en rojo

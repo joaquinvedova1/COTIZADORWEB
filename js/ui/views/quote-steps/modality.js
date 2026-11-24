@@ -909,18 +909,6 @@ export function render(container, ctx) {
   // ------------------------------------------------------------------------------------
   // PLAN-2026-025 · Cotización guiada por recursos
   // ------------------------------------------------------------------------------------
-  const yesNo = ({ label, name, value, onChange, yes, no }) => choiceGroup({
-    label,
-    name,
-    value,
-    disabled: kit.readOnly,
-    options: [
-      { value: 'no', label: no.label, hint: no.hint },
-      { value: 'yes', label: yes.label, hint: yes.hint },
-    ],
-    onChange,
-  });
-
   // 3. Fuera del horario normal: tarifas de hora extra derivadas de los recursos (extras 'overtime').
   const allExtras = Array.isArray(quote.extras) ? quote.extras : [];
   const oohEntries = allExtras.map((x, i) => ({ x, i })).filter(({ x }) => isOutOfHoursExtra(x));
@@ -964,15 +952,18 @@ export function render(container, ctx) {
   // Cada cotización da UN solo precio (Joaco, 2026-11-18): las tarifas fuera de horario aparte sólo
   // se ven en las cotizaciones que ya las tenían (mismos números), con la opción de quitarlas.
   const outOfHoursCard = oohOn && (monthlyContract || !byQuantity || kind === 'quantity' || kind === 'event') ? card(
-    { title: 'Precio por hora fuera de horario (cargado antes)', subtitle: 'Esta cotización ya tenía un precio aparte por hora fuera de horario: se sigue cobrando igual. Las cotizaciones nuevas dan un solo precio; si el trabajo lleva horas extra, se cargan en "Horas extra del trabajo".', className: 'qe-ooh-card' },
-    yesNo({
-      label: '¿Querés darle al cliente un precio por hora fuera de horario?',
-      name: 'outOfHours',
-      value: oohOn ? 'yes' : 'no',
-      no: { label: 'No', hint: 'Sólo se trabaja en el horario normal.' },
-      yes: { label: 'Sí', hint: 'RATEOS suma la hora al 50 % y al 100 % de cada persona, según su sueldo.' },
-      onChange: (v) => setOutOfHours(v === 'yes'),
-    }),
+    // P2 (revisión de la 0.24.0): dice dónde están las horas extra. P3: "Quitar" con confirmación,
+    // como el resto de lo cargado antes (antes un "No" lo borraba sin preguntar).
+    { title: 'Precio por hora fuera de horario (cargado antes)', subtitle: 'Esta cotización ya tenía un precio aparte por hora fuera de horario: se sigue cobrando igual. Las cotizaciones nuevas dan un solo precio; si el trabajo lleva horas extra, se cargan en "Horas extra del trabajo" (al final de Personal).', className: 'qe-ooh-card' },
+    kit.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Quitar el precio fuera de horario', async () => {
+      const ok = await confirmDialog({
+        title: 'Quitar el precio fuera de horario',
+        message: 'Se borran los precios por hora fuera de horario de esta cotización. Si el trabajo lleva horas extra, cargalas en "Horas extra del trabajo" (al final de Personal).',
+        confirmLabel: 'Quitar',
+        danger: true,
+      });
+      if (ok) setOutOfHours(false);
+    }, { variant: 'ghost', icon: 'trash' })),
     // PLAN-2026-026: la hora fuera de horario es la suma de la de CADA persona (cada una con su
     // sueldo y su convenio), no una tarifa pareja. Se muestra el detalle por puesto.
     oohOn

@@ -519,7 +519,8 @@ export function render(container, ctx) {
   const pricingOptions = kit.advanced(
     {
       key: 'margin-pricing',
-      title: 'Más detalle (opcional): descuento y redondeo',
+      // P6 (revisión de la 0.24.0): la ayuda del margen promete el ejemplo acá.
+      title: 'Más detalle (opcional): descuento, redondeo y ejemplo de margen',
       boxed: true,
       summary: () => {
         const pr = quote.pricing || {};

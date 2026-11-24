@@ -1778,12 +1778,13 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
   };
   /**
    * Mínimo garantizado por encima de la estimación (revisión de costos de la tanda B): un toque
-   * carga en "Tarifa ofrecida" la tarifa que el motor calculó (`listRateWithMinimum`). Sin cuentas acá.
+   * carga en "Tu precio" la tarifa que el motor calculó (`listRateWithMinimum`). Sin cuentas acá.
    */
   const offeredRateAction = (n) => {
     if (n.id !== 'guarantee_above_estimate' || !(Number.isFinite(n.listRateWithMinimum) && n.listRateWithMinimum > 0)) return null;
-    if (typeof onUseOfferedRate !== 'function' || !hasField('pricing.offeredRateOverride')) return null;
-    return goButton(`Usar ${formatMoney(n.listRateWithMinimum)} como tarifa ofrecida`, () => onUseOfferedRate(n.listRateWithMinimum));
+    // P5 (revisión de la 0.24.0): "tu precio", como el campo de "El precio" (escribe en el de su modo).
+    if (typeof onUseOfferedRate !== 'function' || !(hasField('pricing.offeredRateOverride') || hasField('pricing.knownRate'))) return null;
+    return goButton(`Usar ${formatMoney(n.listRateWithMinimum)} como tu precio`, () => onUseOfferedRate(n.listRateWithMinimum));
   };
   /**
    * Horas del mes que la cotización no paga (0.23.0, elección del dueño "avisar y dejar elegir"):
@@ -2300,10 +2301,13 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     getQuote: () => state.quote,
     onReveal: (key) => revealAdvanced(key),
     onFocusField: (path) => focusField(path),
-    onUseOfferedRate: (value) => mutate((q) => {
-      if (!isPlainObject(q.pricing)) q.pricing = {};
-      q.pricing.offeredRateOverride = value;
-    }, { focus: 'pricing.offeredRateOverride' }),
+    onUseOfferedRate: (value) => {
+      const field = state.quote.pricingMode === 'known_rate' ? 'knownRate' : 'offeredRateOverride';
+      mutate((q) => {
+        if (!isPlainObject(q.pricing)) q.pricing = {};
+        q.pricing[field] = value;
+      }, { focus: `pricing.${field}` });
+    },
     onChargeFullMonth: (rows) => mutate((q) => {
       rows.forEach((row) => {
         const line = Array.isArray(q[row.list]) ? q[row.list][row.index] : null;

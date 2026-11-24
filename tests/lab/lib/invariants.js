@@ -471,24 +471,45 @@ export const QUOTE_INVARIANTS = [
   {
     // PLAN-2026-028 (0.24.0, P-12): un solo campo de precio a mano. Escribe en `pricing.knownRate`
     // si la cotización es "ya tengo la tarifa" y en `pricing.offeredRateOverride` si no. Las dos
-    // formas tienen que dar los mismos números con el mismo precio X.
-    id: 'INV-33', title: 'El mismo precio a mano X como "Tu tarifa" (known_rate) o como "Tarifa ofrecida a mano" da la misma tarifa comercial, facturación, resultado, margen y equilibrio',
+    // formas tienen que dar los mismos números con el mismo precio X. Revisión de la 0.24.0 (C-8):
+    //  - con X > 0 se compara `kpis` entero salvo commercialSource, completenessPct e incomplete
+    //    (la completitud difiere a propósito: "ya tengo la tarifa" suma el ítem del precio y no
+    //    exige la actividad), más la estructura de costos y la facturación estimada;
+    //  - con el precio vacío: "ya tengo la tarifa" queda sin precio y la otra usa la sugerida.
+    id: 'INV-33', title: 'El mismo precio a mano X como "ya tengo la tarifa" (known_rate) o como precio sobre la tarifa calculada da los mismos números (salvo la completitud, que difiere a propósito); vacío: sin precio contra la sugerida',
     check(q, r) {
       const X = num(r.kpis.commercialListRate) > 0 ? r.kpis.commercialListRate : num(r.kpis.suggestedListRate) > 0 ? r.kpis.suggestedListRate : 1000000;
-      const qa = clone(q);
-      qa.pricingMode = 'known_rate';
-      qa.pricing = { ...(qa.pricing || {}), knownRate: X, offeredRateOverride: null };
-      const qb = clone(q);
-      qb.pricingMode = 'known_activity';
-      qb.pricing = { ...(qb.pricing || {}), knownRate: 0, offeredRateOverride: X };
-      const a = run(qa);
-      const b = run(qb);
-      const keys = ['commercialListRate', 'commercialNetRate', 'revenue', 'profit', 'marginPct', 'markupPct', 'breakEvenDays', 'breakEvenQuantity', 'targetMarginDays', 'totalCost', 'financialCost', 'billingTaxes'];
-      const diffs = keys.map((k) => [k, a.kpis[k], b.kpis[k]])
-        .filter(([, x, y]) => !(x === y || (num(x) !== null && num(y) !== null && Math.abs(x - y) <= TOL(x))));
+      const as = (mode, value) => {
+        const c = clone(q);
+        c.pricingMode = mode;
+        c.pricing = mode === 'known_rate'
+          ? { ...(c.pricing || {}), knownRate: value, offeredRateOverride: null }
+          : { ...(c.pricing || {}), knownRate: 0, offeredRateOverride: value };
+        return run(c);
+      };
+      const a = as('known_rate', X);
+      const b = as('known_activity', X);
+      const skip = new Set(['commercialSource', 'completenessPct', 'incomplete']);
+      const same = (x, y) => x === y || (num(x) !== null && num(y) !== null && Math.abs(x - y) <= TOL(x)) || JSON.stringify(x) === JSON.stringify(y);
+      const diffs = [...new Set([...Object.keys(a.kpis), ...Object.keys(b.kpis)])]
+        .filter((k) => !skip.has(k))
+        .map((k) => [k, a.kpis[k], b.kpis[k]])
+        .filter(([, x, y]) => !same(x, y));
       const be = (res) => (res.breakEven ? [res.breakEven.reachable, res.breakEven.notApplicable] : []);
       if (JSON.stringify(be(a)) !== JSON.stringify(be(b))) diffs.push(['equilibrio', JSON.stringify(be(a)), JSON.stringify(be(b))]);
-      return diffs.length ? fail(`X = ${X}: ${diffs.map(([k, x, y]) => `${k} ${x} ≠ ${y}`).join('; ')}`) : ok(`X = ${X}: mismos números`);
+      const rows = (res) => ((res.eecc && res.eecc.rows) || []).map((x) => [x.category, Math.round((Number(x.amount) || 0) * 100) / 100]);
+      if (JSON.stringify(rows(a)) !== JSON.stringify(rows(b))) diffs.push(['eecc', JSON.stringify(rows(a)).slice(0, 80), JSON.stringify(rows(b)).slice(0, 80)]);
+      const rev = (res) => (res.estimate && res.estimate.revenue) || {};
+      for (const k of ['total', 'subtotal', 'listRate', 'netRate', 'billableUnits', 'guaranteeTopUp', 'otherRevenue']) {
+        if (!same(rev(a)[k], rev(b)[k])) diffs.push([`estimate.revenue.${k}`, rev(a)[k], rev(b)[k]]);
+      }
+      // Precio vacío: "ya tengo la tarifa" no tiene precio; la otra usa la sugerida.
+      const ea = as('known_rate', null);
+      const eb = as('known_activity', null);
+      if (ea.kpis.commercialSource !== 'none') diffs.push(['vacío known_rate', ea.kpis.commercialSource, 'none']);
+      if (!['suggested', 'none'].includes(eb.kpis.commercialSource)) diffs.push(['vacío known_activity', eb.kpis.commercialSource, 'suggested']);
+      if (eb.kpis.commercialSource === 'suggested' && !same(eb.kpis.commercialListRate, eb.kpis.suggestedListRate)) diffs.push(['vacío: tarifa = sugerida', eb.kpis.commercialListRate, eb.kpis.suggestedListRate]);
+      return diffs.length ? fail(`X = ${X}: ${diffs.map(([k, x, y]) => `${k} ${x} ≠ ${y}`).join('; ')}`) : ok(`X = ${X}: mismos números; vacío: sin precio / ${eb.kpis.commercialSource}`);
     },
   },
   {

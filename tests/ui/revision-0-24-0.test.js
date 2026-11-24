@@ -186,3 +186,28 @@ describe('UX: textos y orden (C2, C3, C5, C6, C10, C11; C-6 de costos)', async (
     assert.match(code('css/quote.css'), /\.qe-sum-main \.qe-sum-item \{ display: flex; flex-wrap: wrap; align-items: baseline;/);
   });
 });
+
+describe('para después, los baratos (P2, P3, P4, P5, P6, P10 de UX)', () => {
+  test('P2 y P3: la hora fuera de horario dice dónde están las horas extra y se quita con confirmación', () => {
+    const src = code('js/ui/views/quote-steps/modality.js');
+    assert.match(src, /se cargan en "Horas extra del trabajo" \(al final de Personal\)\.', className: 'qe-ooh-card'/);
+    assert.match(src, /kit\.action\('Quitar el precio fuera de horario', async \(\) => \{\n\s+const ok = await confirmDialog\(/);
+    assert.doesNotMatch(src, /name: 'outOfHours',/);
+  });
+
+  test('P4: "Horas extra del trabajo" antes del total de Personal', () => {
+    const src = code('js/ui/views/quote-steps/labor.js');
+    assert.ok(src.indexOf("overtimeSlot.dataset.empty === 'true' ? null : overtimeSlot,") < src.indexOf('    totals,\n  );'));
+  });
+
+  test('P5: "Usar $ X como tu precio", en el campo del modo', () => {
+    const src = code('js/ui/views/quote-editor.js');
+    assert.match(src, /como tu precio`/);
+    assert.match(src, /const field = state\.quote\.pricingMode === 'known_rate' \? 'knownRate' : 'offeredRateOverride';/);
+  });
+
+  test('P6 y P10: el pliegue nombra el ejemplo; el plazo de cobro lleva la pregunta', () => {
+    assert.match(code('js/ui/views/quote-steps/margin.js'), /'Más detalle \(opcional\): descuento, redondeo y ejemplo de margen'/);
+    assert.match(code('js/ui/views/quote-steps/finance.js'), /'¿A cuántos días te paga el cliente\? Desde que presentás la factura hasta que cobrás\.'/);
+  });
+});
