@@ -28,9 +28,22 @@ Reglas para este archivo:
 - **"Suba de precios" e "Inflación"** (P-15) se ocultan sólo si están en 0 y el precio ya contempla la inflación.
 - **Textos**: "Aportes del trabajador (% del remunerativo)" (el motor ya los calculaba así); "Viáticos y alojamiento" dice lo mismo que el bloque de viajes (P-10); "Horas asignadas a este trabajo" (P-21); en Productos, "Precio piso" pasa a **"Precio mínimo"** (W-11, D4).
 
+### Corregido (revisión de la 0.24.0)
+
+Project files `auditoria-beta/revision-0-24-0/` (UX.md y COSTOS.md). Ningún número cambia salvo por una acción de la persona (botones con confirmación o "Usar los de mi empresa").
+
+- **IVA de externos** (B-1): un externo nuevo vuelve a nacer con "¿Recuperás ese IVA?" sin definir. Con el IVA de la cotización aplicado, "Sí" baja el costo financiero (crédito fiscal): "Recupero el IVA de todos" pide confirmación y dice cuánto baja el costo.
+- **"Te cuesta · impuestos · ganás"** (B1, C-7): la línea muestra los impuestos sobre lo que facturás del motor y suma el precio facturado.
+- **Margen de "ganás"** (B-2, C4): el pedido sólo si la diferencia es de redondeo; si no, el real del motor (p. ej. 55,4 % con el mínimo garantizado, no 15 %). "El precio" usa el mismo criterio.
+- **Precio a mano** (C-1, C-2, C1): en "ya tengo la tarifa", vaciar el campo hace lo mismo que "Borrar mi precio y usar el sugerido"; sin asterisco; el texto de muestra depende del modo. La confirmación avisa si faltan los días del mes y lleva a ese campo; no dice "$ 0".
+- **Cobro por mes sin "Movilización y viajes"** (C-3): "¿Cómo viaja el personal?" se ve en "El servicio".
+- **Datos de la empresa** (C-4, C-5, C7, C8, C9): el aviso de una cotización creada antes muestra los dos valores y, si difieren, "Usar los de mi empresa" o "Dejar estos". "Precio del combustible (con IVA)" para monotributo y exento. Con responsable inscripto, la tarjeta pide el IVA que facturás y los días hasta pagarlo. En "Nuevo servicio" la tarjeta va después de las opciones y "Ahora no" se recuerda en la sesión. "Margen que querés ganar (sobre el precio)" en los dos lados.
+- **Resultado y resumen** (C-6, C5, C6, C11): con descuento, la pista de la cifra grande dice lo que se cobra; la cifra se pinta en rojo si se pierde y en naranja bajo el objetivo; el precio a mano se llama "Tu precio" en todos lados; la barra del celular muestra el rótulo y la cifra enteros.
+- **Textos y orden** (C2, C3, C10, P2–P6, P10): "Cargado antes" va antes de "Opciones comerciales"; un enlace viejo `…/modality?campo=` va al paso del campo; sin "piso" en textos visibles ("por debajo de la tarifa mínima"); la hora fuera de horario cargada antes se quita con confirmación y dice dónde están las horas extra; "Horas extra del trabajo" antes del total de Personal; "Usar $ X como tu precio"; el pliegue del precio nombra el ejemplo de margen; el plazo de cobro lleva la pregunta "¿A cuántos días te paga el cliente?".
+
 ### Test Lab
 
-- Controles estáticos `UX-TERM-STEP` (ningún texto cita "Cómo se cobra") y `UX-TERM-FLOOR` (ningún texto dice "precio piso"). Invariantes INV-33 y INV-34. Sonda PRB-24. Navegador E2E-26 a E2E-32.
+- Controles estáticos `UX-TERM-STEP` (ningún texto cita "Cómo se cobra") y `UX-TERM-FLOOR` (ningún texto dice "piso", ampliado en la revisión). Invariantes INV-33 (ampliado en la revisión: `kpis` enteros salvo la completitud, EECC, facturación estimada y precio vacío) e INV-34 (corregido en la revisión: con el IVA aplicado, "Sí" ≤ sin definir). Sonda PRB-24. Navegador E2E-26 a E2E-32. La foto `tanda4-sin-cambio` suma `especialista-24h-c2` con mínimo de 20 unidades (sacado con el motor de la 0.23.0).
 
 ## [0.23.0] - 2026-11-23
 
