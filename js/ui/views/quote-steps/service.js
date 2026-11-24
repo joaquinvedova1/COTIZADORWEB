@@ -12,7 +12,7 @@ import { h, mount } from '../../dom.js';
 import { card, dateField, formGrid, confirmDialog, infoTip } from '../../components.js';
 import { QUOTE_STATUSES, labelOf } from '../../../domain/catalogs.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
-import { INCLUDE_BLOCKS, SERVICE_COMPONENTS, blockOfComponent, blocksOf, componentsOf, contractOf, contractUsesMaterials, contractWithComponents, modeForUnit, serviceTypeForContract, withBlock } from '../../../domain/contract.js';
+import { INCLUDE_BLOCKS, SERVICE_COMPONENTS, blockOfComponent, blocksOf, componentsOf, contractOf, contractUsesMaterials, contractWithComponents, modeForUnit, serviceTypeForContract, withBlock, travelNotNeeded, activationsMatter } from '../../../domain/contract.js';
 import { isPlainObject } from '../../../core/object.js';
 import { formatMoney, formatNumber, formatPeriod, formatDayDate, EMPTY } from '../../../core/format.js';
 import { assignOfferBase } from '../../../domain/economic-base.js';
@@ -256,6 +256,15 @@ export function render(container, ctx) {
   // 0.20.0: el ritmo se pregunta acá, apenas se elige la unidad (antes, después de los recursos).
   const rhythm = h('div', { class: 'qe-rhythm' });
   renderCharge(rhythm, { ...ctx, part: 'rhythm' });
+  // Revisión de la 0.24.0 (C-3 de costos): cobrando por mes, "¿Cómo viaja el personal?" vive en
+  // "Movilización y viajes". Si ese paso está oculto y el dato mueve números (algo por salida) o ya
+  // tiene un valor distinto de "uno por día", se monta acá, al final del ritmo: nunca queda un dato
+  // que cambia el costo sin poder verse.
+  if (travelInService(quote)) {
+    const travelSlot = h('div', { class: 'qe-travel-slot' });
+    renderCharge(travelSlot, { ...ctx, part: 'travel' });
+    if (travelSlot.dataset.empty !== 'true') rhythm.appendChild(travelSlot);
+  }
 
   const composer = componentsComposer({ quote, components, custom, readOnly: kit.readOnly, ctx, apply: (list, extra = custom, focusId = null) => {
     keepPlace(focusId, () => {
@@ -374,4 +383,16 @@ export function render(container, ctx) {
 
   mount(container, identity, unitCard, rhythm, includes, economicBase, more);
   return { update() {} };
+}
+
+/**
+ * ¿Va "¿Cómo viaja el personal?" en "El servicio"? (revisión de la 0.24.0, C-3): contrato por mes,
+ * el paso "Movilización y viajes" oculto (travelNotNeeded) y la salida mueve números o ya tiene un
+ * ritmo distinto de uno por día.
+ */
+export function travelInService(quote) {
+  const contract = contractOf(quote);
+  if (contract.legacy || contract.mode !== 'monthly' || !travelNotNeeded(quote)) return false;
+  const dpa = Number(quote && quote.activity && quote.activity.daysPerActivation);
+  return activationsMatter(quote) || (Number.isFinite(dpa) && dpa > 0 && Math.abs(dpa - 1) > 1e-9);
 }

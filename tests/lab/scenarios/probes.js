@@ -13,7 +13,7 @@
  */
 
 import { service, person, owned, external, material, vehicle, otherCost } from '../lib/build.js';
-import { materialLineFromLibrary } from '../../../js/domain/quote-factory.js';
+import { materialLineFromLibrary, createEmptyQuote, defaultSettings } from '../../../js/domain/quote-factory.js';
 import { defaultMaterialBasis } from '../../../js/domain/material-types.js';
 import { cot0010Quote, cot0011Quote } from '../../fixtures/cot-0010.js';
 import { validateQuote } from '../../../js/core/validation.js';
@@ -265,6 +265,28 @@ export const PROBES = [
       const m = q.materials[0];
       if (m.basis !== 'per_output' || m.quantity !== null) return { how: 'silent', evidence: `la línea nació ${m.basis} con cantidad ${m.quantity}` };
       return responseOf(q, r, { messages: [/Kit de juntas/] });
+    },
+  },
+  {
+    // PLAN-2026-028 (0.24.0, W-10): con los datos de la empresa ya guardados ("Datos de tu empresa"),
+    // la cotización nueva nace con esos valores y sin marca de ejemplo: no se piden de nuevo.
+    id: 'PRB-24', dimension: 'D', title: 'Configuración propia y cotización nueva: sin aviso de combustible ni de tasa de ejemplo',
+    expect: 'derive', onSilent: { severity: 'P1', category: 'P1 COMPLETENESS' },
+    explain: 'Con settings.illustrative = false la cotización nueva copia combustible, tasa, plazo e imprevistos de la empresa sin la marca ILUSTRATIVO.',
+    build: () => {
+      const settings = { ...defaultSettings('org-prb-24'), fuelPricePerLiter: 1850, financeMonthlyRatePct: 4, defaultPaymentTermDays: 45, defaultContingencyPct: 3, defaultTargetMarginPct: 15, illustrative: false };
+      const q = createEmptyQuote({ organizationId: 'org-prb-24', settings, id: 'prb-24', now: '2026-11-20T00:00:00.000Z' });
+      const base = service({ id: 'prb-24', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()], equipment: [owned({ name: 'Grupo electrógeno', fuelLitersPerHour: 6 })] });
+      return { ...q, serviceType: base.serviceType, contract: base.contract, unit: 'day', activity: { ...q.activity, activeDaysPerMonth: 10 }, labor: base.labor, equipment: base.equipment, materialsNotApplicable: true };
+    },
+    respond: (q, r) => {
+      const f = r.completeness.items.find((x) => x.id === 'fuel');
+      const illustrative = /ILUSTRATIV/.test(JSON.stringify([...r.completeness.items, ...(r.completeness.notices || [])].map((x) => x.message)));
+      const flags = q.fuel.illustrative === true || q.finance.illustrative === true;
+      if (flags || illustrative) return { how: 'silent', evidence: `marca de ejemplo: fuel ${q.fuel.illustrative}, finance ${q.finance.illustrative}${f ? `; combustible ${f.status}: ${f.message}` : ''}` };
+      return q.fuel.pricePerLiter === 1850 && q.finance.monthlyRatePct === 4
+        ? { how: 'derive', evidence: `nace con $ 1.850/L y 4 % mensual de la empresa, sin marca de ejemplo (combustible: ${f ? f.status : 'sin regla'})` }
+        : { how: 'silent', evidence: `nació con ${q.fuel.pricePerLiter}/L y ${q.finance.monthlyRatePct} %` };
     },
   },
 ];

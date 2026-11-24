@@ -49,7 +49,8 @@ jobs:
     if: github.event_name == 'pull_request'
     # ubuntu-latest ya es 26.04 y Playwright 1.56.1 no instala Chromium ahí: se fija 24.04.
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # La auditoría en navegador creció con la 0.24.0 (E2E-26…E2E-33): ~25 min en el runner.
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v4

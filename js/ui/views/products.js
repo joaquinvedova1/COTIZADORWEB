@@ -253,7 +253,7 @@ export const STEP_HINTS = Object.freeze({
   maquinas: 'Horno, amasadora, heladera: lo que gastan al usarlas y lo que cuesta tenerlas.',
   fijos: 'Alquiler, servicios, contador… y qué parte le toca a este producto.',
   precio: 'Cuánto querés ganar, impuestos sobre lo que vendés, redondeo e IVA.',
-  resultado: 'Costo por unidad, precio piso, precio sugerido y cuántas tenés que vender.',
+  resultado: 'Costo por unidad, precio mínimo, precio sugerido y cuántas tenés que vender.',
 });
 
 export { formatMoney };

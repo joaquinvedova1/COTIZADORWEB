@@ -1,28 +1,29 @@
 /**
- * Etapa 1 · El servicio — Cómo se cobra (modalidad).
- * Básico: modo (conozco la tarifa / conozco la actividad), unidad (las
- * habituales del tipo de servicio + "Otra / personalizada", PLAN-2026-009),
- * tarifa conocida y la actividad EN LA UNIDAD COMERCIAL:
- *   $/día, $/hora, $/mes      días trabajados por mes y días por llamado (como siempre)
- *   $/m³, $/viaje, $/turno…   cantidad a facturar por mes + cantidad por día de trabajo
- *   $/llamado, $/trabajo, $/hito  llamados o trabajos por mes + días de trabajo de cada uno
+ * Ritmo de trabajo y lo que quedaba del paso "Cómo se cobra" (modalidad).
+ * 0.24.0 (PLAN-2026-028): "Cómo se cobra" ya no es un paso. Este módulo conserva su nombre y
+ * dibuja por partes, cada una en su paso:
+ *   'rhythm'    El servicio (paso 1): la actividad EN LA UNIDAD COMERCIAL
+ *     $/día, $/hora, $/mes      días trabajados por mes y días por llamado (como siempre)
+ *     $/m³, $/viaje, $/turno…   cantidad a facturar por mes + cantidad por día de trabajo
+ *     $/llamado, $/trabajo, $/hito  llamados o trabajos por mes + días de trabajo de cada uno
+ *   'overtime'  Personal, al final: "Horas extra del trabajo"
+ *   'travel'    Movilización y viajes: "¿Cómo viaja el personal a la locación?" (cobro por mes)
+ *   'legacy'    El precio, "Cargado antes": hora fuera de horario, guardia y adicionales
  * Los días de trabajo (lo que consume personal, equipos y combustible) se
- * derivan en el motor: UNIDAD DE COSTO ≠ UNIDAD DE VENTA.
- * Opciones avanzadas: días disponibles, horas por día, disponibilidad on-call
- * y tiempo de respuesta (con un resumen visible de lo aplicado).
+ * derivan en el motor: UNIDAD DE COSTO ≠ UNIDAD DE VENTA. El precio a mano (tarifa conocida u
+ * ofrecida) es un solo campo en "El precio" (margin.js).
  */
 
 import { h, mount } from '../../dom.js';
-import { card, formGrid, choiceGroup, button, infoTip, disclosure, confirmDialog } from '../../components.js';
-import { PRICING_MODES, AVAILABILITY_OPTIONS, AVAILABILITY_WINDOW } from '../../../domain/catalogs.js';
+import { card, formGrid, choiceGroup, infoTip, disclosure, confirmDialog } from '../../components.js';
+import { AVAILABILITY_OPTIONS, AVAILABILITY_WINDOW } from '../../../domain/catalogs.js';
 import { billingUnitOf, unitTexts } from '../../../domain/billing-units.js';
 import { hoursPerDayFromManHours } from '../../../domain/unit-change.js';
 import { numberToInputText } from '../../../core/validation.js';
-import { DEFAULT_MARGIN_LADDER } from '../../../config.js';
 import { formatMoney, formatMoneyCeil, formatPercent, formatNumber, formatDays, EMPTY } from '../../../core/format.js';
 import { isFiniteNumber, roundRate } from '../../../core/money.js';
-import { perUnitCeil, netRateHint, floorDisplay, floorRateTrace, hasNumber, stepName, minimumGuaranteeFields, guaranteeLoaded } from './shared.js';
-import { quantityText, quantityCeilText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
+import { hasNumber, stepName } from './shared.js';
+import { quantityText, workDaysText, capitalizeUnitPhrase, activationPaceText } from '../../unit-text.js';
 import { activationRoundingText, closedJobsPerMonth, perQuoteUnit, unitAmountText, lineMonthAtEstimate, longClosedJobNote, salaryMonthsAt, timeBasisWithoutFixed } from '../../result-text.js';
 import { activationTerms, GUARD_FEE_LABEL } from '../../../domain/activation-terms.js';
 import { transportStats } from './transport.js';
@@ -33,32 +34,9 @@ import { outsideWindowHours, outsideWindowMessage, activeGuardCoverage, activeGu
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
 import { staffText } from './labor.js';
 import { isOutOfHoursExtra, OUT_OF_HOURS_KIND, OUT_OF_HOURS_PRESETS } from '../../../engines/out-of-hours-engine.js';
-import { proposeServiceShares, staleDedicationOf, staleDedicationMessage } from '../../../engines/utilization-engine.js';
 import { createId } from '../../../core/ids.js';
 import { SPARSE_ACTIVATIONS_ISSUE } from '../../../engines/quote-engine.js';
-import { dedicationChoiceOf } from '../../../domain/assignment.js';
 import { usesTimeBasis } from '../../../domain/cost-basis.js';
-
-const MODE_LABELS = Object.freeze({
-  known_rate: 'Sí, ya tengo la tarifa',
-  known_activity: 'No, quiero que RATEOS la calcule',
-});
-
-/** Explicación de cada opción en palabras simples (PLAN-2026-026). */
-const MODE_HINTS = Object.freeze({
-  known_rate: 'Ves cuánto ganás y cuánto trabajar para no perder.',
-  known_activity: 'Sale de cuánto esperás trabajar.',
-});
-
-/** Precio cerrado (revisión UX tanda novatos): se habla de "precio", no de "tarifa". */
-const CLOSED_MODE_LABELS = Object.freeze({
-  known_rate: 'Sí, ya tengo el precio',
-  known_activity: 'No, quiero que RATEOS lo calcule',
-});
-const CLOSED_MODE_HINTS = Object.freeze({
-  known_rate: 'Ves cuánto ganás.',
-  known_activity: 'Sale de cuánto lleva el trabajo.',
-});
 
 const AVAILABILITY_HINTS = Object.freeze({
   none: 'Salís cuando te llaman, en tu horario. Ej.: cuadrilla de 8 a 17.',
@@ -82,16 +60,6 @@ function unitsLabel(r, value) {
   if (unit === 'month') return `${formatNumber(value, { decimals: 2 })} ${Math.abs(value - 1) < 1e-9 ? 'tarifa del mes' : 'tarifas del mes'}`;
   if (unit === 'quantity' || unit === 'event') return quantityText(value, r);
   return `${formatNumber(value, { decimals: 2 })} días`;
-}
-
-/** Rótulo de la tarifa: "$/día", "$/mes (abono)" (como siempre) o "$/m³", "$/viaje", "$/pozo". */
-function rateLabelOf(info) {
-  return info.legacy ? info.label : `$/${info.singular}`;
-}
-
-/** Sufijo del campo de tarifa: "$/día", "$/m³", "$/u.". */
-function rateSuffixOf(info) {
-  return info.legacy ? info.label.replace(/\s*\(.*\)$/, '') : `$/${info.short}`;
 }
 
 /** "Por llamado", "por m³"… */
@@ -337,7 +305,7 @@ export function render(container, ctx) {
   const info = billingUnitOf(quote);
   // 0.20.0: el ritmo de trabajo (cuánto se hace por mes y por día) se pregunta en el paso 1,
   // apenas se elige la unidad: de ahí en más toda la cotización se lleva a esa unidad. Este
-  // módulo dibuja las dos partes: `part: 'rhythm'` (paso 1) y el resto ("Cómo se cobra").
+  // módulo dibuja por partes (ver el encabezado): `part: 'rhythm'` (paso 1), 'overtime', 'travel' y 'legacy'.
   const rhythmPart = ctx.part === 'rhythm';
   // Unidad "viaje" (PLAN-2026-012): los viajes físicos por intervención se
   // derivan de los viajes por día × días por intervención. Al editar esos
@@ -364,9 +332,6 @@ export function render(container, ctx) {
   const monthlyContract = !contract.legacy && contract.mode === 'monthly';
   // Precio cerrado: "precio" en vez de "tarifa" (revisión UX tanda novatos).
   const closed = contract.mode === 'closed';
-  const rateWord = closed ? 'precio' : 'tarifa';
-  const modeLabels = closed ? CLOSED_MODE_LABELS : MODE_LABELS;
-  const modeHints = closed ? CLOSED_MODE_HINTS : MODE_HINTS;
   // Precio cerrado por trabajo con 1 trabajo por mes: lo que se pregunta a la vista es cuántos
   // días lleva; "trabajos por mes" queda en "Más detalle" (no cambia ningún número).
   const closedJob = closed && kind === 'event' && info.id === 'job';
@@ -443,39 +408,7 @@ export function render(container, ctx) {
     : null;
   }
 
-  const knownRate = quote.pricingMode === 'known_rate';
   const Plural = capitalizeUnitPhrase(info.plural);
-
-  const modeCard = rhythmPart ? null : card(
-    {},
-    kit.choice('pricingMode', {
-      label: `¿Ya sabés qué ${rateWord} vas a cobrar?`,
-      // Primero lo más común: que RATEOS calcule el precio.
-      options: [...PRICING_MODES].sort((a, b) => (a.id === 'known_activity' ? -1 : b.id === 'known_activity' ? 1 : 0)).map((m) => ({ value: m.id, label: modeLabels[m.id] || m.label, hint: modeHints[m.id] || m.hint })),
-      structural: true,
-    }),
-    // 0.10.0 ("La unidad primero"): la unidad se elige en el paso 1; acá sólo se dice cuál es.
-    h('p', { class: 'qe-note qe-unit-line' },
-      `Cobrás por ${info.singular || 'unidad'}. `,
-      h('a', { href: ctx.href('service') }, `Se cambia en «${stepName('service')}»`),
-      '.'),
-    knownRate
-      ? formGrid(
-        2,
-        kit.num('pricing.knownRate', {
-          label: `Tu ${rateWord} (${rateLabelOf(info)}, sin IVA)`,
-          rule: 'money',
-          unit: rateSuffixOf(info),
-          requiredMark: true,
-          hint: closed
-            ? 'Precio de lista, sin IVA, antes de descuentos por continuidad o comerciales.'
-            : kind === 'day' || kind === 'hour'
-            ? 'Tarifa de lista, sin IVA, antes de descuentos por días, continuidad o comerciales.'
-            : 'Tarifa de lista, sin IVA, antes de descuentos por continuidad o comerciales.',
-        }),
-      )
-      : null,
-  );
 
   // Horas por día de trabajo: dato básico si cobrás por hora (define las horas facturables).
   // On call (franja horaria, 2026-11): a la vista, al lado de los días, para no confundirlas
@@ -499,8 +432,8 @@ export function render(container, ctx) {
       : byQuantity
       ? 'Las horas que se trabaja cada día. Se usan para el combustible y el uso de los equipos, y para calcular qué parte del mes les ocupa este servicio.'
       : quote.unit === 'hour'
-      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Si se trabaja fuera de este horario, elegilo más abajo en "Horas extra del trabajo": queda dentro de tu precio.`
-      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Si se trabaja fuera de este horario, elegilo más abajo en "Horas extra del trabajo": queda dentro de tu precio.`,
+      ? `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Cobrás por hora: se facturan días con trabajo × estas horas${guardChosen ? ' (no las horas de guardia)' : ''}. Si se trabaja fuera de este horario, elegilo en "Horas extra del trabajo" (al final de Personal): queda dentro de tu precio.`
+      : `Tu horario normal: las horas que se trabaja cada día que salís (de 8 a 17 con una hora de almuerzo = 8 h). Se usan para el uso de equipos y combustible${guardChosen ? '; no son las horas de guardia' : ''}. Si se trabaja fuera de este horario, elegilo en "Horas extra del trabajo" (al final de Personal): queda dentro de tu precio.`,
   });
   const hourly = quote.unit === 'hour';
   // Por viaje (tanda novatos 2026-11): las horas por día y el trabajo fuera de horario van en
@@ -642,7 +575,7 @@ export function render(container, ctx) {
     hint: (r) => {
       if (!hasNumber(quote.activity && quote.activity.activeDaysPerMonth)) return `Cargá los días por mes para ver ${T.g('cuántas', 'cuántos')} ${T.many} y días facturás.`;
       // Fijo mensual (PLAN-2026-024): se factura 1 abono; la utilización no dice nada acá.
-      if (monthlyContract) return 'Cobrás una tarifa por mes: un solo precio. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo".';
+      if (monthlyContract) return 'Cobrás una tarifa por mes: un solo precio. Si hay horas fuera de horario, elegilas en "Horas extra del trabajo" (al final de Personal).';
       const billable = unitsLabel(r, r.estimate.revenue.billableUnits);
       const extra = r.estimate.revenue.minimumCallApplied ? ` (incluye el mínimo ${T.per})` : '';
       const acts = r.activity.activationsPerMonth;
@@ -814,7 +747,7 @@ export function render(container, ctx) {
     : null;
   const timePaceInMain = Boolean(timePace) && Math.abs(storedPace - 1) > 1e-9;
   // Por viaje: "Trabajo fuera del horario normal" va plegado en "Más detalle" si no está en uso.
-  // 0.20.0: el ritmo va en el paso 1; las horas fuera de horario quedan siempre en "Cómo se cobra".
+  // 0.20.0: el ritmo va en el paso 1; las horas fuera de horario cargadas antes, en "El precio" (0.24.0).
   const oohInFold = false && tripFold && !(Array.isArray(quote.extras) && quote.extras.some((x) => isOutOfHoursExtra(x)));
   const oohSlot = h('div', { class: 'qe-ooh-fold' });
   const activityCard = card(
@@ -834,7 +767,7 @@ export function render(container, ctx) {
             unit: 'días/mes',
             requiredMark: true,
             placeholder: 'Ej.: 22',
-            hint: 'Los días que cubre la tarifa del mes (lunes a viernes ≈ 22, lunes a sábado ≈ 26, todos los días = 30). No cambia los sueldos: el personal se carga en Personal. Si se trabaja fuera de eso, elegilo en "Horas extra del trabajo": queda dentro de la tarifa del mes.',
+            hint: 'Los días que cubre la tarifa del mes (lunes a viernes ≈ 22, lunes a sábado ≈ 26, todos los días = 30). No cambia los sueldos: el personal se carga en Personal. Si se trabaja fuera de eso, elegilo en "Horas extra del trabajo" (al final de Personal): queda dentro de la tarifa del mes.',
           })
           : kit.num('activity.activeDaysPerMonth', {
             // 0.10.0: por hora o por día, el precio es por hora / por día; los días del mes son una estimación.
@@ -908,7 +841,6 @@ export function render(container, ctx) {
             timePace && !timePaceInMain ? `${T.g('una', 'un')} ${T.one} por día` : null,
             hoursInMain ? null : isFiniteNumber(Number(a.hoursPerActiveDay)) && a.hoursPerActiveDay !== null && a.hoursPerActiveDay !== '' ? `${formatNumber(Number(a.hoursPerActiveDay), { decimals: 2 })} h por día de trabajo` : 'horas por día sin cargar',
             paceMatters && kind === 'quantity' && hasNumber(a.daysPerActivation) ? activationPaceText(Number(a.daysPerActivation), T) : null,
-            isOnCall && !asksAvailability && a.availability !== 'none' && isFiniteNumber(Number(a.responseTimeHours)) && a.responseTimeHours !== null && a.responseTimeHours !== '' ? `respuesta en ${formatNumber(Number(a.responseTimeHours), { decimals: 1 })} h` : null,
           ].filter(Boolean);
           return parts.join(' · ');
         },
@@ -926,20 +858,8 @@ export function render(container, ctx) {
       // Puede durar varios días o haber varias en un día (se guarda 1 / N).
       quantityPaceSlot,
       timePace && !timePaceInMain ? timePace : null,
-      isOnCall && !asksAvailability && !(quote.activity && quote.activity.availability === 'none')
-        ? kit.group(
-          'Tiempo de respuesta',
-          formGrid(
-            2,
-            kit.num('activity.responseTimeHours', {
-              label: 'Tiempo máximo de respuesta',
-              rule: 'hours',
-              unit: 'h',
-              hint: 'Desde el llamado hasta estar operativo en locación.',
-            }),
-          ),
-        )
-        : null,
+      // 0.24.0 (P-14): "Tiempo máximo de respuesta" no mueve ningún número: salió del ritmo y
+      // queda sólo en "Detalle de la guardia" (en "El precio"), para las que ya tienen guardia.
       // UX 1: un trabajo cerrado más largo que el mes no es un error; se dice como dato (azul).
       kit.out((r) => {
         const text = longClosedJobNote(r);
@@ -986,184 +906,9 @@ export function render(container, ctx) {
     mount(container, activityCard);
     return { update() {} };
   }
-  // En "Cómo se cobra" el ritmo sólo se muestra (se carga en el paso 1).
-  const rhythmSummary = card(
-    { className: 'qe-rhythm-summary' },
-    byQuantity ? quantityKeyline : daysKeyline,
-  );
-
   // ------------------------------------------------------------------------------------
   // PLAN-2026-025 · Cotización guiada por recursos
   // ------------------------------------------------------------------------------------
-  const setActivityValue = (key, value) => ctx.mutate((q) => {
-    if (!q.activity || typeof q.activity !== 'object') q.activity = {};
-    q.activity[key] = value;
-  });
-  const yesNo = ({ label, name, value, onChange, yes, no }) => choiceGroup({
-    label,
-    name,
-    value,
-    disabled: kit.readOnly,
-    options: [
-      { value: 'no', label: no.label, hint: no.hint },
-      { value: 'yes', label: yes.label, hint: yes.hint },
-    ],
-    onChange,
-  });
-
-  // 1. Lo que cuestan tus recursos (lo cargado en la etapa anterior): de acá sale la tarifa.
-  const shows = chosenResourceRows(quote);
-  const sumLines = (r, test, key) => (r.model.lines || []).filter(test).reduce((acc, l) => acc + (l[key] || 0), 0);
-  const isLabor = (l) => l.category === 'labor';
-  const isEquipment = (l) => l.category === 'equipment' || l.category === 'external';
-  const isOther = (l) => !isLabor(l) && !isEquipment(l) && l.category !== 'structure' && l.category !== 'financial' && l.category !== 'contingency' && l.category !== 'inflation';
-  // Todo en la misma unidad (tanda novatos 2026-11): por mes o, en precio cerrado, en el trabajo.
-  // Trabajos por mes (no hitos): mismo divisor que el "Total del trabajo" (Joaco 2026-11-18).
-  const closedJobs = (r) => (contract.mode === 'closed' ? closedJobsPerMonth(r) : null);
-  const resourceStat = (label, test, stepId, emptyText) => kit.stat(label, (r) => {
-    const fixed = sumLines(r, test, 'fixedMonthly');
-    const variable = sumLines(r, test, 'variablePerActiveDay');
-    const D = r.activity.activeDaysPerMonth;
-    const text = resourceCostSameUnitText({ fixedMonthly: fixed, variablePerDay: variable, activeDays: D, jobsPerMonth: closedJobs(r) });
-    // M7: por hora, día o cantidad, también "≈ $ X por hora".
-    return D > 0 && closedJobs(r) === null && (fixed > 0.005 || variable > 0.005) ? unitAmountText(r, quote, fixed + variable * D) : text;
-  }, {
-    hint: (r) => {
-      const fixed = sumLines(r, test, 'fixedMonthly');
-      const variable = sumLines(r, test, 'variablePerActiveDay');
-      if (!(fixed > 0.005) && !(variable > 0.005)) return `${emptyText} Se carga en "${stepName(stepId)}".`;
-      const D = r.activity.activeDaysPerMonth;
-      if (!(D > 0)) return `${fixed > 0.005 && variable > 0.005 ? 'Lo de por día se suma cada día de trabajo. ' : ''}Se cambia en "${stepName(stepId)}".`;
-      const jobs = closedJobs(r);
-      // M4 (2026-11-18): por tiempo usado sin fijo del mes, en el trabajo es lo de cada día × sus días.
-      if (jobs !== null && r.model.timeBasis && !(fixed > 0.005)) return `Lo de cada día de trabajo × ${num(D / jobs)} ${Math.abs(D / jobs - 1) < 1e-9 ? 'día' : 'días'}. Se cambia en "${stepName(stepId)}".`;
-      const how = jobs !== null
-        ? `Lo del mes con ${num(D)} días de trabajo, dividido por ${num(jobs)} ${jobs === 1 ? 'trabajo' : 'trabajos'}.`
-        : `Con ${num(D)} días de trabajo por mes.`;
-      return `${how} Se cambia en "${stepName(stepId)}".`;
-    },
-  });
-  const resourcesCard = card(
-    {
-      title: 'Lo que ya cargaste',
-      // M4 (2026-11-18): por tiempo usado, sin días cargados los montos van por día de trabajo: el subtítulo lo dice.
-      // 0.17.0: sin subtítulo, salvo por tiempo usado sin días cargados (los montos van por día).
-      subtitle: usesTimeBasis(quote) ? kit.out((r) => (r.activity.activeDaysPerMonth > 0 ? '' : 'Costo por día de trabajo.'), { allowEmpty: true }) : null,
-      className: 'qe-resources-card',
-    },
-    // Revisión 0.10.0 (U10): sólo las categorías elegidas en "¿Qué incluye el servicio?" (o con algo cargado).
-    kit.stats(
-      shows.labor ? resourceStat('Personal', isLabor, 'labor', 'Sin personal cargado.') : null,
-      shows.equipment ? resourceStat(shows.equipmentLabel, isEquipment, 'equipment', 'Sin equipos cargados.') : null,
-      shows.other ? resourceStat(shows.otherLabel, isOther, shows.otherStep, shows.otherEmpty) : null,
-    ),
-    kit.out((r) => {
-      const b = r.outOfHours && r.outOfHours.basis;
-      // 0.15.0: con personal tercerizado cargado (un valor fijo, sin sueldo) ya hay personal.
-      const outsourced = r.model.contractedStaff && r.model.contractedStaff.people > 0;
-      if ((!b || !(b.people > 0)) && !outsourced) return h('p', { class: ['qe-note', 'is-warning'] }, 'Todavía no cargaste personal con sueldo: ', h('a', { href: ctx.href('labor') }, `cargalo en "${stepName('labor')}"`), ` para que RATEOS calcule tu ${rateWord}.`);
-      return '';
-    }, { tag: 'div', allowEmpty: true }),
-  );
-
-  // 2. ¿Trabajan sólo para este servicio? (asignación explícita de cada línea, con un % propuesto).
-  const laborList = Array.isArray(quote.labor) ? quote.labor : [];
-  const equipmentList = Array.isArray(quote.equipment) ? quote.equipment : [];
-  const ownedEquipment = equipmentList.map((e, i) => ({ e, i })).filter(({ e }) => e && e.acquisition !== 'rented' && e.acquisition !== 'outsourced');
-  const shareTargets = [
-    ...laborList.map((l, i) => ({ kind: 'labor', i, line: l, name: (l && l.role) || 'Puesto' })),
-    ...ownedEquipment.map(({ e, i }) => ({ kind: 'equipment', i, line: e, name: (e && e.name) || 'Equipo' })),
-  ].filter((t) => t.line && typeof t.line === 'object');
-  const sharedCount = shareTargets.filter((t) => t.line.assignment === 'shared').length;
-  // V-01: "Sí" sólo se muestra marcado si alguien lo eligió (alguna línea con respuesta
-  // explícita). Sin dato el costo es 100 %, pero no es una respuesta.
-  const dedicationValue = dedicationChoiceOf(shareTargets.map((t) => t.line));
-  const applyShares = (onlyMissing = false) => {
-    const result = ctx.result;
-    ctx.mutate((q) => {
-      const proposal = proposeServiceShares(q, result ? result.activity : (q.activity || {}));
-      (Array.isArray(q.labor) ? q.labor : []).forEach((l, i) => {
-        if (!l || typeof l !== 'object') return;
-        l.assignment = 'shared';
-        const has = l.fixedCostSharePct !== null && l.fixedCostSharePct !== undefined && l.fixedCostSharePct !== '';
-        if (proposal.labor[i] !== null && !(onlyMissing && has)) l.fixedCostSharePct = proposal.labor[i];
-      });
-      (Array.isArray(q.equipment) ? q.equipment : []).forEach((e, i) => {
-        if (!e || typeof e !== 'object' || e.acquisition === 'rented' || e.acquisition === 'outsourced') return;
-        e.assignment = 'shared';
-        const has = e.fixedCostSharePct !== null && e.fixedCostSharePct !== undefined && e.fixedCostSharePct !== '';
-        if (proposal.equipment[i] !== null && !(onlyMissing && has)) e.fixedCostSharePct = proposal.equipment[i];
-      });
-    });
-  };
-  // "Sí": la respuesta se escribe en todas las líneas (V-01; antes sólo en las compartidas, y en
-  // una cotización nueva no guardaba nada). No cambia ningún número: sin dato ya era 100 %.
-  const applyDedicated = () => ctx.mutate((q) => {
-    (Array.isArray(q.labor) ? q.labor : []).forEach((l) => {
-      if (l && typeof l === 'object' && l.assignment !== 'hired') l.assignment = 'dedicated';
-    });
-    (Array.isArray(q.equipment) ? q.equipment : []).forEach((e) => {
-      if (e && typeof e === 'object' && e.acquisition !== 'rented' && e.acquisition !== 'outsourced') e.assignment = 'reserved';
-    });
-  });
-  const pctText = (v) => formatPercent(Number(v));
-  // Por tiempo usado (cotizaciones nuevas que no se cobran por mes, 2026-11-18): no hay % de su
-  // mes que elegir; cada recurso cuesta sus horas en el trabajo. La pregunta no se muestra.
-  const dedicationCard = shareTargets.length && !monthlyContract && !usesTimeBasis(quote)
-    ? card(
-      { title: '¿Tu gente y tus equipos trabajan sólo para este servicio?', className: 'qe-dedication-card' },
-      choiceGroup({
-        label: h('span', {}, 'Elegí una opción', h('span', { class: 'req', 'aria-hidden': 'true' }, ' *')),
-        name: 'resourcesDedication',
-        value: dedicationValue,
-        disabled: kit.readOnly,
-        options: [
-          { value: 'yes', label: 'Sí, sólo para este servicio', hint: 'Este servicio paga su mes entero, aunque trabajen pocos días.' },
-          { value: 'no', label: 'No, también hacen otros trabajos', hint: 'Este servicio paga sólo la parte del mes que usa.' },
-        ],
-        onChange: (v) => (v === 'no' ? applyShares(true) : applyDedicated()),
-      }),
-      sharedCount > 0
-        ? h('div', { class: 'qe-dedication-detail' },
-          formGrid(3, ...shareTargets.filter((t) => t.line.assignment === 'shared').map((t) => kit.num(`${t.kind}.${t.i}.fixedCostSharePct`, {
-            label: `${t.name}: % de su mes`,
-            rule: 'sharePct',
-            unit: '%',
-            hint: `${t.kind === 'labor' ? 'Qué parte de su sueldo con cargas paga este servicio.' : 'Qué parte de su amortización, seguro y patente paga este servicio.'} Vacío = 100\u00a0%.`,
-          }))),
-          kit.out((r) => {
-            const proposal = proposeServiceShares(quote, r.activity);
-            const first = [...proposal.labor, ...proposal.equipment].find((v) => v !== null);
-            if (first === undefined || first === null) return h('p', { class: 'qe-note' }, 'Cargá arriba los días con trabajo y las horas por día: RATEOS te propone el % (horas de este servicio ÷ horas normales del mes).');
-            const stale = shareTargets.some((t) => {
-              if (t.line.assignment !== 'shared') return false;
-              const p = t.kind === 'labor' ? proposal.labor[t.i] : proposal.equipment[t.i];
-              const now = Number((kit.get(`${t.kind}.${t.i}`) || {}).fixedCostSharePct);
-              return p !== null && (!Number.isFinite(now) || Math.abs(now - p) > 0.05);
-            });
-            // V-11: más de 5 puntos de diferencia ya no es un detalle: se avisa en naranja.
-            const old = staleDedicationOf(quote, r.activity);
-            return h('p', { class: ['qe-note', old ? 'is-warning' : null] },
-              old ? `${staleDedicationMessage(old)} ` : null,
-              `${dedicationOccupancyText(proposal, quote)} `,
-              stale && !kit.readOnly ? button(`Usar ${pctText(first)}`, { variant: 'secondary', size: 'sm', onClick: () => applyShares(false) }) : null,
-              ' Si cambiás los días, revisá este porcentaje. Si los otros trabajos no aparecen, esa parte del sueldo queda sin cubrir.');
-          }, { tag: 'div', allowEmpty: true }))
-        : null,
-      // Sin elegir (V-01): el precio ya carga el mes completo; se dice acá, donde se decide.
-      dedicationValue === null && sharedCount === 0
-        ? kit.out((r) => {
-          const absorbed = ((r.completeness && r.completeness.notices) || []).find((n) => n.id === 'fixed_costs_absorbed');
-          const amount = absorbed && isFiniteNumber(absorbed.amount) && absorbed.amount > 0 ? `: ${formatMoney(absorbed.amount)}` : '';
-          return h('p', { class: ['qe-note', 'is-warning'] }, `Todavía no elegiste. Mientras tanto, este servicio paga todo el mes de tu gente y tus equipos${amount}.`);
-        }, { tag: 'div', allowEmpty: true })
-        : null,
-      dedicationValue === null && sharedCount > 0
-        ? h('p', { class: 'qe-note' }, 'Hoy algunos recursos están compartidos y otros no (se cambia en cada persona o equipo). Elegí una opción para dejarlos todos iguales.')
-        : null,
-    )
-    : null;
-
   // 3. Fuera del horario normal: tarifas de hora extra derivadas de los recursos (extras 'overtime').
   const allExtras = Array.isArray(quote.extras) ? quote.extras : [];
   const oohEntries = allExtras.map((x, i) => ({ x, i })).filter(({ x }) => isOutOfHoursExtra(x));
@@ -1207,15 +952,18 @@ export function render(container, ctx) {
   // Cada cotización da UN solo precio (Joaco, 2026-11-18): las tarifas fuera de horario aparte sólo
   // se ven en las cotizaciones que ya las tenían (mismos números), con la opción de quitarlas.
   const outOfHoursCard = oohOn && (monthlyContract || !byQuantity || kind === 'quantity' || kind === 'event') ? card(
-    { title: 'Precio por hora fuera de horario (cargado antes)', subtitle: 'Esta cotización ya tenía un precio aparte por hora fuera de horario: se sigue cobrando igual. Las cotizaciones nuevas dan un solo precio; si el trabajo lleva horas extra, se cargan en "Horas extra del trabajo".', className: 'qe-ooh-card' },
-    yesNo({
-      label: '¿Querés darle al cliente un precio por hora fuera de horario?',
-      name: 'outOfHours',
-      value: oohOn ? 'yes' : 'no',
-      no: { label: 'No', hint: 'Sólo se trabaja en el horario normal.' },
-      yes: { label: 'Sí', hint: 'RATEOS suma la hora al 50 % y al 100 % de cada persona, según su sueldo.' },
-      onChange: (v) => setOutOfHours(v === 'yes'),
-    }),
+    // P2 (revisión de la 0.24.0): dice dónde están las horas extra. P3: "Quitar" con confirmación,
+    // como el resto de lo cargado antes (antes un "No" lo borraba sin preguntar).
+    { title: 'Precio por hora fuera de horario (cargado antes)', subtitle: 'Esta cotización ya tenía un precio aparte por hora fuera de horario: se sigue cobrando igual. Las cotizaciones nuevas dan un solo precio; si el trabajo lleva horas extra, se cargan en "Horas extra del trabajo" (al final de Personal).', className: 'qe-ooh-card' },
+    kit.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Quitar el precio fuera de horario', async () => {
+      const ok = await confirmDialog({
+        title: 'Quitar el precio fuera de horario',
+        message: 'Se borran los precios por hora fuera de horario de esta cotización. Si el trabajo lleva horas extra, cargalas en "Horas extra del trabajo" (al final de Personal).',
+        confirmLabel: 'Quitar',
+        danger: true,
+      });
+      if (ok) setOutOfHours(false);
+    }, { variant: 'ghost', icon: 'trash' })),
     // PLAN-2026-026: la hora fuera de horario es la suma de la de CADA persona (cada una con su
     // sueldo y su convenio), no una tarifa pareja. Se muestra el detalle por puesto.
     oohOn
@@ -1369,28 +1117,14 @@ export function render(container, ctx) {
       }
     });
   };
-  const guardCard = asksAvailability && (guardChosen || feeNow || calloutNow)
+  // 0.24.0 (PLAN-2026-028): la guardia cargada antes se ve en "El precio" (bloque "Cargado antes").
+  // El fijo por estar de guardia y el plus por llamado ya están ahí, en "Reglas comerciales"
+  // (cargados antes): esta tarjeta trae sólo el detalle de la guardia y "Quitar la guardia".
+  const guardCard = asksAvailability && guardChosen
     ? card(
       { title: 'Guardia (cargada antes)', subtitle: 'Esta cotización ya tenía una guardia cargada: se sigue cobrando igual. Las cotizaciones nuevas ya no la preguntan.', className: 'qe-guard-card' },
       kit.readOnly ? null : h('div', { class: 'qe-toolbar' }, kit.action('Quitar la guardia', removeGuard, { variant: 'ghost', icon: 'trash' })),
-      guardChosen || feeNow || calloutNow
-        ? formGrid(2,
-          kit.num('rules.availabilityFeeMonthly', {
-            label: GUARD_FEE_LABEL,
-            rule: 'money',
-            unit: '$/mes',
-            placeholder: 'Ej.: 500.000',
-            hint: `Lo que cobrás por estar disponible, haya ${T.many} o no. Se suma a lo trabajado y baja la tarifa que necesitás por cada ${T.one}.`,
-          }),
-          kit.num('rules.calloutFeePerActivation', {
-            label: `Plus por cada ${T.one}`,
-            rule: 'money',
-            unit: `$/${T.one}`,
-            placeholder: 'Ej.: 150.000',
-            hint: `Un cargo fijo cada vez que te llaman y salís, además de las horas o los días trabajados.`,
-          }))
-        : null,
-      !guardChosen && (feeNow || calloutNow) ? h('p', { class: 'qe-note' }, 'Aunque no haya guardia, estos cargos se siguen cobrando. Poné 0 si no corresponden.') : null,
+      feeNow || calloutNow ? h('p', { class: 'qe-note' }, 'El fijo por estar de guardia y el plus se cambian más abajo, en "Opciones comerciales".') : null,
       guardChosen
         ? h('p', { class: 'qe-note' }, `Si a tu gente le pagás un adicional por estar de guardia, sumalo en "${stepName('labor')}" → "Otros pagos fijos por mes" del puesto: es parte de tu costo.`)
         : null,
@@ -1423,94 +1157,6 @@ export function render(container, ctx) {
         : null,
     )
     : null;
-
-  const ladder = Array.isArray(settings.marginLadder) && settings.marginLadder.length ? settings.marginLadder : [...DEFAULT_MARGIN_LADDER];
-  const breakEvenStat = byQuantity
-    ? kit.stat(texts.breakEvenLabel, (r) => {
-      const be = r.breakEven || {};
-      if (be.notApplicable) return 'No aplica';
-      if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
-      return quantityCeilText(be.quantity, r);
-    }, {
-      hint: (r) => (r.breakEven && (r.breakEven.reason || (r.breakEven.reachable ? `${workDaysText(r.breakEven.days)} por mes, a ${formatMoney(r.kpis.commercialListRate)} / ${r.unitLabel}` : ''))) || '',
-      trace: (r) => r.traces.breakEven,
-      tone: (r) => {
-        const be = r.breakEven || {};
-        if (be.notApplicable || !isFiniteNumber(r.kpis.commercialListRate)) return 'gray';
-        return !be.reachable || be.days > r.kpis.activeDays + 1e-9 ? 'red' : 'green';
-      },
-    })
-    : kit.stat('Días mínimos para no perder', (r) => {
-      const be = r.breakEven || {};
-      if (be.notApplicable) return 'No aplica';
-      if (!be.reachable) return isFiniteNumber(r.kpis.commercialListRate) ? 'No se alcanza' : EMPTY;
-      // 1 decimal en la superficie (6,4 días); los 2 decimales, en "Ver cálculo".
-      return formatDays(be.days, { decimals: 1 });
-    }, {
-      hint: (r) => (r.breakEven && (r.breakEven.reason || (r.breakEven.reachable ? `${formatNumber(r.breakEven.wholeDays)} días enteros, a ${formatMoney(r.kpis.commercialListRate)} / ${r.unitLabel}` : ''))) || '',
-      trace: (r) => r.traces.breakEven,
-      tone: (r) => {
-        const be = r.breakEven || {};
-        if (be.notApplicable || !isFiniteNumber(r.kpis.commercialListRate)) return 'gray';
-        return !be.reachable || be.days > r.kpis.activeDays + 1e-9 ? 'red' : 'green';
-      },
-    });
-  const calcCard = knownRate
-    ? card(
-      { title: `Con tu ${rateWord}`, subtitle: `Lo que calcula RATEOS cuando ya tenés ${closed ? 'el precio' : 'la tarifa'}.` },
-      kit.stats(
-        // Fijo mensual y precio cerrado: "para no perder" no aplica (1 abono / 1 precio por trabajo): no se muestra.
-        monthlyContract || contract.mode === 'closed' ? null : breakEvenStat,
-        kit.stat('Resultado esperado', (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatMoney(r.kpis.profit) : EMPTY), {
-          trace: (r) => r.traces.expectedResult,
-          tone: (r) => (!isFiniteNumber(r.kpis.commercialListRate) ? 'gray' : r.kpis.profit < 0 ? 'red' : r.kpis.belowTarget ? 'orange' : 'green'),
-        }),
-        kit.stat('Margen esperado', (r) => (isFiniteNumber(r.kpis.commercialListRate) ? formatPercent(r.kpis.marginPct) : EMPTY), {
-          hint: (r) => `Objetivo ${formatPercent(r.kpis.targetMarginPct)}`,
-          tone: (r) => (!isFiniteNumber(r.kpis.commercialListRate) ? 'gray' : r.kpis.profit < 0 ? 'red' : r.kpis.belowTarget ? 'orange' : 'green'),
-        }),
-      ),
-    )
-    : kit.advanced(
-      {
-        key: 'modality-ladder',
-        title: closed ? 'Ver precios según el margen' : 'Ver tarifas según el margen',
-        variant: 'detail',
-        boxed: true,
-        summary: (r) => {
-          const floor = floorDisplay(r);
-          return isFiniteNumber(floor.value)
-            ? (closed
-              ? `Precio mínimo ${perUnitCeil(floor.value, r)} y los precios para ganar ${ladder.map((m) => formatPercent(m)).join(', ')}.`
-              : `Tarifa mínima ${perUnitCeil(floor.value, r)} y las tarifas para ganar ${ladder.map((m) => formatPercent(m)).join(', ')} sobre el precio.`)
-            : closed ? 'Cargá los días que lleva el trabajo para ver los precios.' : byQuantity ? `Cargá ${texts.los} ${info.plural} por mes para ver las tarifas.` : 'Cargá los días por mes para ver las tarifas.';
-        },
-      },
-      h('p', { class: 'qe-note' }, closed ? 'Son precios DE LISTA (antes de descuentos), redondeados hacia arriba: los que escribís en la cotización.' : 'Son tarifas DE LISTA (antes de descuentos), redondeadas hacia arriba: las que escribís en la cotización.'),
-      kit.stats(
-        kit.stat(
-          (r) => (floorDisplay(r).base === 'net' ? `${closed ? 'Precio mínimo neto' : 'Tarifa mínima neta'} (margen 0 %)` : `${closed ? 'Precio mínimo de lista' : 'Tarifa mínima de lista'} (margen 0 %)`),
-          (r) => perUnitCeil(floorDisplay(r).value, r),
-          {
-            trace: floorRateTrace,
-            hint: (r) => {
-              const net = floorDisplay(r).base === 'list' ? netRateHint(r.kpis.floorNetRate, r) : '';
-              return `Sólo cubre los costos.${net ? ` ${net}` : ''}`;
-            },
-          },
-        ),
-        ...ladder.map((m) => kit.stat(`Para ganar ${formatPercent(m)}`, (r) => {
-          const row = rateRowFor(r, m);
-          return perUnitCeil(row ? row.listRate : null, r);
-        }, {
-          hint: (r) => {
-            const row = rateRowFor(r, m);
-            const net = row ? netRateHint(row.netRate, r) : '';
-            return `Margen sobre el precio de venta.${net ? ` ${net}` : ''}`;
-          },
-        })),
-      ),
-    );
 
   // ¿Cómo viaja el personal? (PLAN-2026-024): reemplaza "Días entre viajes o relevos".
   const hasPeople = contract.labor || (Array.isArray(quote.labor) && quote.labor.length > 0);
@@ -1587,35 +1233,18 @@ export function render(container, ctx) {
     )
     : travelCardFull;
 
-  const sectionLabel = (title, text) => h('div', { class: 'qe-section-label' }, h('span', { class: 'qe-section-label-title' }, title), text ? h('span', { class: 'qe-section-label-text' }, text) : null);
-  mount(
-    container,
-    resourcesCard,
-    sectionLabel('Lo necesario', null),
-    modeCard,
-    rhythmSummary,
-    travelCard,
-    dedicationCard,
-    sectionLabel('Opcional', null),
-    overtimeWorkCard,
-    oohInFold ? null : outOfHoursCard,
-    guardCard,
-    // Por servicio prestado con mínimo mensual garantizado (PLAN-2026-018).
-    // En $ o en unidades de cobro ("mínimo 20 días por mes", tanda B 2026-11, B-3).
-    // 0.10.0: sólo si la cotización ya lo trae cargado (las nuevas no lo preguntan: simplicidad).
-    !contract.legacy && contract.mode === 'on_demand' && guaranteeLoaded(quote)
-      ? (() => {
-        const g = minimumGuaranteeFields(kit, quote, info, {
-          amountLabel: 'Mínimo por mes',
-          amountPlaceholder: 'Ej.: 3.000.000',
-          amountHint: 'Si el cliente garantiza un piso por mes: se factura lo trabajado o el mínimo, lo que sea mayor. Vacío o 0 = sin mínimo.',
-        });
-        // Con título: "¿Cómo se expresa el mínimo?" sola no dice de qué mínimo se trata.
-        return card({ title: 'Mínimo mensual garantizado (opcional)', className: 'qe-guarantee-card' }, formGrid(2, ...g.fields), g.note);
-      })()
-      : null,
-    calcCard,
-    extrasSection(ctx, contract),
-  );
+  // 0.24.0 (PLAN-2026-028): "Cómo se cobra" ya no es un paso. Cada parte se monta en su paso:
+  // 'overtime' al final de Personal, 'travel' en Movilización y viajes y 'legacy' (lo cargado antes:
+  // hora fuera de horario, guardia y adicionales) en El precio. Sin parte, las tres juntas.
+  const part = ctx.part;
+  const parts = {
+    overtime: [overtimeWorkCard],
+    travel: [travelCard],
+    legacy: [oohInFold ? null : outOfHoursCard, guardCard, extrasSection(ctx, contract)],
+  };
+  const cards = parts[part] || [...parts.overtime, ...parts.travel, ...parts.legacy];
+  mount(container, ...cards);
+  // El paso que monta la parte sabe si quedó algo (para no dibujar un título vacío).
+  container.dataset.empty = cards.some(Boolean) ? 'false' : 'true';
   return { update() {} };
 }

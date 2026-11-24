@@ -48,9 +48,10 @@ import {
   disclosure,
   badge,
   infoTip,
+  confirmDialog,
 } from '../components.js';
 import { illustrativeTag } from '../layout.js';
-import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES } from '../../domain/catalogs.js';
+import { QUOTE_STEPS, RISK_ITEMS, SERVICE_TYPES, vatIsCost } from '../../domain/catalogs.js';
 import { SERVICE_COMPONENTS, componentsOf, travelNotNeeded, billingUnitPhrase } from '../../domain/contract.js';
 import { billingUnitOf } from '../../domain/billing-units.js';
 import { isQuantityUnit, quantityText, quantityCeilText, workDaysText } from '../unit-text.js';
@@ -70,7 +71,6 @@ import { logger } from '../../core/logger.js';
 import { netRateHint, floorDisplay, floorRateTrace, targetRateTrace, unitShortOf, stepName } from './quote-steps/shared.js';
 
 import * as serviceStep from './quote-steps/service.js';
-import * as modalityStep from './quote-steps/modality.js';
 import * as laborStep from './quote-steps/labor.js';
 import * as equipmentStep from './quote-steps/equipment.js';
 import * as materialsStep from './quote-steps/materials.js';
@@ -83,7 +83,6 @@ import { createDraftStore, isFreshQuote, onSessionReset } from '../session-memor
 
 const STEP_MODULES = Object.freeze({
   service: serviceStep,
-  modality: modalityStep,
   labor: laborStep,
   equipment: equipmentStep,
   materials: materialsStep,
@@ -120,8 +119,8 @@ function defineStage(id, label, short, stepIds) {
 export const STAGES = Object.freeze([
   defineStage('service', 'El servicio', 'Servicio', ['service']),
   defineStage('resources', 'Los recursos', 'Recursos', ['labor', 'equipment', 'materials', 'logistics']),
-  // Cómo se cobra va DESPUÉS de los recursos (PLAN-2026-025): primero cuánto cuestan, después la tarifa.
-  defineStage('charge', 'Cómo se cobra', 'Cobro', ['modality']),
+  // 0.24.0 (PLAN-2026-028): "Cómo se cobra" se disolvió. El ritmo va en El servicio, las horas extra
+  // en Personal, los viajes del personal en Movilización y viajes y el precio a mano en El precio.
   defineStage('conditions', 'Otros gastos', 'Gastos', ['indirect', 'finance', 'risk']),
   defineStage('price', 'El precio', 'Precio', ['margin']),
   defineStage('result', 'Resultado', 'Resultado', ['result']),
@@ -162,10 +161,6 @@ export function stepShortLabel(stepId) {
 export const STEP_COPY = Object.freeze({
   service: {
     question: '¿Qué servicio vas a cotizar?',
-    why: '',
-  },
-  modality: {
-    question: '¿Cómo lo vas a cobrar?',
     why: '',
   },
   labor: {
@@ -316,8 +311,7 @@ export function stepStatus(stepId, result) {
     if (counts.warning > 0) return 'orange';
     return items.length ? 'green' : 'gray';
   }
-  // El ítem "modality" también valida el tipo de servicio: cuenta en ambos pasos.
-  const own = items.filter((i) => stepOfItem(i) === stepId || (stepId === 'service' && i.id === 'modality'));
+  const own = items.filter((i) => stepOfItem(i) === stepId);
   const issues = (result.issues || []).filter((i) => stepOfPath(i.path) === stepId);
   if (own.some((i) => i.status === 'missing') || issues.some((i) => i.severity === 'error')) return 'red';
   if (own.some((i) => i.status === 'warning') || issues.length > 0) return 'orange';
@@ -575,13 +569,15 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
      * - onValue(value, el): efecto adicional después de guardar el valor en la
      *   cotización (p. ej. quitar la marca ILUSTRATIVO al editar un precio).
      */
-    num(path, { structural = false, requiredMark = false, echo = true, disabled = false, onValue = null, ...opts } = {}) {
+    num(path, { structural = false, requiredMark = false, echo = true, disabled = false, onValue = null, blankZero = false, ...opts } = {}) {
       let el = null;
+      const current = kit.get(path);
       el = numberField({
         rule: 'money',
         ...opts,
         name: path,
-        value: inputNumber(kit.get(path)),
+        // blankZero: un 0 guardado se ve vacío (con su texto de muestra), p. ej. "Tu precio" en 0.
+        value: blankZero && Number(current) === 0 ? '' : inputNumber(current),
         disabled: readOnly || Boolean(disabled),
         onChange: (value) => {
           update(path, value);
@@ -991,7 +987,7 @@ function createStepKit({ getQuote, getResult, update, rerender, readOnly, confir
 function commercialRateTrace(r) {
   const k = r.kpis;
   const sourceLabel = {
-    known_rate: `Tu tarifa (la cargaste en "${stepName('modality')}")`,
+    known_rate: `Tu tarifa (la cargaste en "${stepName('margin')}")`,
     offered: `Tarifa ofrecida a mano (en "${stepName('margin')}")`,
     suggested: 'Sugerida: precio objetivo redondeado hacia arriba',
     override: 'Tarifa forzada',
@@ -1050,10 +1046,10 @@ export function floorTaxesText(r) {
 /** Nombre de la tarifa que se cobra, según su origen. */
 function chargedRateLabel(r) {
   switch (r && r.kpis && r.kpis.commercialSource) {
+    // C5 (revisión de la 0.24.0): el precio a mano se llama "Tu precio", como la cifra grande del Resultado.
     case 'known_rate':
-      return 'Tu tarifa';
     case 'offered':
-      return 'Tarifa ofrecida';
+      return 'Tu precio';
     case 'override':
       return 'Tarifa forzada';
     default:
@@ -1080,7 +1076,7 @@ function closedOf(r) {
 function summaryRateLabel(r) {
   const label = chargedRateLabel(r);
   if (!closedOf(r).closed) return label;
-  return { 'Tu tarifa': 'Tu precio', 'Tarifa ofrecida': 'Precio ofrecido', 'Tarifa forzada': 'Precio forzado' }[label] || 'Precio sugerido';
+  return { 'Tu precio': 'Tu precio', 'Tarifa forzada': 'Precio forzado' }[label] || 'Precio sugerido';
 }
 
 function breakEvenText(r, { decimals = 1 } = {}) {
@@ -1102,7 +1098,7 @@ function rateHint(r) {
   let text;
   switch (k.commercialSource) {
     case 'known_rate':
-      text = `La ingresaste en "${stepName('modality')}".`;
+      text = `La ingresaste en "${stepName('margin')}".`;
       break;
     case 'offered':
       text = `La cargaste a mano en "${stepName('margin')}".`;
@@ -1114,7 +1110,7 @@ function rateHint(r) {
       text = `Para ganar ${formatPercent(r.kpis.targetMarginPct)} de margen, redondeada hacia arriba.`;
       break;
     default:
-      if (r.pricingMode === 'known_rate') text = `Falta ingresar tu tarifa en "${stepName('modality')}".`;
+      if (r.pricingMode === 'known_rate') text = `Falta ingresar tu precio en "${stepName('margin')}".`;
       else if (k.targetMarginInvalid) {
         text = deductedPct(k) > 0
           ? `Sin tarifa sugerida: ${marginLimitText(k)}. Bajalo en "El precio".`
@@ -1180,21 +1176,27 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
     const floor = floorDisplay(r).value;
     return isFiniteNumber(cost) && isFiniteNumber(floor) && Math.abs(Math.ceil(floor) - cost) <= 1;
   };
+  // 0.24.0 (PLAN-2026-028, W-01): a la vista, sólo el precio. Costo, mínimo, equilibrio, resultado y
+  // margen van en "Ver más" (mismos data-kpi: el Test Lab en navegador los lee).
   const main = h(
     'div',
     { class: 'qe-sum-list qe-sum-main' },
-    // 0.17.0: el precio primero (como los cotizadores del mercado); debajo, costo y mínimo.
     item({
       key: 'commercialRate',
+      // C11 (revisión de la 0.24.0): con una sola columna, la barra del celular muestra el rótulo
+      // entero y la cifra completa con su unidad en la misma línea (sin "Sugerida" ni "$ 402 mil").
       label: summaryRateLabel,
-      short: (r) => ({ 'Tarifa sugerida': 'Sugerida', 'Tarifa ofrecida': 'Ofrecida', 'Tarifa forzada': 'Forzada', 'Precio sugerido': 'Sugerido', 'Precio ofrecido': 'Ofrecido', 'Precio forzado': 'Forzado' }[summaryRateLabel(r)] || summaryRateLabel(r)),
       value: (r) => (r.kpis.commercialSource === 'suggested' ? formatMoneyCeil(r.kpis.commercialListRate) : formatMoney(r.kpis.commercialListRate)),
       unit: (r) => `/ ${unitShort(r)}`,
-      compact: (r) => formatMoneyCompact(r.kpis.commercialListRate, { ceil: r.kpis.commercialSource === 'suggested' }),
       hint: rateHint,
       tone: (r) => (isFiniteNumber(r.kpis.commercialListRate) ? resultTone(r) : null),
       trace: commercialRateTrace,
     }),
+  );
+
+  const more = h(
+    'div',
+    { class: 'qe-sum-list qe-sum-more-list' },
     item({
       key: 'totalCost',
       // Precio cerrado (Joaco 2026-11-18): lo del trabajo (lo del mes ÷ trabajos por mes), como las tarjetas.
@@ -1255,11 +1257,6 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
       // Tampoco por tiempo usado sin costos fijos (2026-11-18): sería siempre "desde el primer día".
       hidden: (r) => closedOf(r).closed || Boolean(r.breakEven && r.breakEven.notApplicable) || timeBasisWithoutFixed(r),
     }),
-  );
-
-  const more = h(
-    'div',
-    { class: 'qe-sum-list qe-sum-more-list' },
     item({
       key: 'targetRate',
       label: (r) => (r.kpis.targetMarginInvalid ? 'Precio objetivo' : `Precio para tu margen de ${formatPercent(r.kpis.targetMarginPct)}`),
@@ -1456,8 +1453,8 @@ function buildSummary({ getResult, getQuote = () => null, stepHref, stepId = nul
       const critical = pending.filter((p) => p.severity === 'critical').length;
       // En la etapa 1 no se cuentan pendientes: todavía no se cargó nada.
       moreHint.textContent = pending.length === 0 || stepId === 'service'
-        ? 'Precio para tu margen, resultado y margen esperados.'
-        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · resultado y margen esperados.`;
+        ? 'Costo, precio mínimo, resultado y margen esperados.'
+        : `${pending.length} ${pending.length === 1 ? 'pendiente' : 'pendientes'} de costos${critical > 0 ? ` (${critical} ${critical === 1 ? 'crítico' : 'críticos'})` : ''} · costo, resultado y margen.`;
       if (pending.length === 0) {
         mount(pendingEl, h('li', { class: 'qe-pending-ok' }, h('span', { class: 'dot dot-green', 'aria-hidden': 'true' }), 'No hay pendientes de costos.'));
       } else {
@@ -1734,8 +1731,8 @@ export function pendingFieldPath(item, quote) {
  * @param {{ getQuote?: Function, onReveal?: Function, onFocusField?: Function, hasField?: Function, stepHref?: Function, didactic?: boolean }} options
  */
 /**
- * ¿"Cómo se cobra" tiene datos distintos de los con que nace la cotización? (revisión UX tanda
- * novatos). Precio cerrado nace con 1 trabajo de 1 día: eso solo no cuenta como cargado.
+ * ¿El ritmo de trabajo (paso 1) tiene datos distintos de los con que nace la cotización? (revisión
+ * UX tanda novatos). Precio cerrado nace con 1 trabajo de 1 día: eso solo no cuenta como cargado.
  */
 function chargeLoaded(quote) {
   const a = isPlainObject(quote) && isPlainObject(quote.activity) ? quote.activity : {};
@@ -1750,7 +1747,17 @@ function chargeLoaded(quote) {
 /** Avisos informativos (completeness.notices) que también se muestran en su paso. */
 const STEP_NOTICE_IDS = new Set(['idle_capacity', 'over_capacity', 'fixed_costs_absorbed', 'labor_fractional_headcount', 'closed_single_trip', 'guarantee_above_estimate', 'no_fuel_travels']);
 
-function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null, onChargeFullMonth = null, chargeReady = () => true } = {}) {
+/** Índices de los externos (equipment) con "¿Recuperás ese IVA?" sin definir. */
+export function undefinedVatRecoveryRows(quote) {
+  const rows = isPlainObject(quote) && Array.isArray(quote.equipment) ? quote.equipment : [];
+  return rows
+    .map((e, index) => ({ e, index }))
+    .filter(({ e }) => isPlainObject(e) && (e.acquisition === 'rented' || e.acquisition === 'outsourced')
+      && !['yes', 'no', 'partial'].includes(e.external && e.external.fiscal && e.external.fiscal.vatRecoverable))
+    .map(({ index }) => index);
+}
+
+function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFocusField = null, hasField = () => false, stepHref = null, didactic = false, onUseOfferedRate = null, onChargeFullMonth = null, onRecoverAllVat = null, chargeReady = () => true } = {}) {
   const list = h('ul', { class: 'qe-notice-list' });
   // En la cotización de ejemplo, los puntos para revisar están a propósito (UX-3).
   const title = didactic ? 'Para revisar: el ejemplo lo deja a propósito' : 'Para revisar en este paso';
@@ -1771,12 +1778,13 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
   };
   /**
    * Mínimo garantizado por encima de la estimación (revisión de costos de la tanda B): un toque
-   * carga en "Tarifa ofrecida" la tarifa que el motor calculó (`listRateWithMinimum`). Sin cuentas acá.
+   * carga en "Tu precio" la tarifa que el motor calculó (`listRateWithMinimum`). Sin cuentas acá.
    */
   const offeredRateAction = (n) => {
     if (n.id !== 'guarantee_above_estimate' || !(Number.isFinite(n.listRateWithMinimum) && n.listRateWithMinimum > 0)) return null;
-    if (typeof onUseOfferedRate !== 'function' || !hasField('pricing.offeredRateOverride')) return null;
-    return goButton(`Usar ${formatMoney(n.listRateWithMinimum)} como tarifa ofrecida`, () => onUseOfferedRate(n.listRateWithMinimum));
+    // P5 (revisión de la 0.24.0): "tu precio", como el campo de "El precio" (escribe en el de su modo).
+    if (typeof onUseOfferedRate !== 'function' || !(hasField('pricing.offeredRateOverride') || hasField('pricing.knownRate'))) return null;
+    return goButton(`Usar ${formatMoney(n.listRateWithMinimum)} como tu precio`, () => onUseOfferedRate(n.listRateWithMinimum));
   };
   /**
    * Horas del mes que la cotización no paga (0.23.0, elección del dueño "avisar y dejar elegir"):
@@ -1787,6 +1795,18 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
   const fullMonthAction = (n) => {
     if (n.id !== 'idle_capacity' || typeof onChargeFullMonth !== 'function' || !Array.isArray(n.rows) || !n.rows.length) return null;
     return goButton(n.rows.length === 1 ? 'Sólo tiene este trabajo: cobrar su mes completo acá' : 'Sólo tienen este trabajo: cobrar su mes completo acá', () => onChargeFullMonth(n.rows));
+  };
+  /**
+   * Externos guardados con "¿Recuperás ese IVA?" sin definir (0.24.0, P-11, decisión D6): un botón
+   * explícito los pasa a "Sí". Lo hace la persona; RATEOS nunca cambia solo las líneas guardadas.
+   * Sin el IVA de la cotización aplicado da el mismo costo; con el IVA aplicado (K-03) lo baja, y
+   * la confirmación dice cuánto (revisión de la 0.24.0, B-1).
+   */
+  const recoverAllVatAction = (item, quote) => {
+    if (item.id !== 'external_terms' || typeof onRecoverAllVat !== 'function') return null;
+    const undefinedRows = undefinedVatRecoveryRows(quote);
+    if (!undefinedRows.length) return null;
+    return goButton('Recupero el IVA de todos (responsable inscripto)', () => onRecoverAllVat(undefinedRows));
   };
   return {
     el,
@@ -1802,7 +1822,7 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
       const issues = (result.issues || []).filter((i) => stepOfPath(i.path) === stepId);
       // Avisos informativos de la tanda A 2026-11 (A-15): no restan puntaje, pero cambian
       // la decisión de precio; se ven en su paso (y en el Resultado), en azul.
-      // "Costos fijos del mes en el precio" en Personal / Equipos: sólo cuando "Cómo se cobra" ya
+      // "Costos fijos del mes en el precio" en Personal / Equipos: sólo cuando el ritmo de trabajo ya
       // tiene datos de la persona (revisión UX): antes salía con los valores con que nace la cotización.
       const early = (n) => n.id === 'fixed_costs_absorbed' && (stepId === 'labor' || stepId === 'equipment') && !chargeReady(quote);
       const infos = ((result.completeness && result.completeness.notices) || []).filter((n) => STEP_NOTICE_IDS.has(n.id) && (n.step === stepId || (Array.isArray(n.targets) && n.targets.some((t) => t && t.list === stepId))) && !early(n));
@@ -1822,7 +1842,7 @@ function buildStepNotices(stepId, { getQuote = () => null, onReveal = null, onFo
           'li',
           { class: ['qe-notice', `is-${i.status === 'missing' ? 'red' : 'orange'}`] },
           h('span', { class: ['dot', `dot-${i.status === 'missing' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }),
-          h('span', {}, h('strong', {}, `${i.label}: `), i.message, ' ', actionFor(i, quote)),
+          h('span', {}, h('strong', {}, `${i.label}: `), i.message, ' ', actionFor(i, quote), recoverAllVatAction(i, quote) ? ' ' : null, recoverAllVatAction(i, quote)),
         )),
         ...issues.map((i) => h('li', { class: ['qe-notice', `is-${i.severity === 'error' ? 'red' : 'orange'}`] }, h('span', { class: ['dot', `dot-${i.severity === 'error' ? 'red' : 'orange'}`], 'aria-hidden': 'true' }), h('span', {}, i.message))),
         ...infos.map((n) => h(
@@ -2272,8 +2292,6 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
   let copy = stepId === 'labor' && noLaborProfiles ? { ...baseCopy, why: LABOR_WHY_EMPTY } : baseCopy;
   // Precio cerrado: en "El precio" se calcula tu precio, no una tarifa.
   if (stepId === 'margin' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: copy.why.replace('tarifa', 'precio') };
-  // Precio cerrado en "Cómo se cobra": cuánto lleva el trabajo y "tu precio" (revisión UX tanda novatos).
-  if (stepId === 'modality' && isPlainObject(state.quote.contract) && state.quote.contract.mode === 'closed') copy = { ...copy, why: '' };
 
   markVisited(quoteId, stepId);
   const stageBar = buildStageBar({ currentStep: stepId, stepHref, quoteId, isHidden: (id) => isStepHidden(id, state.quote) });
@@ -2283,20 +2301,38 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     getQuote: () => state.quote,
     onReveal: (key) => revealAdvanced(key),
     onFocusField: (path) => focusField(path),
-    onUseOfferedRate: (value) => mutate((q) => {
-      if (!isPlainObject(q.pricing)) q.pricing = {};
-      q.pricing.offeredRateOverride = value;
-    }, { focus: 'pricing.offeredRateOverride' }),
+    onUseOfferedRate: (value) => {
+      const field = state.quote.pricingMode === 'known_rate' ? 'knownRate' : 'offeredRateOverride';
+      mutate((q) => {
+        if (!isPlainObject(q.pricing)) q.pricing = {};
+        q.pricing[field] = value;
+      }, { focus: `pricing.${field}` });
+    },
     onChargeFullMonth: (rows) => mutate((q) => {
       rows.forEach((row) => {
         const line = Array.isArray(q[row.list]) ? q[row.list][row.index] : null;
         if (isPlainObject(line) && row.used > 0) line.billableHoursPerMonth = Math.round(row.used * 100) / 100;
       });
     }),
+    // D6: sólo si la empresa puede recuperar el IVA (no monotributo ni exento). Revisión de la
+    // 0.24.0 (B-1): con el IVA de la cotización aplicado, "Sí" baja el costo financiero. Antes de
+    // cambiar, una confirmación dice cuánto, con el motor antes y después (sin cuentas acá).
+    onRecoverAllVat: readOnly || vatIsCost(settings) ? null : async (indexes) => {
+      const apply = (q) => {
+        indexes.forEach((i) => {
+          const line = Array.isArray(q.equipment) ? q.equipment[i] : null;
+          if (!isPlainObject(line)) return;
+          line.external = createExternalTerms(line.external);
+          line.external.fiscal.vatRecoverable = 'yes';
+        });
+      };
+      const ok = await confirmDialog(recoverAllVatConfirm(state.quote, state.settings, apply, indexes.length));
+      if (ok) mutate(apply);
+    },
     hasField: (path) => Boolean(stepBody.querySelector(`[name="${cssEscape(path)}"]`)),
     stepHref,
     didactic: state.quote.illustrative === true,
-    chargeReady: (q) => wasVisited(quoteId, 'modality') || chargeLoaded(q),
+    chargeReady: (q) => chargeLoaded(q),
   });
   const calcErrorBanner = banner('No se pudieron recalcular los resultados con los datos actuales. Revisá los valores ingresados.', 'danger', { title: 'Error de cálculo.' });
   calcErrorBanner.hidden = true;
@@ -2393,7 +2429,12 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
     const shownGroups = isResult ? groups : groups.filter((g) => g.step === stepId);
     // En Viajes el aviso es uno solo, junto al campo del precio ("Es mi precio vigente").
     const fuelHere = info.fuel && isResult;
-    const key = JSON.stringify([info.quote, fuelHere, shownGroups.map((g) => [g.label, g.n])]);
+    // 0.24.0 (W-10): la empresa ya confirmó sus datos y esta cotización se creó antes con los de
+    // ejemplo: un botón quita la marca del combustible y de la tasa. El número no cambia.
+    const ownCompany = Boolean(settings) && settings.illustrative !== true && !readOnly;
+    const companyExample = ownCompany && isResult && (info.fuel || info.finance);
+    const company = companyExample ? companyValuesDiff(q, settings, info) : null;
+    const key = JSON.stringify([info.quote, fuelHere, companyExample, info.finance, shownGroups.map((g) => [g.label, g.n]), company && company.key]);
     if (key === illustrativeKey) return;
     illustrativeKey = key;
     const hide = () => {
@@ -2416,7 +2457,7 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       mount(illustrativeHolder, el);
       return;
     }
-    if (shownGroups.length === 0 && !fuelHere) {
+    if (shownGroups.length === 0 && !fuelHere && !companyExample) {
       hide();
       return;
     }
@@ -2433,7 +2474,39 @@ function createEditor(root, app, { quote, settings, resources, stepId, restoredD
       }
       notices.push(el);
     }
-    if (fuelHere) {
+    if (companyExample) {
+      // Revisión de la 0.24.0 (C-4 de costos): el aviso muestra el valor de la cotización y el de
+      // la empresa. Si son iguales, un botón confirma (el número no cambia). Si difieren, dos:
+      // "Usar los de mi empresa" (cambia los números y lo dice) y "Dejar estos" (no cambia nada).
+      const what = [info.fuel ? 'el precio del combustible' : null, info.finance ? 'la tasa de financiamiento' : null].filter(Boolean).join(' y ');
+      const el = banner(h('span', {}, `Esta cotización se creó antes de que cargaras los datos de tu empresa: ${what} ${info.fuel && info.finance ? 'son' : 'es'} de ejemplo (${company.quoteText}). ${company.same ? 'Son los mismos que guardaste para tu empresa.' : `Tu empresa tiene ${company.companyText}.`}`, illustrativeTag('Valores de ejemplo de antes de cargar los datos de tu empresa')), 'warning');
+      el.classList.add('qe-illustrative-line', 'qe-company-example');
+      const body = el.lastElementChild || el;
+      const keep = (label) => button(label, {
+        variant: 'link',
+        size: 'sm',
+        attrs: { class: 'btn btn-link btn-sm qe-illustrative-go' },
+        onClick: () => mutate((qq) => {
+          // Lo mismo que "Es mi precio vigente" en Viajes.
+          if (isPlainObject(qq.fuel)) qq.fuel.illustrative = false;
+          if (isPlainObject(qq.finance)) qq.finance.illustrative = false;
+        }),
+      });
+      if (company.same) body.appendChild(keep('Son los valores de mi empresa'));
+      else {
+        body.appendChild(button(`Usar los de mi empresa (${company.companyText})`, {
+          variant: 'link',
+          size: 'sm',
+          attrs: { class: 'btn btn-link btn-sm qe-illustrative-go qe-company-use' },
+          onClick: () => {
+            mutate((qq) => applyCompanyValues(qq, settings, info));
+            notify('Listo: la cotización usa los valores de tu empresa. Cambian sus números.', 'info');
+          },
+        }));
+        body.appendChild(keep(`Dejar estos (${company.quoteText})`));
+      }
+      notices.push(el);
+    } else if (fuelHere) {
       const el = banner(h('span', {}, 'El precio del combustible es de ejemplo: cargá el tuyo o confirmá que es tu precio vigente.', illustrativeTag('Precio del combustible por defecto: reemplazalo por tu precio actual')), 'warning');
       el.classList.add('qe-illustrative-line');
       const body = el.lastElementChild || el;
@@ -3104,6 +3177,19 @@ export async function render(root, app, params = {}) {
   const token = ++renderSequence;
   const id = params && typeof params.id === 'string' ? params.id : '';
   const requested = params && typeof params.step === 'string' && params.step !== '' ? params.step : null;
+  // 0.24.0 (PLAN-2026-028): el paso "Cómo se cobra" (…/modality) ya no existe. Un enlace guardado
+  // abre "El precio" (con su "?campo=…", si lo tenía).
+  if (requested === 'modality' && id && app && typeof app.navigate === 'function') {
+    const hash = typeof window !== 'undefined' && window.location ? String(window.location.hash || '') : '';
+    const at = hash.indexOf('?');
+    // C3 (revisión de la 0.24.0): con "?campo=…", el paso donde vive ese campo hoy (horas extra en
+    // Personal, el viaje del personal en Movilización…); sin campo, "El precio".
+    const campo = fieldFromHash(hash);
+    const target = campo ? stepOfPath(campo) : null;
+    const step = target && target !== 'modality' && QUOTE_STEPS.some((s) => s.id === target) ? target : 'margin';
+    app.navigate(`#/cotizaciones/${encodeURIComponent(id)}/${step}${at >= 0 ? hash.slice(at) : ''}`, { replace: true });
+    return undefined;
+  }
   const validStep = requested !== null && QUOTE_STEPS.some((s) => s.id === requested);
 
   // Paso inexistente en la URL (p. ej. …/foo): se corrige la URL al primer
@@ -3161,3 +3247,66 @@ export async function render(root, app, params = {}) {
   };
 }
 
+/**
+ * Confirmación de "Recupero el IVA de todos" (revisión de la 0.24.0, B-1). Corre el motor con la
+ * cotización como está y con los externos en "Sí", y dice cuánto baja el costo del mes.
+ */
+export function recoverAllVatConfirm(quote, settings, apply, count) {
+  const opts = settings ? { settings } : {};
+  const before = computeQuote(quote, opts);
+  const changed = deepClone(quote);
+  apply(changed);
+  const after = computeQuote(changed, opts);
+  const kb = (before && before.kpis) || {};
+  const ka = (after && after.kpis) || {};
+  const drop = isFiniteNumber(kb.totalCost) && isFiniteNumber(ka.totalCost) ? kb.totalCost - ka.totalCost : 0;
+  const lines = count === 1 ? 'El externo pasa' : `Los ${count} externos pasan`;
+  const correct = 'Es lo correcto contablemente si recuperás el IVA: como responsable inscripto, el IVA que te facturan es crédito fiscal.';
+  let message;
+  if (drop > 0.5) {
+    const rate = isFiniteNumber(kb.suggestedListRate) && isFiniteNumber(ka.suggestedListRate) && Math.abs(kb.suggestedListRate - ka.suggestedListRate) > 0.5
+      ? ` La tarifa sugerida pasa de ${formatMoney(kb.suggestedListRate)} a ${formatMoney(ka.suggestedListRate)}.`
+      : '';
+    message = `${lines} a «Sí, lo recupero». El costo del mes baja ${formatMoney(drop)} (de ${formatMoney(kb.totalCost)} a ${formatMoney(ka.totalCost)}), porque ese IVA te descuenta el que tenés que adelantar.${rate} ${correct}`;
+  } else {
+    message = `${lines} a «Sí, lo recupero». En esta cotización el costo no cambia (${formatMoney(kb.totalCost || 0)} por mes). ${correct}`;
+  }
+  return { title: '¿Recuperás el IVA de todos los externos?', message, confirmLabel: 'Sí, lo recupero', cancelLabel: 'Cancelar', drop, before: kb.totalCost, after: ka.totalCost };
+}
+
+/**
+ * Valores de ejemplo de la cotización contra los de la empresa (revisión de la 0.24.0, C-4): sólo
+ * las partes marcadas de ejemplo (combustible, tasa). Textos "$ 1.500/L · 4 %".
+ */
+export function companyValuesDiff(quote, settings, info) {
+  const q = isPlainObject(quote) ? quote : {};
+  const st = isPlainObject(settings) ? settings : {};
+  const rows = [];
+  if (info && info.fuel) rows.push({ id: 'fuel', here: Number(q.fuel && q.fuel.pricePerLiter), company: Number(st.fuelPricePerLiter), text: (v) => `${formatMoney(v)}/L` });
+  if (info && info.finance) rows.push({ id: 'finance', here: Number(q.finance && q.finance.monthlyRatePct), company: Number(st.financeMonthlyRatePct), text: (v) => `${formatPercent(v)} por mes` });
+  const shown = (v, row) => (isFiniteNumber(v) ? row.text(v) : EMPTY);
+  const same = rows.every((row) => !isFiniteNumber(row.company) || Math.abs(row.here - row.company) < 1e-9);
+  return {
+    same,
+    rows,
+    quoteText: rows.map((row) => shown(row.here, row)).join(' · '),
+    companyText: rows.map((row) => shown(row.company, row)).join(' · '),
+    key: rows.map((row) => [row.id, row.here, row.company]),
+  };
+}
+
+/** "Usar los de mi empresa": copia el combustible y la tasa de la empresa (acción de la persona). */
+export function applyCompanyValues(quote, settings, info) {
+  const st = isPlainObject(settings) ? settings : {};
+  if (info && info.fuel && isFiniteNumber(st.fuelPricePerLiter)) {
+    if (!isPlainObject(quote.fuel)) quote.fuel = {};
+    quote.fuel.pricePerLiter = st.fuelPricePerLiter;
+    quote.fuel.illustrative = false;
+  }
+  if (info && info.finance && isFiniteNumber(st.financeMonthlyRatePct)) {
+    if (!isPlainObject(quote.finance)) quote.finance = {};
+    quote.finance.monthlyRatePct = st.financeMonthlyRatePct;
+    quote.finance.illustrative = false;
+  }
+  return quote;
+}

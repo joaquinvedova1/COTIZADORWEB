@@ -20,7 +20,7 @@
 import { h, mount } from '../../dom.js';
 import { badge, button, card, disclosure, formGrid, infoTip, numberField, selectField, emptyState, table, icon, checkboxField } from '../../components.js';
 import { lodgingFromDetail } from '../../../domain/lodging.js';
-import { ACQUISITION_MODES, DRIVER_OPTIONS, FUEL_PROVIDERS, MOBILIZATION_MODES, labelOf } from '../../../domain/catalogs.js';
+import { ACQUISITION_MODES, DRIVER_OPTIONS, FUEL_PROVIDERS, MOBILIZATION_MODES, labelOf, vatIsCost } from '../../../domain/catalogs.js';
 import { acquisitionOf } from '../../../domain/quote-factory.js';
 import { fieldHref } from '../../field-links.js';
 import { formatMoney, formatNumber, formatPercent, formatValue, EMPTY } from '../../../core/format.js';
@@ -36,6 +36,8 @@ import { billingUnitOf } from '../../../domain/billing-units.js';
 import { transportOf, providerActivityList, routeText, tripsText } from './transport.js';
 import { activationTerms, activationFieldLabels } from '../../../domain/activation-terms.js';
 import { closedJobsPerMonth, unitAmountText, costPlaceLabel } from '../../result-text.js';
+import { render as renderCharge } from './modality.js';
+import { saveAsCompanyAction, fuelPriceLabel, fuelPriceVatHint } from '../../company-defaults.js';
 
 /**
  * Texto que va EN LUGAR del campo "Consumo en ruta" de un equipo que llega por
@@ -482,7 +484,7 @@ export function render(container, ctx) {
         kit.num('logistics.distanceKm', { label: 'Distancia (una vía)', rule: 'distance', unit: 'km' }),
       ),
       kit.out((r) => routeText(transportOf(r)), { tag: 'p', className: 'small muted qe-route-line', allowEmpty: true }),
-      // "Viajes y km del mes" no va acá: los viajes se cargan en "Cómo se cobra" (etapa 3) y en
+      // "Viajes y km del mes" no va acá: los viajes se cargan en "El servicio" y en
       // esta etapa se veían en 0. Los km y litros siguen en "Ver detalle de kilómetros y litros".
     );
 
@@ -716,7 +718,9 @@ export function render(container, ctx) {
     if (fuelConfirm) fuelConfirm.hidden = true;
   };
   const fuelPriceField = kit.num('fuel.pricePerLiter', {
-    label: 'Precio del combustible (sin IVA)',
+    // C-5 (revisión de la 0.24.0): "con IVA" para monotributo y exento (fuelPriceLabel).
+    label: fuelPriceLabel(ctx.settings),
+    hint: vatIsCost(ctx.settings) ? fuelPriceVatHint(ctx.settings) : null,
     rule: 'money',
     unit: '$/L',
     illustrative: fuelMarked,
@@ -752,6 +756,13 @@ export function render(container, ctx) {
       }),
     ),
     fuelConfirm,
+    // 0.24.0 (W-10): con la Configuración ya propia, el precio de esta cotización puede pasar a ser el de la empresa.
+    saveAsCompanyAction(ctx, {
+      settingsKey: 'fuelPricePerLiter',
+      getValue: () => (ctx.quote.fuel ? ctx.quote.fuel.pricePerLiter : null),
+      describe: (v) => `${formatMoney(v)}/L de combustible`,
+      focus: 'fuel.pricePerLiter',
+    }),
     kit.advanced(
       {
         key: 'fuel-base',
@@ -855,6 +866,9 @@ export function render(container, ctx) {
       h('div', { class: 'qe-tip' }, icon('info'), h('p', {}, 'En la estructura de costos, el combustible de la movilización y de los viajes se informa en "Combustible" y el resto (desgaste, peajes, viáticos) en "Logística". Cada costo está en un solo lugar.')),
     );
 
-  mount(container, toggleCard, routeCard, mobilizationCard, vehiclesCard, lodgingCard, fuelCard, advancedCard, keyline, resultsDetail);
+  // 0.24.0 (PLAN-2026-028): "¿Cómo viaja el personal a la locación?" (cobro por mes), antes en "Cómo se cobra".
+  const travelSlot = h('div', { class: 'qe-travel-slot' });
+  renderCharge(travelSlot, { ...ctx, part: 'travel' });
+  mount(container, toggleCard, routeCard, travelSlot.dataset.empty === 'true' ? null : travelSlot, mobilizationCard, vehiclesCard, lodgingCard, fuelCard, advancedCard, keyline, resultsDetail);
   return { update() {} };
 }

@@ -1192,7 +1192,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         formGrid(2, kit.num('pricing.targetMarginPct', { label: 'Margen que querés ganar', rule: 'margin', unit: '%', hint: 'Sobre el precio: con 30 %, de cada $ 100 que cobrás (sin IVA ni impuestos) te quedan $ 30 de ganancia.' })),
         calc((r) => {
           const pr = r.pricing;
-          if (pr.marginInput === null || pr.marginInput === undefined) return 'Sin margen cargado, el precio sugerido es el precio piso: no ganás nada.';
+          if (pr.marginInput === null || pr.marginInput === undefined) return 'Sin margen cargado, el precio sugerido es el precio mínimo: no ganás nada.';
           if (pr.markupPct === null) return '';
           return `Con este precio, el recargo sobre el costo (markup) es ${pctText(pr.markupPct)}. Margen y markup no son lo mismo: el margen se mide sobre el precio y el markup sobre el costo.`;
         }),
@@ -1258,7 +1258,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
           'div',
           { class: 'qe-stats' },
           stat(`Costo por ${saleUnit()}`, (r) => unitMoney(r.unitCost), { trace: 'unitCost' }),
-          stat('Precio piso (no ganás ni perdés)', (r) => unitMoney(r.pricing.floorPrice), { trace: 'floor' }),
+          stat('Precio mínimo (no ganás ni perdés)', (r) => unitMoney(r.pricing.floorPrice), { trace: 'floor' }),
           stat('Precio con tu margen', (r) => unitMoney(r.pricing.targetPrice), { hint: () => 'Exacto, antes de redondear.' }),
           stat('Precio sugerido (sin IVA)', (r) => unitMoney(r.pricing.suggestedPrice), { emphasis: true, trace: 'target' }),
           stat('Precio al público con IVA', (r) => (r.pricing.priceWithVat === null ? 'Sin IVA cargado' : unitMoney(r.pricing.priceWithVat))),
@@ -1360,7 +1360,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
             { key: 'calc', label: 'Cálculo', align: 'right', render: (row) => (row.trace ? traceCell(row.trace) : '') },
           ],
           rows: [
-            { label: 'Precio piso (no ganás ni perdés)', value: unitMoney(pr.floorPrice), trace: 'floor' },
+            { label: 'Precio mínimo (no ganás ni perdés)', value: unitMoney(pr.floorPrice), trace: 'floor' },
             { label: `Precio con ${pctText(pr.marginPct)} de margen (exacto)`, value: unitMoney(pr.targetPrice), trace: null },
             { label: 'Precio sugerido (sin IVA)', value: unitMoney(pr.suggestedPrice), trace: 'target' },
             pr.priceWithVat !== null ? { label: 'Precio al público con IVA', value: unitMoney(pr.priceWithVat), trace: 'vat' } : null,
@@ -1426,7 +1426,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
           current.belowVariable
             ? banner(`Con este precio cada ${u} no cubre ni lo que cuesta hacerla: cuanto más vendés, más perdés.`, 'danger')
             : current.belowFloor
-              ? banner('Tu precio de hoy está por debajo del precio piso: no cubre todos tus costos.', 'danger')
+              ? banner('Tu precio de hoy está por debajo del precio mínimo: no cubre todos tus costos.', 'danger')
               : pr.suggestedPrice !== null && current.price < pr.suggestedPrice
                 ? banner('Cubre tus costos, pero está por debajo del precio sugerido: ganás menos que el margen que querés.', 'warning')
                 : banner('Tu precio de hoy cubre tus costos y el margen que querés.', 'success'),

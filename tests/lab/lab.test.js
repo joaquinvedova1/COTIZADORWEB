@@ -14,7 +14,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runCampaign, BLOCKING } from './lib/lab.js';
-import { auditQuoteUx, auditActivationTerms, hardcodedActivationWords, jornadaWords, auditJornadaWording, auditProductFinanceScope } from './lib/ux-audit.js';
+import { auditQuoteUx, auditActivationTerms, hardcodedActivationWords, jornadaWords, auditJornadaWording, auditProductFinanceScope, retiredStepNames, retiredFloorNames } from './lib/ux-audit.js';
 import { activationTerms } from '../../js/domain/activation-terms.js';
 import { service, person } from './lib/build.js';
 import { computeQuote } from '../../js/engines/quote-engine.js';
@@ -23,7 +23,11 @@ import { PRODUCT_SCENARIOS } from './scenarios/products.js';
 import { toJSON, toMarkdown, assertSafeReport } from './lib/report.js';
 import { ORACLE_UNIT_KINDS, ORACLE_EXTERNAL_UNITS } from './lib/oracle.js';
 import { BILLING_UNITS } from '../../js/domain/billing-units.js';
-import { EXTERNAL_UNITS } from '../../js/domain/catalogs.js';
+import { EXTERNAL_UNITS, QUOTE_STEPS } from '../../js/domain/catalogs.js';
+import { itemStepsOutside } from './lib/coverage.js';
+import { SERVICE_SCENARIOS } from './scenarios/services.js';
+import { PROBES } from './scenarios/probes.js';
+import { resetIds } from './lib/build.js';
 
 const campaign = runCampaign({ mode: 'stable' });
 const blocking = (findings) => findings.filter((f) => BLOCKING.includes(f.classification) && !(f.known && ['human', 'accepted'].includes(f.known.status)));
@@ -89,6 +93,20 @@ describe('Test Lab — terminología de la interfaz (auditor UX F)', () => {
     const found = auditActivationTerms(q, r);
     assert.deepEqual(found.map((f) => f.evidence.word.toLowerCase()), ['llamado']);
     assert.deepEqual(hardcodedActivationWords(), [], 'sin palabras de activación escritas a mano fuera de la lista justificada');
+  });
+
+  // PLAN-2026-028 (0.24.0): el paso "Cómo se cobra" se disolvió; ningún texto lo cita (UX-TERM-STEP).
+  test('ningún literal del código cita el paso retirado "Cómo se cobra"', () => {
+    assert.deepEqual(retiredStepNames(), []);
+  });
+  // PLAN-2026-028 (0.24.0, D4): "Precio piso" pasó a "Precio mínimo" (UX-TERM-FLOOR).
+  test('ningún literal del código dice "precio piso"', () => {
+    assert.deepEqual(retiredFloorNames(), []);
+  });
+  test('los ítems y avisos de la completitud apuntan a uno de los 10 pasos', () => {
+    assert.equal(QUOTE_STEPS.length, 10);
+    const runs = [...SERVICE_SCENARIOS, ...PROBES].map((s) => { resetIds(); return { id: s.id, result: computeQuote(structuredClone(s.build())) }; });
+    assert.deepEqual(itemStepsOutside(runs), []);
   });
 
   // PLAN-2026-014 (LAB-D2): RATEOS no tiene un dato de jornada diaria; el control de horas es de cobertura mensual.

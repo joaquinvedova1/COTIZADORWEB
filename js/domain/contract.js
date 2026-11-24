@@ -71,7 +71,8 @@ export const SERVICE_COMPONENTS = deepFreeze([
   { id: 'supplies', label: 'Insumos y consumibles', hint: 'Electrodos, discos, gas, filtros, químicos.', step: 'materials', materials: true },
   { id: 'materials', label: 'Materiales', hint: 'Lo que queda en la obra: caños, cables, pintura.', step: 'materials', materials: true },
   { id: 'ppe', label: 'EPP especial', hint: 'La ropa de trabajo y el EPP básico de cada persona van en su puesto; acá, el especial (trajes, respiradores, arneses).', step: 'materials', materials: true },
-  { id: 'travel', label: 'Viáticos y alojamiento', hint: 'Desarraigo, hotel, comidas, peajes.', step: 'logistics' },
+  // 0.24.0 (P-10): el mismo texto que el bloque "Viajes" (las comidas van en Personal).
+  { id: 'travel', label: 'Viáticos y alojamiento', hint: 'Alojamiento, desarraigo y peajes (las comidas van en Personal).', step: 'logistics' },
   { id: 'other', label: 'Otros gastos', hint: 'Permisos, seguros, disposición de residuos, ingeniería.', step: 'materials' },
 ]);
 

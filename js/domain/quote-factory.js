@@ -85,9 +85,13 @@ export function isExternal(item = {}) {
  * (sin definir). El tratamiento fiscal lo define la empresa: RATEOS no trae
  * alícuotas (vatPct null = sin definir).
  */
-export function createExternalTerms(src = {}) {
+export function createExternalTerms(src = {}, { settings = null } = {}) {
   const s = isPlainObject(src) ? src : {};
   const f = isPlainObject(s.fiscal) ? s.fiscal : {};
+  // Revisión de la 0.24.0 (B-1): una línea nueva nace "sin definir" también en responsable
+  // inscripto. "Sí, lo recupero" no da el mismo costo con el IVA de la cotización aplicado (K-03:
+  // el crédito conocido baja el financiero), así que pasar a "Sí" es una acción de la persona.
+  const vatRecoverable = VAT_RECOVERY_IDS.includes(f.vatRecoverable) ? f.vatRecoverable : newExternalVatRecoverable(settings);
   const opt = (v) => finiteOr(v, null);
   return {
     supplier: shortText(s.supplier),
@@ -109,13 +113,22 @@ export function createExternalTerms(src = {}) {
     insuranceIncluded: boolOrNull(s.insuranceIncluded),
     fiscal: {
       vatPct: opt(f.vatPct),
-      vatRecoverable: VAT_RECOVERY_IDS.includes(f.vatRecoverable) ? f.vatRecoverable : null,
+      vatRecoverable,
       vatRecoverablePct: opt(f.vatRecoverablePct),
       perceptionsPct: opt(f.perceptionsPct),
       nonRecoverablePct: opt(f.nonRecoverablePct),
       paymentTermDays: opt(f.paymentTermDays),
     },
   };
+}
+
+/**
+ * ¿Con qué "¿Recuperás ese IVA?" nace un externo nuevo? Siempre sin definir (revisión de la 0.24.0,
+ * B-1): con el IVA aplicado, "Sí" baja el costo, y ningún número cambia sin una acción explícita.
+ * Se deja la firma con `settings` porque la usan las pantallas que crean líneas.
+ */
+export function newExternalVatRecoverable(settings) {
+  return null;
 }
 
 /**
@@ -590,7 +603,7 @@ export function createExtra({ id = createId(), label = 'Adicional', unitName = '
  *     y se leía como "personal y equipos" (aparecía "Equipo o maquinaria" marcado y
  *     faltaban $/viaje y $/km al sumar un vehículo). Al sumar Vehículo o Equipo en
  *     "¿Qué incluye?" aparecen sus unidades.
- *   - Disponibilidad sin definir (no 24/7 escondida): se elige en "Cómo se cobra",
+ *   - Disponibilidad sin definir (no 24/7 escondida): se elegía en "Cómo se cobra" (hasta 0.23.0),
  *     junto a los días. No mueve ningún número (sólo el aviso de relevos, que pide 24/7).
  * Las cotizaciones guardadas sin contrato siguen leyéndose como antes (legacy).
  */

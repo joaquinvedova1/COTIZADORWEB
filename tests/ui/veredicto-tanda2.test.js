@@ -19,9 +19,9 @@ import { service, person, external, resetIds } from '../lab/lib/build.js';
 const norm = (s) => String(s).replace(/ /g, ' ');
 
 describe('V-09 · Avisos de adicionales', () => {
-  test('los avisos de extras.* se corrigen en "Cómo se cobra", no en "El servicio"', () => {
-    assert.equal(stepOfPath('extras.0.price'), 'modality');
-    assert.equal(stepOfPath('extras.3.premiumPct'), 'modality');
+  test('los avisos de extras.* se corrigen en "El precio" (0.24.0: "Cargado antes"), no en "El servicio"', () => {
+    assert.equal(stepOfPath('extras.0.price'), 'margin');
+    assert.equal(stepOfPath('extras.3.premiumPct'), 'margin');
     assert.equal(stepOfPath('name'), 'service');
   });
 

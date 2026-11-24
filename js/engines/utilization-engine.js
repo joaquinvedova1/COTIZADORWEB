@@ -129,7 +129,7 @@ export function staleDedicationOf(quote = {}, activity = {}) {
   return check('labor', objectList(quote.labor), proposal.labor) || check('equipment', objectList(quote.equipment), proposal.equipment);
 }
 
-/** Texto del aviso de % de dedicación viejo (el mismo en "Cómo se cobra" y en la completitud). */
+/** Texto del aviso de % de dedicación viejo (el mismo en la línea y en la completitud). */
 export function staleDedicationMessage(stale) {
   const pctText = (v) => `${String(Math.round(v * 10) / 10).replace('.', ',')} %`;
   return `El % cargado (${pctText(stale.loaded)}) ya no coincide con los días y horas de ahora (${pctText(stale.proposed)}).`;

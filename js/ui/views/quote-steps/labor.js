@@ -23,11 +23,13 @@ import { nonNegative, isFiniteNumber, roundRate } from '../../../core/money.js';
 import { createTrace } from '../../../core/trace.js';
 import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSyncNotice } from './resource-line.js';
 import { onSessionReset } from '../../session-memory.js';
+import { hasText } from '../../optional-fields.js';
 import { baseText } from '../../economic-base-ui.js';
 import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
 import { billableHoursOf, serviceMonthHours, monthBaseHoursOf } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { laborHeadcountOf } from '../../../engines/labor-engine.js';
+import { render as renderCharge } from './modality.js';
 import { reliefFromLabor } from '../../../engines/rotation-engine.js';
 
 /**
@@ -150,7 +152,7 @@ function laborTrace(result, index, source) {
       line.timeBasis ? 'Por tiempo usado: el puesto no carga su mes completo ni un % de su mes. Cuesta las horas del trabajo × el valor de su hora (costo del mes ÷ horas que le cobrás a clientes por mes; vacío = las normales). Así las horas sin cliente quedan cubiertas en cada hora.' : null,
       'Hora extra = (sueldo bruto ÷ horas normales) × (1 + recargo) × factor de cargas. Las "Horas al 50 % / 100 % por mes" usan el valor de la hora del recurso (sueldo con adicionales, o el valor que cargaste). Las horas por día de trabajo son costo variable; las horas promedio por mes, fijo del mes.',
       line.overtimeBilling ? 'Las horas extra que facturás aparte siguen siendo costo: además suman ingreso (horas × precio por hora).' : null,
-      roleOvertimeMonth(result, index) > 0 ? `Las ${overtimeWorkLabel(result)} se eligen en "Cómo se cobra" y se suman al costo de este puesto, dentro de tu único precio.` : null,
+      roleOvertimeMonth(result, index) > 0 ? `Las ${overtimeWorkLabel(result)} se eligen abajo, en "Horas extra del trabajo", y se suman al costo de este puesto, dentro de tu único precio.` : null,
       'Los porcentajes de convenio son parámetros que cargás vos: los de la demostración son ILUSTRATIVOS, no valores de ningún CCT.',
     ],
   });
@@ -306,7 +308,7 @@ export function render(container, ctx) {
   /**
    * Horas extra por tramos (PLAN-2026-010), cargadas antes en el puesto: se editan o se quitan.
    * Regla de un ítem (2026-11-18): no se agregan tramos nuevos ni se ofrece facturarlas aparte;
-   * las horas extra se eligen en "Cómo se cobra" → "Horas extra del trabajo".
+   * las horas extra se eligen al final de Personal, en "Horas extra del trabajo".
    */
   function overtimeEditor(i, line) {
     const p = `labor.${i}`;
@@ -317,7 +319,7 @@ export function render(container, ctx) {
     const removeLegacyOvertime = async () => {
       const ok = await confirmDialog({
         title: 'Quitar las horas extra del puesto',
-        message: `Se borran las horas extra cargadas antes en este puesto${line.overtimeBilled === true ? ' y lo que se facturaba aparte por ellas' : ''}. Si el trabajo lleva horas extra, elegilas en "${stepName('modality')}" → "Horas extra del trabajo": se suman dentro del costo de tu gente.`,
+        message: `Se borran las horas extra cargadas antes en este puesto${line.overtimeBilled === true ? ' y lo que se facturaba aparte por ellas' : ''}. Si el trabajo lleva horas extra, elegilas abajo, en "Horas extra del trabajo": se suman dentro del costo de tu gente.`,
         confirmLabel: 'Quitar',
         danger: true,
       });
@@ -359,7 +361,7 @@ export function render(container, ctx) {
       ctx.readOnly ? null : h(
         'div',
         { class: 'qe-toolbar' },
-        kit.action('Quitar las horas extra del puesto', () => removeLegacyOvertime(), { variant: 'ghost', icon: 'trash', title: `Las horas extra ahora se eligen en "${stepName('modality')}" → "Horas extra del trabajo".` }),
+        kit.action('Quitar las horas extra del puesto', () => removeLegacyOvertime(), { variant: 'ghost', icon: 'trash', title: 'Las horas extra ahora se eligen abajo, en "Horas extra del trabajo".' }),
       ),
       line.overtimeBilled === true
         ? kit.check(`${p}.overtimeBilled`, {
@@ -443,7 +445,7 @@ export function render(container, ctx) {
       ? `${n2(nonNegative(line.rotation.hoursPerShift))} (turno cargado antes)`
       : serviceHours > 0 ? `${formatNumber(serviceHours, { decimals: 2 })} (${timeBasis ? 'todo el día' : 'las del servicio'})` : `Las del servicio («${stepName('service')}»)`,
     hint: timeBasis
-      ? `Las horas efectivas de trabajo de este puesto para esta cotización, por día de trabajo. Su costo = esas horas × el valor de su hora. Ejemplo: de un día de 8 h, el chofer maneja 5 → 5. Vacío = todo el día de trabajo${serviceHours > 0 ? ` (${formatNumber(serviceHours, { decimals: 2 })} h)` : ` (se carga en «${stepName('modality')}»)`}; más que eso no se cuenta.`
+      ? `Las horas efectivas de trabajo de este puesto para esta cotización, por día de trabajo. Su costo = esas horas × el valor de su hora. Ejemplo: de un día de 8 h, el chofer maneja 5 → 5. Vacío = todo el día de trabajo${serviceHours > 0 ? ` (${formatNumber(serviceHours, { decimals: 2 })} h)` : ` (se carga en «${stepName('service')}»)`}; más que eso no se cuenta.`
       : 'Vacío = trabajan todas las horas por día del servicio. Si se turnan (por ejemplo 3 personas de 8 h para 24 h), cargá las de cada una. Sirve para avisarte si faltan horas.',
   });
   /**
@@ -462,7 +464,7 @@ export function render(container, ctx) {
     // 0.18.0: por mes se piden las horas por mes en el servicio (vacío = todo el mes). Un % cargado
     // a mano antes (o "contratada para este servicio") se sigue viendo como estaba.
     // Sólo cobrando por mes: en una cotización anterior por día o por trabajo sigue la pregunta de
-    // "Cómo se cobra" (¿trabajan sólo para este servicio?), que escribe el % sin horas.
+    // "Cómo se cobra" (¿trabajan sólo para este servicio?); desde 0.24.0, el % de cada línea.
     if (billingUnitOf(quote).kind === 'month' && !hasManualSharePct(line) && line.assignment !== 'hired') {
       return monthHoursField(kit, ctx, { path: p, kind: 'labor', baseHours: billableHoursOf(line, nonNegative(line.normalHoursPerMonth)), serviceHours: serviceHoursMonth, serviceText: serviceHoursText });
     }
@@ -563,10 +565,10 @@ export function render(container, ctx) {
           hint: legacyStaff(line) ? 'Las que trabajan en el servicio al mismo tiempo.' : 'Cargada antes. Para sumar otra persona, asigná el puesto otra vez.',
         }),
         fromResource ? null : kit.num(`${p}.basicMonthly`, { label: 'Sueldo bruto por mes', rule: 'money', unit: '$/mes', requiredMark: true, illustrative, hint: 'El bruto de recibo, sin cargas: RATEOS las suma.' }),
-        // Horas extra: ya no se cargan en el puesto (Joaco, 2026-11-18). Van en "Cómo se cobra" →
+        // Horas extra: ya no se cargan en el puesto (Joaco, 2026-11-18). Van al final de Personal →
         // "Horas extra del trabajo". Las cotizaciones que ya las tenían las siguen viendo (mismos números).
-        nonNegative(line.overtime50HoursPerMonth) > 0 ? kit.num(`${p}.overtime50HoursPerMonth`, { label: 'Horas extra al 50 % que le pagás por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: `Las horas extra que le PAGÁS a CADA persona en un mes, si las hace siempre en este servicio. Ej.: sábados de 8 a 12 = 4 h × 4,33 semanas ≈ 17 h. Si no hace: vacío. Lo que le COBRÁS al cliente fuera de horario va en "${stepName('modality')}".` }) : null,
-        nonNegative(line.overtime100HoursPerMonth) > 0 ? kit.num(`${p}.overtime100HoursPerMonth`, { label: 'Horas extra al 100 % que le pagás por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: `Las horas que le PAGÁS a CADA persona en un mes en sábados a la tarde, domingos o feriados, si las hace siempre en este servicio. Si no hace: vacío. Lo que le COBRÁS al cliente fuera de horario va en "${stepName('modality')}".` }) : null,
+        nonNegative(line.overtime50HoursPerMonth) > 0 ? kit.num(`${p}.overtime50HoursPerMonth`, { label: 'Horas extra al 50 % que le pagás por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: `Las horas extra que le PAGÁS a CADA persona en un mes, si las hace siempre en este servicio. Ej.: sábados de 8 a 12 = 4 h × 4,33 semanas ≈ 17 h. Si no hace: vacío. Lo que se trabaja fuera de horario en este trabajo va abajo, en "Horas extra del trabajo".` }) : null,
+        nonNegative(line.overtime100HoursPerMonth) > 0 ? kit.num(`${p}.overtime100HoursPerMonth`, { label: 'Horas extra al 100 % que le pagás por mes (opcional)', rule: 'hours', unit: 'h/mes', placeholder: '0', hint: `Las horas que le PAGÁS a CADA persona en un mes en sábados a la tarde, domingos o feriados, si las hace siempre en este servicio. Si no hace: vacío. Lo que se trabaja fuera de horario en este trabajo va abajo, en "Horas extra del trabajo".` }) : null,
       ),
       // Cotizaciones anteriores con relevos o nómina total: se ven y se editan igual (mismos números).
       legacyStaff(line)
@@ -631,7 +633,7 @@ export function render(container, ctx) {
             // N1: la cuenta cierra con el total (meses de sueldo si el trabajo dura más que el mes).
             const share = l.shared && !l.shareMissing ? ` (este servicio paga el ${formatPercent(l.fixedCostSharePct)} de su mes)` : '';
             const body = closedLaborCostText(r, l, { overtime: roleOvertimeMonth(r, i), share });
-            return `${staffText(l)}.${body ? ` ${body}.` : ''} Si también hace otros trabajos ese mes, elegí «No, también hacen otros trabajos» en "${stepName('modality')}".`;
+            return `${staffText(l)}.${body ? ` ${body}.` : ''} Si también hace otros trabajos ese mes, elegí «Una parte de su mes» en su línea.`;
           }
           const variable = l.variablePerActiveDay > 0 ? ` + ${formatMoney(l.variablePerActiveDay)} por día de trabajo (${l.perPosition.overtimePerActiveDay > 0 ? 'horas extra y vianda' : 'vianda'})` : '';
           // Desglose del mes (PLAN-2026-010): sueldo + cargas, HE por tramo, viandas, seguros/EPP.
@@ -641,11 +643,11 @@ export function render(container, ctx) {
           // 0.18.0: con las horas por mes cargadas, el % se explica con ellas (88 h por mes = 50 % de su mes).
           const monthHours = nonNegative(quote.labor[i] && quote.labor[i].assignedHoursPerMonth);
           const share = l.shared && !l.shareMissing ? ` × ${formatPercent(l.fixedCostSharePct)} de su mes${monthHours > 0 ? ` (${formatNumber(monthHours, { decimals: 2 })} h por mes en este servicio)` : ''}` : '';
-          // Sin días cargados todavía (los recursos van antes que "Cómo se cobra"): sólo el fijo del mes.
+          // Sin días cargados todavía (los recursos van antes que el ritmo cargado): sólo el fijo del mes.
           const month = D > 0 ? ` En el mes (${formatNumber(D, { decimals: 2 })} días): ${parts}.` : '';
           const extraMonth = l.perPerson.overtimeMonthly > 0 ? ` + ${formatMoney(l.perPerson.overtimeMonthly)} de horas extra` : '';
           const ot = roleOvertimeMonth(r, i);
-          const otText = ot > 0 ? ` + ${overtimeWorkLabel(r)}: ${formatMoney(ot)} en el mes (elegidas en "${stepName('modality')}").` : '';
+          const otText = ot > 0 ? ` + ${overtimeWorkLabel(r)}: ${formatMoney(ot)} en el mes (elegidas abajo, en "Horas extra del trabajo").` : '';
           return `${staffText(l)} × (${formatMoney(l.perPerson.fixedMonthly)}${extraMonth})${share}${variable}.${month}${otText}`.replace(/× \((\$[^()+]*)\)/, '× $1');
         },
         trace: (r) => laborTrace(r, i, quote.labor[i]),
@@ -738,7 +740,10 @@ export function render(container, ctx) {
             kit.num(`${p}.trainingMonthly`, { label: 'Capacitación', rule: 'money', unit: '$/mes', illustrative }),
             // Pasajes de la persona (micro o avión de los relevos): no es el vehículo, que va en Equipos.
             kit.num(`${p}.transferMonthly`, { label: 'Pasajes o traslado de la persona', rule: 'money', unit: '$/mes', illustrative, hint: `Por persona y mes: micro, avión o reintegro. Si viaja en un vehículo de "${stepName('equipment')}", ya está ahí: dejalo en 0.` }),
-            kit.text(`${p}.category`, { label: 'Categoría', maxLength: 120, hint: 'Sólo informativa (no cambia el costo).' }),
+            // 0.24.0 (P-14): sólo informativa; se ve sólo si ya tiene texto (no se borra nada).
+            hasText(line.category)
+              ? kit.text(`${p}.category`, { label: 'Categoría', maxLength: 120, hint: 'Sólo informativa (no cambia el costo).' })
+              : null,
           ),
         ),
         // PLAN-2026-012: dedicada / compartida (% explícito del costo fijo) / contratada para el servicio.
@@ -926,6 +931,9 @@ export function render(container, ctx) {
     (r) => anyStaff || Boolean(laborRow(r) && laborRow(r).amount > 0),
   );
 
+  // 0.24.0 (PLAN-2026-028): "Horas extra del trabajo" (antes en "Cómo se cobra"), al final, antes del total.
+  const overtimeSlot = h('div', { class: 'qe-overtime-slot' });
+  renderCharge(overtimeSlot, { ...ctx, part: 'overtime' });
   mount(
     container,
     card({ title: 'Agregá los puestos' }, toolbar, toolbarNote),
@@ -938,6 +946,8 @@ export function render(container, ctx) {
           : 'Creá tu primer puesto (queda guardado en Recursos) o, si lo contratás afuera, sumalo como personal tercerizado. Si el servicio no lleva personal, seguí al próximo paso.',
         icon: 'resources',
       }),
+    // P4 (revisión de la 0.24.0): las horas extra cambian el costo de Personal: van antes del total.
+    overtimeSlot.dataset.empty === 'true' ? null : overtimeSlot,
     totals,
   );
   return { update() {} };

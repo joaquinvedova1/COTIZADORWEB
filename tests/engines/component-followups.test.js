@@ -50,7 +50,7 @@ describe('Insumos por unidad producida', () => {
     approx(own.variablePerActiveDay, 100000, 'la producción propia de la línea manda');
   });
 
-  test('cobrando por m²: usa los m² por día de "Cómo se cobra" y suma al mes', () => {
+  test('cobrando por m²: usa los m² por día del ritmo de trabajo (El servicio) y suma al mes', () => {
     const q = base({ activity: { billableQuantityPerMonth: 2400, unitsPerActiveDay: 120 }, materials: [paint()] });
     const r = computeQuote(q);
     approx(autoOutputPerActiveDay(r.activity), 120);
