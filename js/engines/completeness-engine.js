@@ -48,7 +48,7 @@ import { outputPerActiveDayOf, outputMatchesBilling, normalizeBasisId } from './
 import { routeTrips } from './transport-engine.js';
 import { overtimeItemsOf, resourceOvertimeHoursOf, hasPayrollHeadcount, laborHeadcountOf, laborPeoplePerPositionOf } from './labor-engine.js';
 import { fixedCostShareOf } from '../domain/assignment.js';
-import { usesTimeBasis, resolveUnitHours } from '../domain/cost-basis.js';
+import { usesTimeBasis, resolveUnitHours, serviceMonthHours, monthBaseHoursOf } from '../domain/cost-basis.js';
 import { conversionFactor, currencyOfBase } from './currency-engine.js';
 import { isPlainObject } from '../core/object.js';
 import { normalizePriceAdjustment, priceAdjustmentOf, contingencyPriceOverlap } from '../domain/price-adjustment.js';
@@ -1837,6 +1837,56 @@ function capacityNoticesFrom(rows) {
     });
   }
   return out;
+}
+
+/**
+ * Cobro por mes (0.25.1, auditoría de lanzamiento ECO-01): las horas por mes de un recurso propio
+ * arrancan en las del servicio (días × horas del paso 1) y quedan guardadas como dato de la línea.
+ * Si después cambian los días u horas del servicio, las del recurso no se mueven solas: un técnico
+ * cargado con 16 h seguía costando el 10 % de su mes con un servicio de 160 h, y el Resultado no
+ * decía nada. Sólo avisa (con los montos del motor); la fórmula no cambia.
+ * @returns {object|null}
+ */
+export function monthHoursDriftNotice(quote = {}, model = null) {
+  if (!model || usesTimeBasis(quote) || billingUnitOf(quote).kind !== 'month') return null;
+  const activity = isPlainObject(quote.activity) ? quote.activity : {};
+  const service = serviceMonthHours(activity);
+  if (!(service > 0)) return null;
+  const rows = [];
+  const add = (list, index, name, line, fullAmount) => {
+    if (!isPlainObject(line) || line.fullMonth || line.assignment !== 'shared') return;
+    const assigned = Number(line.assignedHoursPerMonth);
+    const base = monthBaseHoursOf(quote, line, list, activity);
+    if (!(assigned > 0) || !(base > 0) || !(assigned < base) || Math.abs(assigned - service) <= 0.01) return;
+    const paidAmount = fullAmount * (assigned / base);
+    const serviceAmount = fullAmount * Math.min(1, service / base);
+    rows.push({ list, index, name, assigned, service, month: base, paidAmount, serviceAmount, gap: serviceAmount - paidAmount });
+  };
+  const laborModel = model.labor && Array.isArray(model.labor.lines) ? model.labor.lines : [];
+  objectList(quote.labor).forEach((l, i) => {
+    const m = laborModel[i];
+    if (m) add('labor', i, (typeof l.role === 'string' && l.role.trim()) || 'Personal', l, nonNegative(m.perPerson && m.perPerson.fixedMonthly) * nonNegative(m.headcount));
+  });
+  const eqModel = Array.isArray(model.equipment) ? model.equipment : [];
+  objectList(quote.equipment).forEach((e, i) => {
+    const m = eqModel[i];
+    if (m && m.acquisition === 'owned') add('equipment', i, (typeof e.name === 'string' && e.name.trim()) || 'Equipo', e, nonNegative(m.ownership && m.ownership.totalMonthly) * nonNegative(m.quantity));
+  });
+  if (!rows.length) return null;
+  const hh = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 0.05 ? 0 : 1 });
+  const gap = rows.reduce((acc, r) => acc + r.gap, 0);
+  const detail = rows.map((r) => `"${r.name}" tiene ${hh(r.assigned)} h por mes (paga ${formatMoney(r.paidAmount)}); con ${hh(Math.min(r.service, r.month))} h serían ${formatMoney(r.serviceAmount)}`).join('; ');
+  return {
+    id: 'month_hours_drift',
+    step: rows[0].list,
+    severity: 'warning',
+    label: 'Las horas del recurso no coinciden con las del servicio',
+    message: `El servicio son ${hh(service)} h por mes y ${detail}. Las horas del recurso no cambian solas cuando cambiás los días o las horas del servicio. Si trabaja todo el servicio, corregilas en su tarjeta (botón "Usar ${hh(service)} h"). Si de verdad va menos horas, está bien así.`,
+    focus: `${rows[0].list}.${rows[0].index}.assignedHoursPerMonth`,
+    targets: rows.map((r) => ({ list: r.list, index: r.index, name: r.name })),
+    amount: gap,
+    rows,
+  };
 }
 
 /** El aviso de horas no pagadas, o el de exceso si no hay (compatibilidad 0.23.0). */

@@ -24,7 +24,7 @@ import { findBreakEvenDays, findLossWindows, traceBreakEven } from './break-even
 import { buildRateUtilizationMatrix, matrixDays } from './utilization-engine.js';
 import { classifyDiscount, normalizeRules, tierLabel, continuityApplies, unitHasDayTiers } from './commercial-rules-engine.js';
 import { isValidMarginPct, isValidMarginAndTaxes, suggestedRateRound, effectiveRoundingStep, markupWithTaxesPct, profitOnCostPct, readMarginInput } from './pricing-engine.js';
-import { evaluateCompleteness, activationRoundingNotice, fixedCostsAbsorbedNotice, capacityNotices, capacityRows, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
+import { evaluateCompleteness, activationRoundingNotice, fixedCostsAbsorbedNotice, capacityNotices, capacityRows, monthHoursDriftNotice, COMPLETENESS_RISK_THRESHOLD } from './completeness-engine.js';
 import { activationTerms } from '../domain/activation-terms.js';
 import { routeTrips } from './transport-engine.js';
 import { traceBillingTaxes } from './billing-taxes-engine.js';
@@ -606,6 +606,9 @@ export function computeQuote(quoteInput = {}, { settings = {}, listRateOverride 
   if (absorbed) completeness.notices.push(absorbed);
   // Horas del mes de los recursos propios que esta cotización no paga (0.23.0): sólo avisa.
   completeness.notices.unshift(...capacityNotices(quote, model, D));
+  // Cobro por mes: horas del recurso que quedaron distintas de las del servicio (0.25.1, ECO-01): sólo avisa.
+  const drift = monthHoursDriftNotice(quote, model);
+  if (drift) completeness.notices.unshift(drift);
   // Mínimo en unidades por encima de la estimación con la sugerida (revisión de costos tanda B, B-3).
   const aboveEstimate = guaranteeAboveEstimateNotice({ ctx, D, estimate, commercialSource, targetRates, targetMarginPct, roundingStep, maxDays });
   if (aboveEstimate) completeness.notices.push(aboveEstimate);
