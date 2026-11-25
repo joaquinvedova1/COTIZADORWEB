@@ -917,8 +917,8 @@ async function runMode(mode) {
       return Boolean(blank && company && (blank.compareDocumentPosition(company) & Node.DOCUMENT_POSITION_FOLLOWING));
     });
     check('E2E-31', 'las tarjetas "¿Cómo le cobrás al cliente?" antes que "Datos de tu empresa"', order, 'la tarjeta va primero');
-    check('E2E-31', 'los valores de ejemplo van como texto de muestra, no cargados', placeholders.length === 5 && placeholders.every((x) => x.value === '' && /^Ej\.:/.test(x.placeholder)), JSON.stringify(placeholders));
-    const values = { fuelPricePerLiter: '1850', defaultPaymentTermDays: '45', financeMonthlyRatePct: '4', defaultContingencyPct: '3', defaultTargetMarginPct: '15' };
+    check('E2E-31', 'los valores de ejemplo van como texto de muestra, no cargados', placeholders.length === 7 && placeholders.every((x) => x.value === '' && /^Ej\.:/.test(x.placeholder)), JSON.stringify(placeholders));
+    const values = { fuelPricePerLiter: '1850', defaultPaymentTermDays: '45', financeMonthlyRatePct: '4', defaultContingencyPct: '3', defaultTargetMarginPct: '15', defaultStructurePct: '12', billingTaxesPct: '4,5' };
     for (const [key, value] of Object.entries(values)) await page.locator(`[name="company.${key}"]`).fill(value);
     await page.locator('[name="company.vatCondition"]').selectOption('registered');
     // C7 (revisión de la 0.24.0): con responsable inscripto, la tarjeta pide el IVA y los días.
@@ -929,14 +929,14 @@ async function runMode(mode) {
     await tap(card.getByRole('button', { name: 'Guardar', exact: true }));
     await page.waitForTimeout(2500);
     const saved = ws.state.settings || {};
-    check('E2E-31', '"Guardar" guarda los datos como propios (illustrative: false)', saved.illustrative === false && saved.fuelPricePerLiter === 1850 && saved.defaultPaymentTermDays === 45 && saved.vatCondition === 'registered' && saved.defaultVat && saved.defaultVat.ratePct === 21 && saved.defaultVat.payLagDays === 20, JSON.stringify({ illustrative: saved.illustrative, fuel: saved.fuelPricePerLiter, term: saved.defaultPaymentTermDays, vat: saved.vatCondition, defaultVat: saved.defaultVat }));
+    check('E2E-31', '"Guardar" guarda los datos como propios (illustrative: false)', saved.illustrative === false && saved.fuelPricePerLiter === 1850 && saved.defaultPaymentTermDays === 45 && saved.vatCondition === 'registered' && saved.defaultVat && saved.defaultVat.ratePct === 21 && saved.defaultVat.payLagDays === 20 && saved.defaultStructurePct === 12 && saved.defaultBillingTaxes && saved.defaultBillingTaxes.combinedPct === 4.5, JSON.stringify({ illustrative: saved.illustrative, fuel: saved.fuelPricePerLiter, term: saved.defaultPaymentTermDays, vat: saved.vatCondition, defaultVat: saved.defaultVat }));
     const before = new Set((ws.state.quotes || []).map((q) => q.id));
     await go('#/cotizaciones/nueva', 1200);
     check('E2E-31', 'después de guardar, la tarjeta ya no aparece', !(await page.locator('.company-setup').first().isVisible().catch(() => false)), 'sigue la tarjeta');
     await tap(page.locator('.quote-unit-choice[data-unit="day"]').first());
     await page.waitForTimeout(3000);
     const fresh = (ws.state.quotes || []).find((q) => !before.has(q.id));
-    check('E2E-31', 'la cotización siguiente nace sin "ILUSTRATIVO" (combustible y tasa de la empresa)', Boolean(fresh) && fresh.fuel.illustrative === false && fresh.finance.illustrative === false && fresh.fuel.pricePerLiter === 1850 && fresh.finance.paymentTermDays === 45, fresh ? JSON.stringify({ fuel: fresh.fuel.illustrative, finance: fresh.finance.illustrative, price: fresh.fuel.pricePerLiter }) : 'no se creó');
+    check('E2E-31', 'la cotización siguiente nace sin "ILUSTRATIVO" (combustible y tasa de la empresa)', Boolean(fresh) && fresh.fuel.illustrative === false && fresh.finance.illustrative === false && fresh.fuel.pricePerLiter === 1850 && fresh.finance.paymentTermDays === 45 && fresh.indirect.pct === 12 && fresh.activity.hoursPerActiveDay === null, fresh ? JSON.stringify({ fuel: fresh.fuel.illustrative, finance: fresh.finance.illustrative, price: fresh.fuel.pricePerLiter }) : 'no se creó');
     if (fresh) {
       await go(`#/cotizaciones/${encodeURIComponent(fresh.id)}/result`, 1200);
       const badge = await page.evaluate(() => (document.querySelector('.qr-summary') || document.body).innerText);
