@@ -659,7 +659,7 @@ export function buildCostModel(quoteInput = {}) {
       case 'per_employee':
         // Dotación equivalente: una persona compartida cuenta por su % asignado (PLAN-2026-012).
         // Por tiempo usado: sigue a las horas del trabajo (personas × horas del día ÷ horas facturables).
-        if (timeBasis) return { fixed: 0, variable: amount * labor.timeHeadcountPerActiveDay };
+        if (timeBasis) return { fixed: amount * (labor.fullMonthHeadcount || 0), variable: amount * labor.timeHeadcountPerActiveDay };
         return { fixed: amount * labor.effectiveHeadcount, variable: 0 };
       case 'per_hour':
         return { fixed: 0, variable: amount * activity.hoursPerActiveDay };

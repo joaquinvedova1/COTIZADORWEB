@@ -1658,7 +1658,10 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
   // Al 100 % y que podría compartirse: dedicada / reservado / sin dato, o "compartida" sin un %
   // válido (se carga al 100 %). Se excluye "contratada para este servicio": no trabaja en otras
   // obras, así que el aviso ("si también hacen otros trabajos…") no le aplica (revisión de costos de la tanda A).
+  // Por tiempo usado (0.23.1) sólo absorben su mes los recursos marcados "sólo tiene este trabajo".
+  const byTime = usesTimeBasis(quote);
   const full = (line) => {
+    if (byTime) return line.fullMonth === true;
     const share = fixedCostShareOf(line);
     if (share.assignment === 'hired') return false;
     return !share.shared || share.missing;
@@ -1689,7 +1692,7 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
   // V-01 (FLUJO-NUEVO-B): fuera de precio cerrado, si el servicio ya les ocupa el mes entero
   // (la propuesta de dedicación da 100 % para todas esas líneas: lunes a viernes, 8 h), no hay
   // nada que compartir: no se le dice "trabajás 22 de 30 días" a quien trabaja el mes completo.
-  if (!closed) {
+  if (!closed && !byTime) {
     const proposal = proposeServiceShares(quote, { activeDaysPerMonth: D, hoursPerActiveDay: model.activity.hoursPerActiveDay });
     const fullMonth = targets.every((t) => {
       const p = t.list === 'labor' ? proposal.labor[t.index] : proposal.equipment[t.index];
@@ -1714,8 +1717,10 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
     step: targets[0].list,
     severity: 'info',
     label: 'Costos fijos del mes en el precio',
-    message: `${why}: este precio absorbe ${formatMoney(amount)} de costos fijos ${period} (${parts}) del personal y los equipos asignados al 100 %. Si también hacen otros trabajos, elegí "Una parte de su mes" en la persona (o «Compartido» en el equipo).`,
-    focus: `${targets[0].list}.${targets[0].index}.assignment`,
+    message: byTime
+      ? `${why}: este precio cobra el mes completo (${formatMoney(amount)}: ${parts}) de ${targets.map((t) => `"${t.name}"`).join(', ')}, porque marcaste que sólo tienen este trabajo. Es un costo fijo: si el cliente usa menos de lo estimado, no lo recuperás (conviene pactar un mínimo). Si también hacen otros trabajos, desmarcá "Sólo tiene este trabajo" en su tarjeta.`
+      : `${why}: este precio absorbe ${formatMoney(amount)} de costos fijos ${period} (${parts}) del personal y los equipos asignados al 100 %. Si también hacen otros trabajos, elegí "Una parte de su mes" en la persona (o «Compartido» en el equipo).`,
+    focus: `${targets[0].list}.${targets[0].index}.${byTime ? 'fullMonth' : 'assignment'}`,
     targets,
     amount,
     laborFixed: laborFixed * mf,
@@ -1724,7 +1729,7 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
 }
 
 /**
- * Horas del mes de los recursos propios que esta cotización NO paga (0.23.0, capacidad ociosa).
+ * Horas del mes de los recursos propios que esta cotización NO paga (0.23.0, capacidad ociosa; 0.23.1: ver capacityRows).
  * Por tiempo usado cada recurso cuesta sus horas en el trabajo × su valor hora; el resto de su mes
  * lo tienen que pagar otros trabajos. Con poco trabajo estimado el precio queda muy por debajo del
  * costo real de quien sólo tiene este trabajo, y antes no se avisaba. No cambia ningún cálculo.
@@ -1741,55 +1746,103 @@ export function fixedCostsAbsorbedNotice(quote = {}, model = null, activeDays = 
  * @returns {object|null}
  */
 export const IDLE_NOTICE_BELOW_PCT = 50;
-export function idleCapacityNotice(quote = {}, model = null, activeDays = 0) {
-  if (!model || !usesTimeBasis(quote)) return null;
+/**
+ * Avisos de capacidad de los recursos propios (0.23.1): devuelve, juntos, el de horas del mes que la
+ * cotización no paga (`idle_capacity`) y el de más horas que las del mes (`over_capacity`). Antes
+ * el segundo tapaba al primero.
+ *
+ * Un recurso con "mes completo en esta cotización" (`fullMonth`) ya cobra su mes entero como costo
+ * fijo: nunca entra en `idle_capacity`; sí en `over_capacity` si el trabajo le pide más horas que
+ * las de su mes (hace falta otro).
+ * @returns {object[]}
+ */
+export function capacityNotices(quote = {}, model = null, activeDays = 0) {
+  const rows = capacityRows(quote, model, activeDays);
+  return rows.length ? capacityNoticesFrom(rows) : [];
+}
+
+/**
+ * Cuánto de su mes le paga esta cotización a cada recurso propio (por tiempo usado, con actividad
+ * estimada). Una fila por recurso: horas pagadas (`used`), horas de su mes (`month`), % del mes,
+ * lo que paga (`paidAmount`), lo que cuesta su mes entero (`fullAmount`) y lo que queda sin cobrar.
+ * @returns {{ list: 'labor'|'equipment', index: number, name: string, used: number, month: number, pct: number, fullMonth: boolean, paidAmount: number, fullAmount: number, idleAmount: number }[]}
+ */
+export function capacityRows(quote = {}, model = null, activeDays = 0) {
+  if (!model || !usesTimeBasis(quote)) return [];
   const D = nonNegative(activeDays);
-  if (!(D > 0)) return null;
+  if (!(D > 0)) return [];
   const rows = [];
-  const add = (list, index, name, time, count) => {
-    if (!time || !(count > 0) || !(time.billableHoursPerMonth > 0) || !(time.hourlyCost > 0) || !(time.hoursPerDay > 0)) return;
+  const add = (list, index, name, m, count, monthlyFull, capacityFactor = 1) => {
+    if (!m || !(count > 0)) return;
+    if (m.fullMonth && m.fullMonthHours) {
+      const f = m.fullMonthHours;
+      if (f.hoursPerDay > 0 && f.monthHours > 0) rows.push({ list, index, name, used: f.hoursPerDay * D, month: f.monthHours * capacityFactor, pct: ((f.hoursPerDay * D) / (f.monthHours * capacityFactor)) * 100, fullMonth: true, paidAmount: monthlyFull, fullAmount: monthlyFull, idleAmount: 0 });
+      return;
+    }
+    const time = m.timeBasis ? m.time : null;
+    if (!time || !(time.billableHoursPerMonth > 0) || !(time.hourlyCost > 0) || !(time.hoursPerDay > 0)) return;
     const used = time.hoursPerDay * D;
-    const month = time.billableHoursPerMonth;
-    rows.push({ list, index, name, used, month, pct: (used / month) * 100, idleAmount: Math.max(0, month - used) * time.hourlyCost * count });
+    // Un puesto con relevos (2 personas para 1 puesto) tiene el mes de todas sus personas.
+    const month = time.billableHoursPerMonth * capacityFactor;
+    const paidAmount = used * time.hourlyCost * count;
+    // Lo que cuesta su mes entero: todas las personas del puesto (con relevos) o todas las unidades.
+    const fullAmount = Math.max(monthlyFull, time.billableHoursPerMonth * time.hourlyCost * count);
+    rows.push({ list, index, name, used, month, pct: (used / month) * 100, fullMonth: false, paidAmount, fullAmount, idleAmount: Math.max(0, fullAmount - paidAmount) });
   };
   const laborModel = model.labor && Array.isArray(model.labor.lines) ? model.labor.lines : [];
   objectList(quote.labor).forEach((l, i) => {
     const m = laborModel[i];
-    if (m && m.timeBasis) add('labor', i, (typeof l.role === 'string' && l.role.trim()) || 'Personal', m.time, nonNegative(m.positions));
+    if (m) add('labor', i, (typeof l.role === 'string' && l.role.trim()) || 'Personal', m, nonNegative(m.positions), nonNegative(m.perPerson && m.perPerson.fixedMonthly) * nonNegative(m.headcount), nonNegative(m.positions) > 0 && nonNegative(m.headcount) > nonNegative(m.positions) ? nonNegative(m.headcount) / nonNegative(m.positions) : 1);
   });
   const eqModel = Array.isArray(model.equipment) ? model.equipment : [];
   objectList(quote.equipment).forEach((e, i) => {
     const m = eqModel[i];
-    if (m && m.acquisition === 'owned' && m.timeBasis) add('equipment', i, (typeof e.name === 'string' && e.name.trim()) || 'Equipo', m.time, nonNegative(m.quantity));
+    if (m && m.acquisition === 'owned') add('equipment', i, (typeof e.name === 'string' && e.name.trim()) || 'Equipo', m, nonNegative(m.quantity), nonNegative(m.ownership && m.ownership.totalMonthly) * nonNegative(m.quantity));
   });
+  return rows;
+}
+
+function capacityNoticesFrom(rows) {
   const h = (v) => formatNumber(v, { decimals: Math.abs(v - Math.round(v)) < 0.05 ? 0 : 1 });
   const names = (list) => list.map((r) => `"${r.name}" (${h(r.used)} de ${h(r.month)} h)`).join(', ');
-  const over = rows.filter((r) => r.used > r.month * (1 + 1e-6));
+  const out = [];
+  const idle = rows.filter((r) => !r.fullMonth && r.pct < IDLE_NOTICE_BELOW_PCT && r.idleAmount > 0.005);
+  if (idle.length) {
+    const amount = idle.reduce((acc, r) => acc + r.idleAmount, 0);
+    out.push({
+      id: 'idle_capacity',
+      step: idle[0].list,
+      severity: 'warning',
+      label: 'Horas del mes que esta cotización no paga',
+      message: `Esta cotización paga sólo una parte del mes de ${names(idle)}. Quedan ${formatMoney(amount)} por mes de lo que cuesta tenerlos que acá no se cobran. Está bien si otros trabajos pagan ese tiempo. Si alguno sólo tiene este trabajo, el precio queda corto: en su tarjeta (Personal o Equipos) marcá "Sólo tiene este trabajo" y esta cotización cobra su mes completo.`,
+      focus: `${idle[0].list}.${idle[0].index}.fullMonth`,
+      targets: idle.map((r) => ({ list: r.list, index: r.index, name: r.name })),
+      amount,
+      rows: idle,
+    });
+  }
+  const over = rows.filter((r) => r.used > r.month + 0.05);
   if (over.length) {
-    return {
+    // Horas del mes escritas a mano (o por el botón de la 0.23.0) por debajo de lo que pide el trabajo:
+    // no es que falte otro recurso; el valor hora quedó calculado con menos horas de las que se cobran.
+    out.push({
       id: 'over_capacity',
       step: over[0].list,
       severity: 'warning',
       label: 'Más horas que las del mes del recurso',
-      message: `Con el trabajo estimado, esta cotización usa más horas que las que el recurso trabaja por mes: ${names(over)}. Revisá los días de trabajo, sus horas por día o sumá otro recurso igual.`,
-      focus: `${over[0].list}.${over[0].index}.billableHoursPerMonth`,
+      message: `Con el trabajo estimado, esta cotización le pide más horas que las que trabaja por mes a ${names(over)}. Si las horas por mes están bien, hace falta otro igual o menos días. Si quedaron bajas (por ejemplo, iguales a las de un trabajo más corto), corregilas: así el recurso se cobra más de una vez.`,
+      focus: `${over[0].list}.${over[0].index}.${over[0].fullMonth ? (over[0].list === 'labor' ? 'normalHoursPerMonth' : 'billableHoursPerMonth') : 'billableHoursPerMonth'}`,
       targets: over.map((r) => ({ list: r.list, index: r.index, name: r.name })),
-    };
+      rows: over,
+    });
   }
-  const idle = rows.filter((r) => r.pct < IDLE_NOTICE_BELOW_PCT && r.idleAmount > 0.005);
-  if (!idle.length) return null;
-  const amount = idle.reduce((acc, r) => acc + r.idleAmount, 0);
-  return {
-    id: 'idle_capacity',
-    step: idle[0].list,
-    severity: 'warning',
-    label: 'Horas del mes que esta cotización no paga',
-    message: `Esta cotización paga sólo una parte del mes de ${names(idle)}. Quedan ${formatMoney(amount)} por mes de sus sueldos y de tener los equipos que acá no se cobran. Está bien si otros trabajos pagan ese tiempo. Si sólo tienen este trabajo, el precio queda corto: cobrá su mes completo acá (en Personal y Equipos hay un botón) o poné en cada recurso las horas que de verdad trabaja por mes.`,
-    focus: `${idle[0].list}.${idle[0].index}.billableHoursPerMonth`,
-    targets: idle.map((r) => ({ list: r.list, index: r.index, name: r.name })),
-    amount,
-    rows: idle,
-  };
+  return out;
+}
+
+/** El aviso de horas no pagadas, o el de exceso si no hay (compatibilidad 0.23.0). */
+export function idleCapacityNotice(quote = {}, model = null, activeDays = 0) {
+  const list = capacityNotices(quote, model, activeDays);
+  return list.length ? list[0] : null;
 }
 
 /**

@@ -661,7 +661,7 @@ export function render(container, ctx) {
               rule: 'money',
               unit: '$/km',
               illustrative: vehicleIll[i].marked,
-              hint: 'Neumáticos, mantenimiento y amortización por km. Acá el vehículo se cobra sólo por los km. Si es tuyo y queda en el trabajo, cargalo en Equipos: ahí se cobra tenerlo por las horas asignadas, con su ficha.',
+              hint: 'Neumáticos y mantenimiento por km. Si el vehículo es tuyo y NO lo cargaste en Equipos, sumá acá también su amortización por km: el seguro y la patente no entran en ningún lado. Si ya está en Equipos, acá no pongas amortización: ahí ya se cobra tenerlo y se contaría dos veces.',
             })),
           ),
         )

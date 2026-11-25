@@ -1096,7 +1096,7 @@ export function laborHourStat(line, normalHours) {
   const own = Boolean(p.ownBillableHours);
   return {
     value: p.billableHourlyCost,
-    hint: own ? `Costo por mes ÷ ${formatNumber(p.billableHoursPerMonth, { decimals: 2 })} horas que le cobrás a clientes por mes.` : normal,
+    hint: own ? `Costo por mes ÷ ${formatNumber(p.billableHoursPerMonth, { decimals: 2 })} horas que trabaja para clientes por mes (todos tus trabajos).` : normal,
   };
 }
 

@@ -247,6 +247,17 @@ export const E2E_SCENARIOS = [
     id: 'E2E-30', title: 'Un solo precio: una cifra grande en el Resultado; costo y ganancia en una línea; en el resumen, sólo el precio',
     build: () => service({ id: 'lab-e30', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 10 }, labor: [person()] }),
   },
+  {
+    id: 'E2E-40', title: 'Técnico de $ 3.200.000 con 16 h por mes: "sólo tiene este trabajo" cobra su mes completo, por recurso y se deshace (0.24.1)',
+    build: () => ({
+      ...service({
+        id: 'lab-e40', serviceType: 'crew', unit: 'day', activity: { activeDaysPerMonth: 2, hoursPerActiveDay: 8 },
+        labor: [person({ role: 'Técnico de campo', basicMonthly: 3200000, normalHoursPerMonth: 160, sacPct: 0, vacationPct: 0, employerContributionsPct: 0, artPct: 0 })],
+        equipment: [owned({ name: 'Hidrogrúa de prueba', replacementValue: 96000000, usefulLifeYears: 8 })],
+      }),
+      costBasis: 'time',
+    }),
+  },
 ];
 
 /** Producto financiado (LAB-D3): la financiación se ve en el Resultado del producto con el costo del motor. */
@@ -814,6 +825,37 @@ async function runMode(mode) {
     await page.waitForSelector('[data-kpi="commercialRate"]', { timeout: 8000 }).catch(() => {});
     const keys = await page.evaluate(() => [...document.querySelectorAll('.qe-sum-main [data-kpi]')].map((n) => n.dataset.kpi));
     check('E2E-30', 'el resumen del editor muestra sólo el precio (el resto en "Ver más")', keys.join('|') === 'commercialRate', keys.join(' · '));
+  }
+  {
+    // E2E-40 (0.24.1, auditoría de la 0.23.0): la decisión de mes completo es por recurso, guarda
+    // `fullMonth` (no horas), el sueldo pasa a costo fijo y se deshace destildando.
+    const qid = byId['E2E-40'].q.id;
+    const saved = () => ws.state.quotes.find((x) => x.id === qid);
+    const t0 = await screenText('E2E-40', 'labor');
+    check('E2E-40', 'Personal avisa las horas del mes que la cotización no paga', t0.includes('Horas del mes que esta cotización no paga') && t0.includes('16 de 160 h'), t0.slice(0, 200));
+    check('E2E-40', 'la tarjeta dice cuánto de su mes paga hoy', t0.includes(norm(`paga 16 de sus 160 h del mes: ${formatMoney(320000)} de ${formatMoney(3200000)}`)), 'sin la línea de la tarjeta');
+    const buttons = await page.evaluate(() => [...document.querySelectorAll('.qe-notices button')].map((b) => b.textContent.trim()).filter((x) => /mes completo/.test(x)));
+    check('E2E-40', 'en Personal hay un botón sólo para el técnico (no para la grúa)', buttons.length === 1 && buttons[0].includes('Técnico de campo'), JSON.stringify(buttons));
+    await tap(page.locator('.qe-notices').getByRole('button', { name: /Técnico de campo.*mes completo/ }).first());
+    await page.waitForTimeout(2500);
+    const line = saved().labor[0];
+    check('E2E-40', 'guarda la decisión (fullMonth) y no escribe horas del mes', line.fullMonth === true && !(Number(line.billableHoursPerMonth) > 0), JSON.stringify({ fullMonth: line.fullMonth, billable: line.billableHoursPerMonth }));
+    check('E2E-40', 'la grúa no se toca', saved().equipment[0].fullMonth !== true, 'la grúa quedó marcada');
+    const f = await waitFocus('labor.0.fullMonth');
+    check('E2E-40', 'el foco queda en la casilla del técnico, visible', f.name === 'labor.0.fullMonth' && f.inView, JSON.stringify(f));
+    const full = computeQuote(structuredClone(saved()));
+    check('E2E-40', 'motor: el técnico cuesta su mes completo como fijo', Math.abs(full.model.labor.fixedMonthly - 3200000) < 1, String(full.model.labor.fixedMonthly));
+    const t1 = norm(await page.evaluate(() => document.body.innerText));
+    check('E2E-40', 'la tarjeta dice que cobra su mes completo', t1.includes(norm(`cobra su mes completo: ${formatMoney(3200000)} por mes`)), 'sin el texto');
+    // Deshacer: destildar vuelve a cobrar sólo sus horas.
+    const box = page.locator('input[name="labor.0.fullMonth"]').first();
+    await box.scrollIntoViewIfNeeded().catch(() => {});
+    await box.uncheck();
+    await page.waitForTimeout(2500);
+    check('E2E-40', 'destildar deshace la decisión', saved().labor[0].fullMonth !== true, 'sigue marcado');
+    const back = computeQuote(structuredClone(saved()));
+    check('E2E-40', 'al deshacer el costo vuelve al de antes', Math.abs(back.kpis.totalCost - byId['E2E-40'].r.kpis.totalCost) < 1, `${back.kpis.totalCost} ≠ ${byId['E2E-40'].r.kpis.totalCost}`);
+    await scan('E2E-40', 'personal');
   }
   {
     const pr = computeProduct(structuredClone(prod));
