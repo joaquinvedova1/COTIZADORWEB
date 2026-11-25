@@ -6,7 +6,7 @@
 import { createId } from '../core/ids.js';
 import { deepClone, isPlainObject } from '../core/object.js';
 import { LOCALE, CURRENCY, DEFAULT_MATRIX_DAYS, DEFAULT_MARGIN_LADDER } from '../config.js';
-import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT, ACQUISITION_MODES, EXTERNAL_UNITS, MOBILIZATION_MODES, DRIVER_OPTIONS, VAT_RECOVERY } from './catalogs.js';
+import { RISK_ITEMS, ILLUSTRATIVE_AGREEMENT_PARAMS, DEFAULT_VOLUME_TIERS, DEFAULT_VAT_TREATMENT, ACQUISITION_MODES, EXTERNAL_UNITS, MOBILIZATION_MODES, DRIVER_OPTIONS, VAT_RECOVERY, vatIsCost } from './catalogs.js';
 import { emptyBillingTaxes, copyBillingTaxes, billingTaxesDecided } from './billing-taxes.js';
 import { emptyPriceAdjustment } from './price-adjustment.js';
 import { vatFinanceForNewQuote } from './vat-finance.js';
@@ -124,12 +124,14 @@ export function createExternalTerms(src = {}, { settings = null } = {}) {
 }
 
 /**
- * ¿Con qué "¿Recuperás ese IVA?" nace un externo nuevo? Siempre sin definir (revisión de la 0.24.0,
- * B-1): con el IVA aplicado, "Sí" baja el costo, y ningún número cambia sin una acción explícita.
- * Se deja la firma con `settings` porque la usan las pantallas que crean líneas.
+ * ¿Con qué "¿Recuperás ese IVA?" nace un externo nuevo? Sin definir (revisión de la 0.24.0, B-1):
+ * con el IVA aplicado, "Sí" baja el costo, y eso es una acción de la persona.
+ * 0.25.1 (auditoría de lanzamiento, AUD25-04): si la empresa ya dijo que es monotributista o exenta,
+ * el IVA de lo que compra es costo: la línea NUEVA nace en "No" (sin definir se tomaba como
+ * recuperable y el costo del externo quedaba 21 % abajo). Una línea guardada no cambia.
  */
 export function newExternalVatRecoverable(settings) {
-  return null;
+  return vatIsCost(settings) ? 'no' : null;
 }
 
 /**

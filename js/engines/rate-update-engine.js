@@ -211,15 +211,26 @@ export function proposeLaborRaisePct(laborLines, agreements, fromPeriod, toPerio
     (agreement.raises || []).forEach((x) => {
       if (x && isValidPeriod(x.fromPeriod) && x.fromPeriod <= toPeriod && (!lastRaise || x.fromPeriod > lastRaise)) lastRaise = x.fromPeriod;
     });
+    // 0.25.1 (auditoría de lanzamiento, AUD25-02): la comida y lo variable por día están por PUESTO
+    // (`perPosition`), no por persona: se leían como 0 y la comida no subía con el % no remunerativo.
     const p = r.perPerson;
-    const meal = isFiniteNumber(p.mealPerActiveDay) ? p.mealPerActiveDay : 0;
-    const variable = isFiniteNumber(p.variablePerActiveDay) ? p.variablePerActiveDay : 0;
+    const pos = r.perPosition || {};
+    const meal = isFiniteNumber(pos.mealPerActiveDay) ? pos.mealPerActiveDay : 0;
+    const variable = isFiniteNumber(pos.variablePerActiveDay) ? pos.variablePerActiveDay : 0;
     const overtimeMonthly = isFiniteNumber(p.overtimeMonthly) ? p.overtimeMonthly : 0;
-    const remPart = p.loadedRemunerative + (isFiniteNumber(p.otherCharges) ? p.otherCharges : 0) + overtimeMonthly + (variable - meal) * D;
-    const nonRemPart = p.nonRemunerativePay + p.nonRemunerativeCharges + meal * D;
-    const whole = p.fixedMonthly + overtimeMonthly + variable * D;
-    if (!(whole > 0)) return;
-    const ratio = (remPart * ((fR ?? 1) - 1) + nonRemPart * ((fN ?? 1) - 1)) / whole;
+    // Lo mensual de la persona, partido en lo que sube con cada %.
+    const fixedWhole = p.fixedMonthly + overtimeMonthly;
+    if (!(fixedWhole > 0) && !(variable > 0)) return;
+    const remShare = fixedWhole > 0 ? (p.loadedRemunerative + (isFiniteNumber(p.otherCharges) ? p.otherCharges : 0) + overtimeMonthly) / fixedWhole : 0;
+    const nonRemShare = fixedWhole > 0 ? (p.nonRemunerativePay + p.nonRemunerativeCharges) / fixedWhole : 0;
+    // Lo que el renglón tiene por día de cada puesto (comida y horas extra por día), y el resto: su
+    // sueldo, con el reparto o el tiempo usado que ya trae `amount`.
+    const positions = r.positions > 0 ? r.positions : 0;
+    const perDayTotal = Math.min(amount, variable * positions * D);
+    const mealTotal = variable > 0 ? perDayTotal * (meal / variable) : 0;
+    const salaryTotal = amount - perDayTotal;
+    const lineRaise = (salaryTotal * remShare + (perDayTotal - mealTotal)) * ((fR ?? 1) - 1) + (salaryTotal * nonRemShare + mealTotal) * ((fN ?? 1) - 1);
+    const ratio = lineRaise / amount;
     cost += amount;
     raise += amount * ratio;
   });

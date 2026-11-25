@@ -135,6 +135,17 @@ describe('V-03 · applyUnitChange', () => {
     assert.equal(q.materials[0].outputUnit, undefined);
   });
 
+  test('0.25.1 (AUD25-03): entre día y hora el insumo por unidad producida sigue por la unidad anterior, con aviso', () => {
+    const q = quote({ unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, materials: [material({ basis: 'per_output', unitCost: 100 })] });
+    assert.deepEqual(change(q, 'hour'), ['1 insumo sigue calculándose por día.']);
+    assert.equal(q.materials[0].outputUnit, 'día');
+    assert.equal(q.materials[0].outputPerActiveDay, 1);
+    const h = quote({ unit: 'hour', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, materials: [material({ basis: 'per_output', unitCost: 100 })] });
+    assert.equal(change(h, 'day').length, 1);
+    assert.equal(h.materials[0].outputUnit, 'hora');
+    assert.equal(h.materials[0].outputPerActiveDay, 8);
+  });
+
   test('sin cambio de unidad (o sólo de nombre de la unidad propia) no hace nada', () => {
     const q = valves();
     const info = billingUnitOf(q);

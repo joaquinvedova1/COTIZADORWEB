@@ -19,10 +19,11 @@ import { checkQuoteInvariants } from '../lab/lib/invariants.js';
 const registered = { ...defaultSettings('org'), vatCondition: 'registered', illustrative: false };
 
 describe('externo nuevo con la condición de la empresa', () => {
-  test('nace sin definir con cualquier condición (B-1)', () => {
-    for (const vatCondition of ['registered', null, 'monotributo', 'exempt']) assert.equal(newExternalVatRecoverable({ vatCondition }), null, String(vatCondition));
+  test('nace sin definir (B-1); en monotributo o exento nace en "No" (0.25.1, AUD25-04)', () => {
+    for (const vatCondition of ['registered', null]) assert.equal(newExternalVatRecoverable({ vatCondition }), null, String(vatCondition));
+    for (const vatCondition of ['monotributo', 'exempt']) assert.equal(newExternalVatRecoverable({ vatCondition }), 'no', String(vatCondition));
     assert.equal(createExternalTerms({ unit: 'day' }, { settings: registered }).fiscal.vatRecoverable, null);
-    assert.equal(createExternalTerms({ unit: 'day' }, { settings: { vatCondition: 'monotributo' } }).fiscal.vatRecoverable, null);
+    assert.equal(createExternalTerms({ unit: 'day' }, { settings: { vatCondition: 'monotributo' } }).fiscal.vatRecoverable, 'no');
   });
 
   test('una línea guardada no cambia sola (D6)', () => {

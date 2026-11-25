@@ -42,3 +42,18 @@ describe('ECO-01: horas del recurso distintas de las del servicio, cobrando por 
     assert.equal(drift(monthQuote(20, { prefill: false })), undefined);
   });
 });
+
+describe('AUD25-02: % de mano de obra propuesto por convenio, con comida por día', () => {
+  test('la comida sube con el % no remunerativo (antes se leía como 0)', async () => {
+    const { proposeLaborRaisePct } = await import('../../js/engines/rate-update-engine.js');
+    const agreement = { id: 'a1', name: 'Convenio', raises: [{ fromPeriod: '2026-12', remunerativePct: 10, nonRemunerativePct: 50 }] };
+    const base = { id: 'l1', agreementId: 'a1', role: 'Operario', positions: 1, peoplePerPosition: 1, basicMonthly: 1000000, additionalsMonthly: 0, normalHoursPerMonth: 176, sacPct: 0, vacationPct: 0, employerContributionsPct: 0, artPct: 0 };
+    const ctx = { activeDaysPerMonth: 20 };
+    const sin = proposeLaborRaisePct([{ ...base }], [agreement], '2026-11', '2026-12', ctx);
+    const con = proposeLaborRaisePct([{ ...base, mealPerActiveDay: 50000 }], [agreement], '2026-11', '2026-12', ctx);
+    assert.ok(sin && con);
+    // Sueldo 1.000.000 (+10 %) y comida 20 × 50.000 = 1.000.000 (+50 %): (100.000 + 500.000) ÷ 2.000.000 = 30 %.
+    assert.ok(Math.abs(sin.pct - 10) < 0.01, String(sin.pct));
+    assert.ok(Math.abs(con.pct - 30) < 0.01, String(con.pct));
+  });
+});

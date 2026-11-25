@@ -97,7 +97,13 @@ export function applyUnitChange(q, fromInfo, toInfo) {
   }
 
   // 4. Insumos "por unidad producida" que seguían a la unidad anterior.
-  if (fromInfo.kind === 'quantity') {
+  // 0.25.1 (auditoría de lanzamiento, AUD25-03): también entre día y hora. Un insumo cargado "por día"
+  // pasaba a valer "por hora" (×8) sin aviso; ahora sigue calculándose por la unidad anterior. De día u
+  // hora a una unidad propia (m³, válvula) sigue como siempre: el insumo acompaña a la unidad elegida.
+  const hoursPerDay = activity && positive(activity.hoursPerActiveDay) ? Number(activity.hoursPerActiveDay) : null;
+  const freezePerDay = fromInfo.kind === 'quantity' ? previousPerDay : fromInfo.kind === 'day' ? 1 : fromInfo.kind === 'hour' ? hoursPerDay : null;
+  if (fromInfo.kind === 'quantity' || (isTime(fromInfo) && isTime(toInfo) && freezePerDay !== null)) {
+    const previousPerDay = freezePerDay; // eslint-disable-line no-shadow
     const name = fromInfo.singular || 'unidad';
     let frozen = 0;
     const freeze = (list, key) => {
@@ -114,7 +120,7 @@ export function applyUnitChange(q, fromInfo, toInfo) {
     freeze(q.otherCosts, 'behavior');
     if (frozen > 0) {
       const perDayUnit = previousPerDay === 1 ? name : fromInfo.plural || name;
-      const perDay = previousPerDay !== null ? ` (${fmt(previousPerDay)} ${perDayUnit} por día)` : '';
+      const perDay = previousPerDay !== null && fromInfo.kind !== 'day' ? ` (${fmt(previousPerDay)} ${perDayUnit} por día)` : '';
       notices.push(frozen === 1
         ? `1 insumo sigue calculándose por ${name}${perDay}.`
         : `${frozen} insumos siguen calculándose por ${name}${perDay}.`);
