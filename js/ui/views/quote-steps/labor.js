@@ -27,7 +27,7 @@ import { baseFields, lineOriginBlock, offerPeriodOf, quoteCurrencyOf, resourceSy
 import { onSessionReset } from '../../session-memory.js';
 import { hasText } from '../../optional-fields.js';
 import { baseText } from '../../economic-base-ui.js';
-import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct } from './assignment.js';
+import { assignmentBlock, monthHoursField, prefillMonthHours, unitHoursField, asksUnitHours, hasManualSharePct, fullMonthField } from './assignment.js';
 import { billableHoursOf, serviceMonthHours, monthBaseHoursOf } from '../../../domain/cost-basis.js';
 import { billingUnitOf } from '../../../domain/billing-units.js';
 import { laborHeadcountOf } from '../../../engines/labor-engine.js';
@@ -107,7 +107,7 @@ function laborTrace(result, index, source) {
     title: `Personal — ${line.role || 'Puesto'}`,
     formula: line.timeBasis
       // Por tiempo usado (2026-11-18): no hay fijo del mes; el puesto cuesta sus horas en el trabajo.
-      ? 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa de trabajo y EPP básico + Capacitación + Traslado · Valor de la hora = costo por mes por persona ÷ horas que le cobrás a clientes por mes (vacío = las normales) · Costo = personas × horas por día × días del trabajo × valor de la hora + vianda × días'
+      ? 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa de trabajo y EPP básico + Capacitación + Traslado · Valor de la hora = costo por mes por persona ÷ horas que trabaja para clientes por mes (todos tus trabajos) (vacío = las normales) · Costo = personas × horas por día × días del trabajo × valor de la hora + vianda × días'
       : 'Costo por persona = (Sueldo bruto + Otros pagos fijos) × (1 + Aguinaldo% + Vacaciones%) × (1 + Cargas patronales% + ART%) + Seguros + Ropa de trabajo y EPP básico + Capacitación + Traslado · Fijo total = costo por persona × % asignado (100 % si es dedicada) × cantidad de personas · Variable por día de trabajo = (horas extra × valor hora extra × factor de cargas + vianda) × cantidad de personas',
     inputs: [
       { label: 'Sueldo bruto', value: p.basic, format: 'money' },
@@ -151,7 +151,7 @@ function laborTrace(result, index, source) {
       ? timeLaborTraceResult(result, line, index)
       : { label: 'Fijo mensual total del puesto', value: line.fixedMonthly, format: 'money' },
     notes: [
-      line.timeBasis ? 'Por tiempo usado: el puesto no carga su mes completo ni un % de su mes. Cuesta las horas del trabajo × el valor de su hora (costo del mes ÷ horas que le cobrás a clientes por mes; vacío = las normales). Así las horas sin cliente quedan cubiertas en cada hora.' : null,
+      line.timeBasis ? 'Por tiempo usado: el puesto no carga su mes completo ni un % de su mes. Cuesta las horas del trabajo × el valor de su hora (costo del mes ÷ horas que trabaja para clientes por mes (todos tus trabajos); vacío = las normales). Así las horas sin cliente quedan cubiertas en cada hora.' : null,
       'Hora extra = (sueldo bruto ÷ horas normales) × (1 + recargo) × factor de cargas. Las "Horas al 50 % / 100 % por mes" usan el valor de la hora del recurso (sueldo con adicionales, o el valor que cargaste). Las horas por día de trabajo son costo variable; las horas promedio por mes, fijo del mes.',
       line.overtimeBilling ? 'Las horas extra que facturás aparte siguen siendo costo: además suman ingreso (horas × precio por hora).' : null,
       roleOvertimeMonth(result, index) > 0 ? `Las ${overtimeWorkLabel(result)} se eligen abajo, en "Horas extra del trabajo", y se suman al costo de este puesto, dentro de tu único precio.` : null,
@@ -592,6 +592,8 @@ export function render(container, ctx) {
         // 0.18.0 (Joaco, 2026-11-20): un recurso asignado es ese recurso. Primero sus horas; la
         // cantidad ya viene en 1 y sólo se cambia si van varias personas con ese mismo sueldo.
         legacyStaff(line) ? null : dedicationField(i, line),
+        // 0.23.1: la decisión "sólo tiene este trabajo" va en la tarjeta de cada puesto (una por recurso, se deshace destildando).
+        timeBasis && !legacyStaff(line) ? fullMonthField(kit, { path: p, kind: 'labor', list: 'labor', index: i, quote }) : null,
         // 0.19.0 (Joaco, 2026-11-20): sin "Cantidad". Si van dos choferes, el puesto se asigna dos
         // veces. Una línea que ya tiene otra cantidad la sigue mostrando (mismos números).
         !legacyStaff(line) && singleUnit(line.positions) ? null : kit.num(`${p}.positions`, {

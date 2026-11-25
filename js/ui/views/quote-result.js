@@ -1121,9 +1121,16 @@ function capView(v, cap) {
   };
 }
 
-function capSentence(cap, D, subject, { staff = false } = {}) {
+/** ¿Algún recurso propio paga sólo una parte de su mes (horas por mes cargadas)? (0.25.1, ECO-01) */
+function hasPartialMonthLines(v) {
+  const q = (v && v.q) || {};
+  const partial = (l) => l && l.assignment === 'shared';
+  return (Array.isArray(q.labor) && q.labor.some(partial)) || (Array.isArray(q.equipment) && q.equipment.some(partial));
+}
+
+function capSentence(cap, D, subject, { staff = false, partial = false } = {}) {
   if (!cap) return '';
-  if (cap.status === 'all') return `${subject} no perdés plata aun trabajando los ${formatDays(cap.available)} disponibles del mes${capAllDaysNote(staff)}.`;
+  if (cap.status === 'all') return `${subject} no perdés plata aun trabajando los ${formatDays(cap.available)} disponibles del mes${capAllDaysNote(staff)}.${partial ? ' Vale con las horas por mes que cargaste a cada recurso: si trabajan más horas, revisalas.' : ''}`;
   if (cap.status === 'none') return `${subject} perdés plata aunque no se trabaje: no cubre ni los costos fijos del mes.`;
   const tail = hasValue(D)
     ? D <= cap.days + 1e-9
@@ -1199,6 +1206,14 @@ function criticalAlerts(v) {
       : 'La tarifa mínima y la sugerida no incluyen Ingresos Brutos, impuesto al cheque ni sellos: si cobrás esas tarifas, los pagás de tu bolsillo. Cargalos o elegí no incluirlos en esta cotización.',
       stepLink(v.q, 'margin', 'Ir a "El precio"')));
   }
+  // Estructura en cero (0.25.1, auditoría de lanzamiento ECO-04): es lo que más baja el precio de quien
+  // acepta los valores con que nace la cotización, y sólo figuraba entre los puntos "para revisar".
+  const structureRule = ((r.completeness && r.completeness.items) || []).find((it) => it && it.id === 'structure');
+  if (structureRule && structureRule.status === 'warning') {
+    out.push(alertLine('warning', 'Este precio no incluye gastos de estructura.',
+      'No paga administración, contador, alquiler, seguros de la empresa ni tu sueldo de dueño. Si tu empresa tiene esos gastos, cargá el porcentaje; si no los tiene, dejalo así.',
+      h('a', { class: 'qr-step-link', href: fieldHref(v.q && v.q.id, 'indirect.pct') }, `Ir al campo (${stepLabel(stepOfPath('indirect.pct'))})`)));
+  }
   // "Puede faltar algún costo" ahora es el banner de BORRADOR arriba del resultado (PLAN-2026-010).
   // Lo que ya es una alerta arriba (margen inválido, impuestos) no se repite acá:
   // esos valores NO se reemplazan por 0 (el margen inválido deja sin precio objetivo).
@@ -1271,7 +1286,7 @@ function heroKnownRate(v) {
   } else if (isMonth) {
     sentence = h('p', { class: 'qr-lead' },
       `Cotizás una tarifa del mes de ${rate(k.commercialListRate, v.unitLabel)}: la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. `,
-      capSentence(cap, D, 'Con esta tarifa del mes', { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active) }));
+      capSentence(cap, D, 'Con esta tarifa del mes', { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active), partial: hasPartialMonthLines(v) }));
   } else if (be.reachable && breakEvenZeroText(r)) {
     // Equilibrio en 0 (PLAN-2026-012): sin costos fijos, o los cubren los ingresos fijos.
     sentence = h('p', { class: 'qr-lead' }, breakEvenZeroText(r, { rateText: atRateText(v) }));
@@ -1422,7 +1437,7 @@ function heroKnownActivity(v) {
       `Con ${estimateActivity(v)} por mes, cobrá al menos ${floorPhrase(v)} para no perder plata. `,
       hasValue(k.targetMarginPct) && k.targetMarginPct > 0 ? `Para ganar el ${pct(k.targetMarginPct)} sobre el precio, cobrá ${targetPhrase(v)}. ` : '',
       hasValue(suggested) ? `Tarifa sugerida${roundingStep ? ` (redondeada a múltiplos de ${money(roundingStep)})` : ''}: ${minRate(suggested, v.unitLabel)}.` : '',
-      isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject, { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active) })}` : '');
+      isMonth && hasRate(k) ? ` ${capSentence(monthlyCap(v, k.commercialListRate, 0), D, subject, { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active), partial: hasPartialMonthLines(v) })}` : '');
   }
 
   const fxLine = floorExtrasLine(v);
@@ -1963,7 +1978,7 @@ function workBlock(v) {
       content = noRateContent(v);
     } else {
       const cap = monthlyCap(v, k.commercialListRate, 0);
-      content = ['Con una tarifa por mes la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. ', capSentence(cap, D, 'Con esta tarifa del mes', { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active) })];
+      content = ['Con una tarifa por mes la facturación no depende de los días trabajados, pero cada día de trabajo suma costo variable. ', capSentence(cap, D, 'Con esta tarifa del mes', { staff: hasStaff(v) && !(v.r.model.overtimeWork && v.r.model.overtimeWork.active), partial: hasPartialMonthLines(v) })];
       if (cap) {
         if (cap.status === 'none') tone = 'red';
         else if (cap.status === 'all') tone = 'green';
@@ -2073,6 +2088,36 @@ function draftBanner(v) {
 }
 
 /**
+ * Horas del mes que la cotización no paga (0.23.1, auditoría de la 0.23.0, Q-04): el aviso quedaba
+ * dentro de "¿Te falta cargar algo?" y un precio corto por $ 2.880.000 al mes no se veía arriba.
+ * Una línea sobre los números, con el monto del motor, que abre el detalle.
+ */
+function capacityBanner(v) {
+  const notices = (v.r.completeness && v.r.completeness.notices) || [];
+  const idle = notices.find((n) => n && n.id === 'idle_capacity');
+  const over = notices.find((n) => n && n.id === 'over_capacity');
+  const drift = notices.find((n) => n && n.id === 'month_hours_drift');
+  if (!idle && !over && !drift) return null;
+  if (drift) {
+    // 0.25.1 (ECO-01): cobrando por mes, las horas del recurso quedaron distintas de las del servicio.
+    const who = (drift.targets || []).map((t) => `"${t.name}"`).join(', ');
+    const short = drift.amount > 0.005;
+    const node = alertLine('warning',
+      `${who}: sus horas por mes no son las del servicio${short ? `. Con las del servicio costaría ${money(drift.amount)} más por mes` : ''}.`,
+      'Cambiaste los días o las horas del servicio después de cargarlo. Revisá sus horas en su tarjeta.',
+      button('Ver por qué', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }));
+    node.classList.add('qr-capacity');
+    return node;
+  }
+  const names = (n) => (n.targets || []).map((t) => `"${t.name}"`).join(', ');
+  const title = idle ? `Este precio no cobra ${money(idle.amount)} por mes de lo que cuesta tener a ${names(idle)}.` : `Esta cotización le pide más horas que las de su mes a ${names(over)}.`;
+  const text = idle ? 'Está bien si otros trabajos pagan el resto de su mes. Si sólo tiene este trabajo, el precio queda corto.' : 'Revisá los días, sus horas o las horas que trabaja por mes.';
+  const node = alertLine('warning', title, text, button('Ver por qué', { variant: 'link', size: 'sm', onClick: () => v.openDeep('completeness'), attrs: { 'aria-controls': v.ids.deep_completeness } }));
+  node.classList.add('qr-capacity');
+  return node;
+}
+
+/**
  * Tus tarifas (PLAN-2026-025, V-12): la tarifa del horario normal y todo lo demás que se le
  * cobra al cliente (horas fuera de horario, guardia, mínimos, adicionales). Las filas las arma
  * `tariffRows` (../result-text.js) con los valores del motor. Sólo aparece si hay algo más que
@@ -2122,6 +2167,7 @@ function renderSummary(v) {
         sub ? h('p', { class: 'qr-summary-sub' }, sub) : null),
       h('div', { class: 'qr-summary-badges' }, illustrativeBadge(v))),
     draft,
+    capacityBanner(v),
     // 0.24.0 (PLAN-2026-028, W-01): una sola cifra grande, el precio que se cobra; debajo, cuánto
     // cuesta y cuánto queda, y la mínima en un renglón de detalle. Las cinco tarjetas de antes
     // (precio, costo, ganancia, margen y mínima) quedan en "Todos los indicadores".

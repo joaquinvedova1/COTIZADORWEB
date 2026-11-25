@@ -702,8 +702,15 @@ export function ensureToastRegion() {
   let region = document.getElementById('toast-region');
   if (!region) {
     region = h('div', { id: 'toast-region', class: 'toast-region', role: 'status', 'aria-live': 'polite' });
-    document.body.appendChild(region);
   }
+  // 0.25.1 (auditoría de lanzamiento, QA-01): un <dialog> modal está en la capa superior del navegador
+  // y tapa todo lo que cuelga de body. Con un diálogo abierto, los avisos van adentro del diálogo.
+  let home = document.body;
+  try {
+    const modals = document.querySelectorAll('dialog[open]');
+    for (const d of modals) if (typeof d.matches === 'function' && d.matches(':modal')) home = d;
+  } catch { /* sin :modal: quedan en body */ }
+  if (region.parentNode !== home) home.appendChild(region);
   return region;
 }
 

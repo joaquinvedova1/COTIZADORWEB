@@ -78,7 +78,7 @@ describe('Personal por tiempo usado', () => {
     close(lineMonthAtEstimate(r, l), l.time.hourlyCost * 8 * 20 * 2);
     const stat = laborHourStat(l, 176);
     close(stat.value, l.perPerson.billableHourlyCost);
-    assert.equal(norm(stat.hint), 'Costo por mes ÷ 140 horas que le cobrás a clientes por mes.');
+    assert.equal(norm(stat.hint), 'Costo por mes ÷ 140 horas que trabaja para clientes por mes (todos tus trabajos).');
   });
 
   test('sin horas que vende cargadas, la hora es la normal y el texto lo dice', () => {

@@ -69,7 +69,7 @@ describe('V-03 · applyUnitChange', () => {
 
   test('pasar por el abono también borra el mínimo por llamado', () => {
     const q = quote({ unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, rules: { minimumCallUnits: 2 } });
-    assert.equal(change(q, 'month').length, 1);
+    assert.equal(change(q, 'month').filter((n) => /mínimo/.test(n)).length, 1);
     assert.equal(q.rules.minimumCallUnits, 0);
   });
 
@@ -133,6 +133,34 @@ describe('V-03 · applyUnitChange', () => {
     const q = quote({ unit: 'day', activity: { activeDaysPerMonth: 10 }, materials: [material({ basis: 'per_output', unitCost: 100 })] });
     assert.deepEqual(change(q, 'm3'), []);
     assert.equal(q.materials[0].outputUnit, undefined);
+  });
+
+  test('0.25.1 (AUD25-03): entre día y hora el insumo por unidad producida sigue por la unidad anterior, con aviso', () => {
+    const q = quote({ unit: 'day', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, materials: [material({ basis: 'per_output', unitCost: 100 })] });
+    assert.deepEqual(change(q, 'hour'), ['1 insumo sigue calculándose por día.']);
+    assert.equal(q.materials[0].outputUnit, 'día');
+    assert.equal(q.materials[0].outputPerActiveDay, 1);
+    const h = quote({ unit: 'hour', activity: { activeDaysPerMonth: 10, hoursPerActiveDay: 8 }, materials: [material({ basis: 'per_output', unitCost: 100 })] });
+    assert.equal(change(h, 'day').length, 1);
+    assert.equal(h.materials[0].outputUnit, 'hora');
+    assert.equal(h.materials[0].outputPerActiveDay, 8);
+  });
+
+  test('0.25.1 (H-01): al pasar a "por mes", el recurso propio sin horas toma las del servicio', () => {
+    const q = quote({ unit: 'hour', activity: { activeDaysPerMonth: 2, hoursPerActiveDay: 8 } });
+    q.labor = [{ id: 'l1', role: 'Técnico', positions: 1, basicMonthly: 3200000, normalHoursPerMonth: 160 }];
+    q.equipment = [{ id: 'e1', name: 'Grúa alquilada', acquisition: 'rented' }];
+    const notices = change(q, 'month');
+    assert.equal(q.labor[0].assignedHoursPerMonth, 16);
+    assert.equal(q.labor[0].assignment, 'shared');
+    assert.equal(q.labor[0].fixedCostSharePct, 10);
+    assert.equal(q.equipment[0].assignedHoursPerMonth, undefined);
+    assert.ok(notices.some((n) => /16 h por mes/.test(n)));
+    // Con el servicio igual o más largo que su mes no se toca.
+    const full = quote({ unit: 'day', activity: { activeDaysPerMonth: 22, hoursPerActiveDay: 8 } });
+    full.labor = [{ id: 'l1', role: 'Técnico', positions: 1, basicMonthly: 3200000, normalHoursPerMonth: 160 }];
+    change(full, 'month');
+    assert.equal(full.labor[0].assignedHoursPerMonth, undefined);
   });
 
   test('sin cambio de unidad (o sólo de nombre de la unidad propia) no hace nada', () => {

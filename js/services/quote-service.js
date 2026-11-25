@@ -113,6 +113,9 @@ export function createQuoteService({ repository, clock = () => new Date().toISOS
       const options = { organizationId: org.id, settings: s, now: clock(), id: idFactory(), code: await reserveCode(), baseName: org.baseLocation };
       // 0.25.0 (PR 4): en blanco, con la unidad de cobro elegida antes de crear (null = por día).
       const quote = withTimeCostBasis(template ? createQuoteFromTemplate(template, options) : createBlankQuote(options, { unit, unitPending }));
+      // 0.25.1 (decisión del dueño, D1): una cotización en blanco nace sin horas por día. Con 10 precargadas,
+      // una visita de 4 h quedaba 15,7 % barata por hora. Sin el dato no hay precio y el paso 1 lo pide.
+      if (!template && quote.activity) quote.activity.hoursPerActiveDay = null;
       const saved = await repository.saveQuote(quote);
       track('quote_created', { serviceType: eventServiceType(saved.serviceType), source: template ? 'template' : 'blank' });
       return saved;

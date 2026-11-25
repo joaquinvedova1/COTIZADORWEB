@@ -1415,6 +1415,11 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
         : N > 0
           ? (N >= be ? `Vendés ${num(N, 0)} por mes: estás por encima.` : `Vendés ${num(N, 0)} por mes: todavía no llegás.`)
           : 'Para cubrir los gastos fijos del mes.';
+    // 0.25.1 (auditoría de lanzamiento, H-02): el equilibrio cuenta al personal como costo por unidad.
+    // Con sueldo fijo hacen falta más unidades; se dice acá hasta que el motor lo calcule.
+    const laborRow = r.breakdown.find((x) => x && x.key === 'labor');
+    const hasLabor = Boolean(laborRow) && Object.values(laborRow).some((x) => typeof x === 'number' && x > 0);
+    const beHintFull = be !== null && r.fixedMonthly > 0 && hasLabor ? `${beHint} Cuenta al personal sólo por el tiempo de cada ${u}: si cobra sueldo fijo aunque produzcas menos, necesitás vender más.` : beHint;
     const traceCell = (key) => (r.traces[key] ? liveTrace(key) : null);
     const breakdownRows = r.breakdown.map((b) => ({ ...b, trace: { materials: 'materials', labor: 'labor', equipmentUse: 'equipmentUse', equipmentFixed: 'fixed', otherFixed: 'fixed', financial: 'finance' }[b.key] }));
     const current = r.current;
@@ -1435,7 +1440,7 @@ function createEditor(root, app, { product, resources, settings = {}, stepId, re
           size: 'lg',
         }),
         bigStat({ label: `Ganás por cada ${u}`, value: unitMoney(pr.gainPerUnit), hint: 'Después de los impuestos sobre la venta y de todos los costos.', tone: pr.gainPerUnit > 0 ? 'green' : pr.gainPerUnit < 0 ? 'red' : null }),
-        bigStat({ label: 'Para no perder plata', value: breakEvenText(be, pr.suggestedPrice), unit: be !== null && !breakEvenIsZero(be) ? `${units()} por mes` : null, hint: beHint, trace: r.traces.breakEven, tone: be !== null && N > 0 && N < be ? 'orange' : null }),
+        bigStat({ label: 'Para no perder plata', value: breakEvenText(be, pr.suggestedPrice), unit: be !== null && !breakEvenIsZero(be) ? `${units()} por mes` : null, hint: beHintFull, trace: r.traces.breakEven, tone: be !== null && N > 0 && N < be ? 'orange' : null }),
       ),
       pr.priceWithVat !== null
         ? h('p', { class: 'pe-vat' }, `Precio al público con IVA (${pctText(pr.vatPct)}): `, h('strong', { class: 'mono' }, unitMoney(pr.priceWithVat)), ' ', traceCell('vat'))

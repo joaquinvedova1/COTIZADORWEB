@@ -135,7 +135,12 @@ export function overtimeItemsOf(line = {}) {
  * Calcula el costo de una línea de personal.
  * @param {object} line
  */
-export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeBasis = false, hoursPerActiveDay = 0, activeDaysPerMonth = 0 } = {}) {
+export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeBasis: quoteTimeBasis = false, hoursPerActiveDay = 0, activeDaysPerMonth = 0 } = {}) {
+  // Mes completo en esta cotización (0.23.1, CALCULATION_RULES §36.5): el puesto sólo tiene este
+  // trabajo. Aunque la cotización sea por tiempo usado, ESTE puesto se costea con el método de
+  // siempre y dedicado: su mes entero como costo fijo, haga las horas que haga.
+  const fullMonth = quoteTimeBasis === true && line.fullMonth === true;
+  const timeBasis = quoteTimeBasis === true && !fullMonth;
   const positions = nonNegative(line.positions);
   const payrollMode = hasPayrollHeadcount(line);
   const peoplePerPosition = laborPeoplePerPositionOf(line);
@@ -227,7 +232,7 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeB
   const loadedHourlyCost = safeDivide(fixedMonthlyPerPerson, normalHours, null);
   // % del costo fijo asignado a esta cotización (100 % si no se comparte).
   // Por tiempo usado (2026-11-18): no hay % asignado; el puesto cuesta sus horas en el trabajo.
-  const allocation = timeBasis ? { assignment: null, shared: false, sharePct: 100, share: 1, missing: false } : fixedCostShareOf(line);
+  const allocation = timeBasis || fullMonth ? { assignment: fullMonth ? 'dedicated' : null, shared: false, sharePct: 100, share: 1, missing: false } : fixedCostShareOf(line);
   const assignedFixedPerPerson = timeBasis ? 0 : allocation.shared ? fixedMonthlyPerPerson * allocation.share : fixedMonthlyPerPerson;
   // Horas por día de cada persona en el trabajo: las suyas (o su turno viejo) si son menos que
   // las del servicio; si no, las del servicio (misma regla que las horas extra del trabajo).
@@ -262,6 +267,9 @@ export function computeLaborLine(line = {}, { coverageDaysPerMonth = null, timeB
     effectiveHeadcount: timeBasis ? timeHeadcountPerActiveDay * nonNegative(activeDaysPerMonth) : allocation.shared ? headcount * allocation.share : headcount,
     // Por tiempo usado (2026-11-18): valor de la hora, horas por día y costo por día de trabajo.
     timeBasis: timeBasis === true,
+    // Mes completo acá (0.23.1): horas que el trabajo le pide por día y las normales de su mes (para avisar si no alcanza una persona).
+    fullMonth,
+    fullMonthHours: fullMonth ? { hoursPerDay: timeHoursPerDay, monthHours: normalHours } : null,
     time: timeBasis
       ? { billableHoursPerMonth: billableHours, ownBillableHours: billableHours !== normalHours, hourlyCost: timeHourlyCost, hoursPerDay: timeHoursPerDay, perActiveDay: timePerActiveDay, headcountPerActiveDay: timeHeadcountPerActiveDay }
       : null,
@@ -347,6 +355,8 @@ export function computeLabor(lines = [], ctx = {}) {
     timeBasis: ctx.timeBasis === true,
     timePerActiveDay: results.reduce((s, r) => s + (r.time ? r.time.perActiveDay : 0), 0),
     timeHeadcountPerActiveDay: results.reduce((s, r) => s + (r.time ? r.time.headcountPerActiveDay : 0), 0),
+    // Personas con su mes completo en esta cotización (0.23.1): cuentan enteras para la estructura por empleado.
+    fullMonthHeadcount: results.reduce((s, r) => s + (r.fullMonth ? r.headcount : 0), 0),
     hoursPerMonth: results.reduce((s, r) => s + r.hoursPerMonth, 0),
   };
 }

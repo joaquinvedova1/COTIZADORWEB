@@ -241,12 +241,15 @@ export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPai
   const operation = computeOperation(line, { fuelPricePerLiter, fuelPaidByUs });
   // Equipo compartido (PLAN-2026-012): esta cotización carga el % EXPLÍCITO de
   // su costo de tenerlo; reservado (o sin dato) = 100 %. La operación sigue el uso.
-  const allocation = timeBasis ? { assignment: null, shared: false, sharePct: 100, share: 1, missing: false } : fixedCostShareOf(line);
+  // Mes completo en esta cotización (0.23.1, CALCULATION_RULES §36.5): el equipo sólo tiene este
+  // trabajo. Tenerlo es el mes entero como costo fijo (método de siempre, dedicado); el uso sigue por hora.
+  const fullMonth = timeBasis && line.fullMonth === true;
+  const allocation = timeBasis ? { assignment: fullMonth ? 'dedicated' : null, shared: false, sharePct: 100, share: 1, missing: false } : fixedCostShareOf(line);
   const share = allocation.shared ? allocation.share : 1;
   const fullFixedMonthly = ownership.totalMonthly * quantity;
   // Por tiempo usado (2026-11-18): tenerlo cuesta las horas que está en el trabajo × (posesión del
   // mes ÷ horas facturables). Sin horas propias (0.18.0) es el día de trabajo entero, aunque el motor ande menos.
-  if (timeBasis) {
+  if (timeBasis && !fullMonth) {
     const billableHours = billableHoursOf(line, defaultBillableHours);
     const dayHours = Math.min(nonNegative(defaultHoursPerActiveDay) > 0 ? nonNegative(defaultHoursPerActiveDay) : hoursPerActiveDay, MAX_EQUIPMENT_HOURS_PER_DAY);
     // Con horas propias en el trabajo: esas (o las de uso, si son más), hasta el día de trabajo.
@@ -290,6 +293,11 @@ export function computeEquipmentLine(line = {}, { fuelPricePerLiter = 0, fuelPai
     shared: allocation.shared,
     fixedCostSharePct: allocation.sharePct,
     shareMissing: allocation.missing,
+    fullMonth,
+    // Horas que el trabajo lo ocupa por día y las de su mes (para avisar si un solo equipo no alcanza).
+    fullMonthHours: fullMonth
+      ? { hoursPerDay: assignedHours > 0 ? Math.min(Math.max(assignedHours, hoursPerActiveDay), MAX_EQUIPMENT_HOURS_PER_DAY) : Math.min(nonNegative(defaultHoursPerActiveDay) > 0 ? nonNegative(defaultHoursPerActiveDay) : hoursPerActiveDay, MAX_EQUIPMENT_HOURS_PER_DAY), monthHours: billableHoursOf(line, defaultBillableHours) }
+      : null,
     fullFixedMonthly,
     unassignedFixedMonthly: allocation.shared ? fullFixedMonthly - fullFixedMonthly * share : 0,
     fixedMonthly: allocation.shared ? fullFixedMonthly * share : fullFixedMonthly,

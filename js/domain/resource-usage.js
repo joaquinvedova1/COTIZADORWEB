@@ -71,13 +71,16 @@ export function timeShareOf(quote, line, kind) {
  * @param {'laborProfiles'|'equipment'|'externalServices'} type
  * @param {string} resourceId
  * @param {object[]} quotes  cotizaciones (sin calcular)
+ * @param {{ timeShare?: (quote: object, line: object, kind: 'labor'|'equipment', index: number) => ({ hoursPerMonth: number, monthHours: number, sharePct: number }|null) }} [options]
+ *   `timeShare`: quién calcula las horas por tiempo usado. La pantalla pasa las del motor (0.23.1),
+ *   para que "Usado en" cuente las mismas horas que el aviso de la cotización; sin él, `timeShareOf`.
  * @returns {{ rows: object[], quotesCount: number, committedPct: number, potentialPct: number, overCommitted: boolean, overWithPotential: boolean }}
  */
-export function resourceUsage(type, resourceId, quotes = []) {
+export function resourceUsage(type, resourceId, quotes = [], { timeShare = null } = {}) {
   const listKey = LIST_OF_TYPE[type];
   const rows = [];
   if (!listKey || typeof resourceId !== 'string' || !resourceId) {
-    return { rows, quotesCount: 0, committedPct: 0, potentialPct: 0, overCommitted: false, overWithPotential: false };
+    return { rows, quotesCount: 0, committedPct: 0, potentialPct: 0, overCommitted: false, overWithPotential: false, fullMonthCount: 0, fullMonthCommitted: 0 };
   }
   (Array.isArray(quotes) ? quotes : []).forEach((q) => {
     if (!isPlainObject(q)) return;
@@ -93,8 +96,12 @@ export function resourceUsage(type, resourceId, quotes = []) {
         : num(line.quantity);
       // Por tiempo usado (2026-11-18): la cotización paga las horas del trabajo, sin % de costos fijos.
       const byTime = !external && usesTimeBasis(q);
-      const time = byTime ? timeShareOf(q, line, listKey) : null;
-      const share = external || byTime ? (time ? { assignment: null, sharePct: time.sharePct, shared: false } : null) : fixedCostShareOf(line);
+      // Mes completo en esta cotización (0.23.1): carga el 100 % del recurso, haga las horas que haga.
+      const fullMonth = byTime && line.fullMonth === true;
+      const time = byTime && !fullMonth ? (typeof timeShare === 'function' ? timeShare(q, line, listKey, index) : timeShareOf(q, line, listKey)) : null;
+      const share = fullMonth
+        ? { assignment: 'dedicated', sharePct: 100, shared: false }
+        : external || byTime ? (time ? { assignment: null, sharePct: time.sharePct, shared: false } : null) : fixedCostShareOf(line);
       rows.push({
         quoteId: typeof q.id === 'string' ? q.id : null,
         code: typeof q.code === 'string' ? q.code : '',
@@ -111,6 +118,7 @@ export function resourceUsage(type, resourceId, quotes = []) {
         // Personas o unidades × % de su costo fijo (en puntos: 100 = uno entero).
         assignedPct: share ? share.sharePct * units : null,
         // Por tiempo usado: horas por mes que ocupa de las del mes del recurso (por persona o unidad).
+        fullMonth,
         byHours: !!time,
         hoursPerMonth: time ? time.hoursPerMonth : null,
         monthHours: time ? time.monthHours : null,
@@ -127,6 +135,9 @@ export function resourceUsage(type, resourceId, quotes = []) {
     potentialPct,
     overCommitted: committedPct > 100 + 1e-9,
     overWithPotential: committedPct + potentialPct > 100 + 1e-9,
+    // Cotizaciones que cobran el mes completo del recurso (0.23.1): más de una = el mismo mes cobrado más de una vez.
+    fullMonthCount: rows.filter((r) => r.fullMonth).length,
+    fullMonthCommitted: rows.filter((r) => r.fullMonth && r.group === 'committed').length,
   };
 }
 

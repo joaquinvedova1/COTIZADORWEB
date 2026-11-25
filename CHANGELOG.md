@@ -12,6 +12,36 @@ Reglas para este archivo:
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-11-25
+
+**Auditoría de la 0.23.0: el mes completo de un recurso se guarda como decisión, no como horas.** Informe en project files `auditoria-0-23-0/INFORME.md` (ingeniería económica, auditor independiente con oráculo propio, prestador y QA en navegador). Sin cambio de esquema. Ninguna cotización guardada cambia sus números: la fórmula nueva sólo se usa donde alguien marca la casilla. Reglas: docs/CALCULATION_RULES.md §36.5.
+
+### Corregido
+
+- **"Sólo tiene este trabajo: cobrar su mes completo acá"** ahora es una casilla en la tarjeta de cada puesto y de cada equipo propio (y un botón por recurso en el aviso). Guarda la decisión (`fullMonth`) y el recurso se costea como dedicado: su mes entero como costo fijo. Antes el botón escribía las horas de la cotización como "horas que trabaja por mes": si después cambiaban los días, la cotización cobraba dos sueldos (de 2 a 4 días) o medio (de 2 a 1, sin aviso), y el equilibrio y el margen por día dejaban de ser ciertos. Se deshace destildando.
+- El botón era uno solo para todos los recursos del aviso (técnico y grúa juntos): ahora se elige recurso por recurso.
+- El aviso "Más horas que las del mes del recurso" ya no tapa al de "Horas del mes que esta cotización no paga", y su texto no manda a "sumar otro recurso igual" cuando el problema son horas del mes mal cargadas.
+- Puestos con relevos (más personas que puestos): el mes del puesto es el de todas sus personas (sin exceso falso) y lo que queda sin cobrar cuenta todas las nóminas.
+- **Recursos › Usado en** cuenta las mismas horas que cobra la cotización (antes podía decir 17 % donde el costo cobraba 45 %), muestra "cobra su mes completo" y avisa si más de una cotización cobra el mes completo del mismo recurso. Los avisos de más del 100 % aclaran que RATEOS no sabe en qué mes se hace cada trabajo ni qué propuestas son alternativas.
+- "Actualizar en esta cotización" desde Recursos conserva la decisión de mes completo.
+- Resultado: el aviso de horas del mes sin cobrar se ve arriba, junto al precio, con el monto (antes quedaba dentro de "¿Te falta cargar algo?").
+- "Horas que le cobrás a clientes por mes" pasa a llamarse "Horas que trabaja para clientes por mes, entre todos tus trabajos": se leía como las horas de un cliente y, con 16 cargado, una cotización de 64 h costaba cuatro sueldos.
+- Traslados: la ayuda del desgaste por km ya no pide cargar la amortización si el vehículo también está en Equipos (se contaba dos veces).
+### Auditoría de lanzamiento del MVP (2026-11-25)
+
+Informe en project files `lanzamiento-mvp/INFORME.md`. Sólo avisos, textos y valores con que nacen líneas nuevas: ninguna cotización guardada cambia sus números.
+
+- **Cobrando por mes, horas del recurso distintas de las del servicio** (ECO-01): aviso arriba del Resultado con lo que paga y lo que costaría (`month_hours_drift`). Un técnico cargado con 16 h seguía costando el 10 % de su mes con un servicio de 160 h y el Resultado decía "no perdés plata aun trabajando los 30 días".
+- **Cambiar la unidad a "por mes"** (H-01): los recursos propios sin horas toman las del servicio (días × horas), con aviso. Antes pasaban a cobrar su mes entero.
+- **Sin gastos de estructura** (ECO-04): aviso arriba del Resultado, con enlace al campo.
+- **% de mano de obra propuesto por convenio** (AUD25-02): la comida y las horas extra por día ahora suben con su %; el reparto usa el costo real del renglón.
+- **Entre día y hora** (AUD25-03): el insumo "por unidad producida" sigue calculándose por la unidad anterior, con aviso (antes ×8 o ÷8 en silencio).
+- **Externo nuevo en monotributo o exento** (AUD25-04): "¿Recuperás ese IVA?" nace en "No".
+- **Productos** (H-02): "Para no perder plata" aclara que cuenta al personal por unidad.
+- **Decisiones del dueño (2026-11-25):** la cotización en blanco nace **sin horas por día** (antes 10; sin el dato no hay precio y el paso 1 lo pide). La tarjeta **"Datos de tu empresa"** pide además **gastos de estructura (%)** e **impuestos sobre lo que facturás (%)**, sin valor precargado; la estructura también está en Configuración (`defaultStructurePct`) y las cotizaciones nuevas arrancan con ella. En Recursos, las **horas por mes que trabaja para clientes** son obligatorias al guardar un puesto, como en Equipos. Nada guardado cambia.
+- **Avisos tapados por el diálogo** (QA-01): "Completá: …" se ve sobre el formulario y el foco va al campo que falta.
+- **"Eliminar" cortado en "Más opciones"** (QA-03).
+
 ## [0.25.0] - 2026-11-24
 
 **Menos preguntas, segunda parte.** Auditoría para cerrar la beta, tanda 4 (project files `auditoria-beta/PLAN-TANDA-4.md`, PLAN-2026-029): PR 4, 6, 7, 8 y 9 del plan, y la decisión D3. **Esquema 11, sin cambio ni migración.** Sin cambio de fórmulas: ninguna cotización ni producto guardado cambia sus números (foto nueva `tests/fixtures/tanda4-sin-cambio-0-25.json`, sacada con el motor de la 0.24.0 antes de tocar el código: cotizaciones, productos y fichas de equipos). Reglas: docs/CALCULATION_RULES.md §39.
