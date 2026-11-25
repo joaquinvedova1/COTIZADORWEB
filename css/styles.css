@@ -433,7 +433,7 @@ html { scroll-padding-top: 7rem; }
 .dialog[open] { display: flex; flex-direction: column; max-height: calc(100vh - 2rem); max-height: calc(100dvh - 2rem); overflow: hidden; }
 .dialog-header, .dialog-actions { flex-shrink: 0; }
 .dialog-body { padding: 1rem 1.25rem; max-height: 70vh; overflow: auto; flex: 0 1 auto; min-height: 0; }
-.dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.85rem 1.25rem; border-top: 1px solid var(--line); background: #F8FBFD; border-radius: 0 0 12px 12px; }
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; padding: 0.85rem 1.25rem; border-top: 1px solid var(--line); background: #F8FBFD; border-radius: 0 0 12px 12px; }
 
 .trace { display: flex; flex-direction: column; gap: 0.5rem; }
 .trace-formula { background: var(--navy-50); border-radius: 8px; padding: 0.7rem 0.85rem; display: flex; flex-direction: column; gap: 0.25rem; }

@@ -521,6 +521,9 @@ function openResourceForm(app, { title, initial, sections, preview = null, valid
     const missing = allFields.filter((f) => f.required && isBlankValue(f.kind === 'text' ? sanitizeText(getPath(draft, f.key)) : getPath(draft, f.key)));
     if (missing.length) {
       app.toast(`Completá: ${missing.map((f) => f.label).join(', ')}.`, 'warning');
+      // QA-01: el foco va al primer campo que falta (puede estar fuera de la vista).
+      const first = Array.from(body.querySelectorAll('input, select, textarea')).find((el) => el.name === missing[0].key || el.getAttribute('data-path') === missing[0].key);
+      if (first) { first.scrollIntoView({ block: 'center' }); first.focus(); }
       return;
     }
     const problem = validate ? validate(draft) : null;
