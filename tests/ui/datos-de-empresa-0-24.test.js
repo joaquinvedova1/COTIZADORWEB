@@ -28,7 +28,7 @@ describe('"Datos de tu empresa" (W-10)', () => {
   });
 
   test('pide combustible, plazo de cobro, tasa, imprevistos, margen y la condición frente al IVA', () => {
-    assert.deepEqual(COMPANY_SETUP_FIELDS.map((f) => f.key), ['fuelPricePerLiter', 'defaultPaymentTermDays', 'financeMonthlyRatePct', 'defaultContingencyPct', 'defaultTargetMarginPct']);
+    assert.deepEqual(COMPANY_SETUP_FIELDS.map((f) => f.key), ['fuelPricePerLiter', 'defaultPaymentTermDays', 'financeMonthlyRatePct', 'defaultContingencyPct', 'defaultTargetMarginPct', 'defaultStructurePct', 'billingTaxesPct']);
     const src = code('js/ui/company-defaults.js');
     assert.match(src, /label: COMPANY_LABELS\.vatCondition/);
     // Los valores de ejemplo van como texto de muestra, no cargados.
@@ -38,14 +38,21 @@ describe('"Datos de tu empresa" (W-10)', () => {
   });
 
   test('"Guardar" guarda los cinco números con illustrative: false; con uno vacío no guarda', () => {
-    const values = { fuelPricePerLiter: 1850, defaultPaymentTermDays: 45, financeMonthlyRatePct: 4, defaultContingencyPct: 3, defaultTargetMarginPct: 15, vatCondition: 'monotributo' };
-    assert.deepEqual(companySetupPatch(values), { ...values, illustrative: false });
+    const numbers = { fuelPricePerLiter: 1850, defaultPaymentTermDays: 45, financeMonthlyRatePct: 4, defaultContingencyPct: 3, defaultTargetMarginPct: 15, defaultStructurePct: 12 };
+    const values = { ...numbers, billingTaxesPct: 4.5, vatCondition: 'monotributo' };
+    // 0.25.1: también la estructura y los impuestos sobre lo que se factura (siete números).
+    assert.deepEqual(companySetupPatch(values), { ...numbers, defaultBillingTaxes: { mode: 'combined', notApplicable: false, combinedPct: 4.5, items: [] }, vatCondition: 'monotributo', illustrative: false });
+    assert.equal(companySetupPatch({ ...values, billingTaxesPct: 0 }).defaultBillingTaxes.notApplicable, true);
+    assert.equal(companySetupPatch({ ...values, defaultStructurePct: null }), null);
+    const nq = createEmptyQuote({ organizationId: 'org', settings: { ...defaultSettings('org'), ...companySetupPatch(values) }, id: 'q-est', now: '2026-11-25T00:00:00.000Z' });
+    assert.equal(nq.indirect.pct, 12);
+    assert.equal(nq.billingTaxes.combinedPct, 4.5);
     assert.equal(companySetupPatch({ ...values, defaultContingencyPct: null }), null);
     assert.equal(companySetupPatch({ ...values, vatCondition: 'otra' }).vatCondition, null);
   });
 
   test('C7: con responsable inscripto también guarda el IVA y los días en defaultVat; sin ellos no guarda', () => {
-    const base = { fuelPricePerLiter: 1850, defaultPaymentTermDays: 45, financeMonthlyRatePct: 4, defaultContingencyPct: 3, defaultTargetMarginPct: 15, vatCondition: 'registered' };
+    const base = { fuelPricePerLiter: 1850, defaultPaymentTermDays: 45, financeMonthlyRatePct: 4, defaultContingencyPct: 3, defaultTargetMarginPct: 15, defaultStructurePct: 12, billingTaxesPct: 4.5, vatCondition: 'registered' };
     assert.equal(companySetupPatch(base), null);
     const patch = companySetupPatch({ ...base, vatRatePct: 21, vatPayLagDays: 20 });
     assert.deepEqual(patch.defaultVat, { ratePct: 21, payLagDays: 20 });
@@ -80,7 +87,7 @@ describe('"Datos de tu empresa" (W-10)', () => {
   });
 
   test('la cotización siguiente nace con esos valores y sin marca de ejemplo', () => {
-    const values = { fuelPricePerLiter: 1850, defaultPaymentTermDays: 45, financeMonthlyRatePct: 4, defaultContingencyPct: 3, defaultTargetMarginPct: 15 };
+    const values = { fuelPricePerLiter: 1850, defaultPaymentTermDays: 45, financeMonthlyRatePct: 4, defaultContingencyPct: 3, defaultTargetMarginPct: 15, defaultStructurePct: 0, billingTaxesPct: 0 };
     const settings = { ...defaultSettings('org'), ...companySetupPatch(values) };
     const q = createEmptyQuote({ organizationId: 'org', settings, id: 'q1', now: '2026-11-20T00:00:00.000Z' });
     assert.equal(q.fuel.illustrative, false);

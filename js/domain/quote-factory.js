@@ -36,6 +36,8 @@ export function defaultSettings(organizationId = null) {
     // trae alícuotas). Cuando la empresa los guarda, cada cotización nueva
     // arranca con ellos.
     defaultBillingTaxes: null,
+    // Gastos de estructura de la empresa, % del costo directo (0.25.1): sin definir hasta que la empresa lo cargue.
+    defaultStructurePct: null,
     // Costo financiero del IVA (K-03): IVA que factura la empresa y días entre facturar y pagar
     // el IVA. Sin precargar (ni 21 % ni día 20): los carga la empresa.
     defaultVat: { ratePct: null, payLagDays: null },
@@ -286,7 +288,7 @@ export function createEmptyQuote({ organizationId, settings = defaultSettings(),
       tollsPerActivation: 0,
       lodgingPerActivation: 0,
     },
-    indirect: { method: 'percent_direct', pct: 0, amount: 0 },
+    indirect: { method: 'percent_direct', pct: ownSettings && Number.isFinite(settings.defaultStructurePct) && settings.defaultStructurePct > 0 ? settings.defaultStructurePct : 0, amount: 0 },
     finance: {
       // Plazo por defecto sólo si la configuración es propia (no la demo); si
       // no, queda sin definir y el Cost Completeness Score lo marca en rojo.

@@ -63,6 +63,9 @@ import { resourceUsage } from '../../domain/resource-usage.js';
 import { activationTerms, activationFieldLabels } from '../../domain/activation-terms.js';
 import { agreementParamsOf, applyAgreementRaise, ownParamKeys, profilesToPropagate, undoLastAgreementRaise, withAgreementParams } from '../../domain/agreement-raises.js';
 
+/** Ayuda de las horas para clientes en el alta de un puesto (0.25.1). */
+const LABOR_LIBRARY_HOURS_HINT = 'Las horas que de verdad trabaja para clientes en un mes: a las normales restales feriados, vacaciones, esperas y taller. Ejemplo: de 176 h normales, 140. Con esto sale su hora para cotizar. Si trabaja todas sus horas normales para clientes, poné las normales.';
+
 // ----------------------------------------------------------------- catálogo
 
 const TABS = Object.freeze([
@@ -683,7 +686,8 @@ function laborSections(agreements, app, { profileCost = null } = {}) {
       fields: [
         { key: 'normalHoursPerMonth', label: 'Horas normales por mes', rule: 'hours', unit: 'h', hint: 'Las horas que trabaja en un mes normal (por ejemplo 176 = 8 h × 22 días). Con esto sale el valor de la hora.' },
         // Horas que de verdad le cobra a clientes por mes (2026-11-18, M7): con ellas sale la hora para cotizar trabajos (tiempo usado).
-        { key: 'billableHoursPerMonth', label: BILLABLE_HOURS_LABEL, rule: 'hours', unit: 'h', nullable: true, placeholder: 'Igual a las normales', hint: BILLABLE_HOURS_HINT },
+        // 0.25.1 (decisión del dueño): obligatorio, como en Equipos. Vacío valía las normales y la hora quedaba barata.
+        { key: 'billableHoursPerMonth', label: BILLABLE_HOURS_LABEL, rule: 'hours', unit: 'h', required: true, placeholder: 'Ej.: 140', hint: LABOR_LIBRARY_HOURS_HINT },
       ],
       live: profileCost ? (draft) => {
         const p = profileCost(draft).perPerson;

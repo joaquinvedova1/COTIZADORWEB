@@ -622,6 +622,7 @@ export async function render(root, app, params = {}) {
       financeMonthlyRatePct: settings.financeMonthlyRatePct,
       defaultTargetMarginPct: settings.defaultTargetMarginPct,
       defaultContingencyPct: settings.defaultContingencyPct,
+      defaultStructurePct: settings.defaultStructurePct,
       defaultPaymentTermDays: settings.defaultPaymentTermDays,
       roundingStep: settings.roundingStep,
       matrixDays: Array.isArray(settings.matrixDays) && settings.matrixDays.length ? [...settings.matrixDays] : [...DEFAULT_MATRIX_DAYS],
@@ -669,6 +670,7 @@ export async function render(root, app, params = {}) {
           num('defaultPaymentTermDays', COMPANY_LABELS.paymentTermDays, 'paymentDays', 'días', '¿A cuántos días te paga el cliente normalmente?'),
           num('financeMonthlyRatePct', COMPANY_LABELS.monthlyRatePct, 'percent', '%', 'Lo que te cuesta la plata que adelantás hasta cobrar (capital de trabajo).'),
           num('defaultContingencyPct', COMPANY_LABELS.contingencyPct, 'percent', '%', 'Colchón sobre el costo para lo que no se puede prever.'),
+          numberField({ label: COMPANY_LABELS.structurePct, value: isFiniteNumber(params.defaultStructurePct) ? params.defaultStructurePct : null, rule: 'percent', unit: '%', placeholder: 'Ej.: 12', hint: 'Administración, contador, alquiler, seguros de la empresa y tu sueldo de dueño. Las cotizaciones nuevas arrancan con este %. Vacío o 0 = sin estructura.', onChange: (v) => { params.defaultStructurePct = isFiniteNumber(v) ? v : null; } }),
         ),
       ),
       h(

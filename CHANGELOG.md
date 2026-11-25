@@ -38,6 +38,7 @@ Informe en project files `lanzamiento-mvp/INFORME.md`. Sólo avisos, textos y va
 - **Entre día y hora** (AUD25-03): el insumo "por unidad producida" sigue calculándose por la unidad anterior, con aviso (antes ×8 o ÷8 en silencio).
 - **Externo nuevo en monotributo o exento** (AUD25-04): "¿Recuperás ese IVA?" nace en "No".
 - **Productos** (H-02): "Para no perder plata" aclara que cuenta al personal por unidad.
+- **Decisiones del dueño (2026-11-25):** la cotización en blanco nace **sin horas por día** (antes 10; sin el dato no hay precio y el paso 1 lo pide). La tarjeta **"Datos de tu empresa"** pide además **gastos de estructura (%)** e **impuestos sobre lo que facturás (%)**, sin valor precargado; la estructura también está en Configuración (`defaultStructurePct`) y las cotizaciones nuevas arrancan con ella. En Recursos, las **horas por mes que trabaja para clientes** son obligatorias al guardar un puesto, como en Equipos. Nada guardado cambia.
 - **Avisos tapados por el diálogo** (QA-01): "Completá: …" se ve sobre el formulario y el foco va al campo que falta.
 - **"Eliminar" cortado en "Más opciones"** (QA-03).
 

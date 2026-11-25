@@ -31,6 +31,8 @@ export const COMPANY_LABELS = Object.freeze({
   targetMarginPct: 'Margen que querés ganar (sobre el precio)',
   roundingStep: 'Redondeo',
   vatCondition: 'Tu condición frente al IVA',
+  structurePct: 'Gastos de estructura (% del costo directo)',
+  billingTaxesPct: 'Impuestos sobre lo que facturás',
 });
 
 /**
@@ -60,10 +62,13 @@ export const COMPANY_SETUP_FIELDS = Object.freeze([
   { key: 'financeMonthlyRatePct', label: COMPANY_LABELS.monthlyRatePct, rule: 'percent', unit: '%', hint: 'Lo que te cuesta la plata que adelantás hasta cobrar.' },
   { key: 'defaultContingencyPct', label: COMPANY_LABELS.contingencyPct, rule: 'percent', unit: '%', hint: 'Colchón sobre el costo para lo que no se puede prever.' },
   { key: 'defaultTargetMarginPct', label: COMPANY_LABELS.targetMarginPct, rule: 'margin', unit: '%', hint: 'Sobre el precio de venta (no es markup).' },
+  // 0.25.1 (decisión del dueño): lo que más mueve el precio de quien acepta todo. Sin valor precargado.
+  { key: 'defaultStructurePct', label: COMPANY_LABELS.structurePct, rule: 'percent', unit: '%', example: 'Ej.: 12', hint: 'Administración, contador, alquiler, seguros de la empresa y tu sueldo de dueño, como % de lo que cuesta cada trabajo. Entre 10 y 20 es habitual. Poné 0 si no tenés esos gastos.' },
+  { key: 'billingTaxesPct', label: COMPANY_LABELS.billingTaxesPct, rule: 'percent', unit: '%', example: 'Ej.: 4,5', hint: 'Ingresos Brutos, impuesto al cheque y sellos, sumados. Te lo dice tu contador. Poné 0 si no pagás ninguno.' },
 ]);
 
 /**
- * Lo que guarda "Guardar" de la tarjeta (función pura): los cinco números y la condición frente
+ * Lo que guarda "Guardar" de la tarjeta (función pura): los siete números y la condición frente
  * al IVA, con illustrative: false. Null si falta o no vale un número. Con responsable inscripto
  * (C7 de la revisión de la 0.24.0) también el IVA que facturás y los días hasta pagarlo, que van a
  * `defaultVat`: con los dos, la cotización nueva ya no pregunta el IVA.
@@ -76,6 +81,11 @@ export function companySetupPatch(values = {}) {
     if (!isFiniteNumber(v) || v < 0) return null;
     patch[f.key] = v;
   }
+  // Los impuestos se guardan con la forma de siempre (un % total); 0 = no pagás ninguno.
+  const taxes = patch.billingTaxesPct;
+  delete patch.billingTaxesPct;
+  if (taxes >= 100 || patch.defaultStructurePct > 1000) return null;
+  patch.defaultBillingTaxes = taxes > 0 ? { mode: 'combined', notApplicable: false, combinedPct: taxes, items: [] } : { mode: 'combined', notApplicable: true, combinedPct: null, items: [] };
   const condition = VAT_CONDITIONS.some((c) => c.id === values.vatCondition) ? values.vatCondition : null;
   if (condition === 'registered') {
     if (!isValidVatRatePct(values.vatRatePct) || !isValidPayLagDays(values.vatPayLagDays)) return null;
@@ -117,7 +127,7 @@ export function companySetupCard({ app, settings, readOnly = false, onSaved = nu
     unit: f.unit,
     hint: f.hint,
     required: true,
-    placeholder: isFiniteNumber(example[f.key]) ? `Ej.: ${formatNumber(example[f.key])}` : '',
+    placeholder: isFiniteNumber(example[f.key]) ? `Ej.: ${formatNumber(example[f.key])}` : f.example || '',
     onChange: (v) => { values[f.key] = v; error.hidden = true; },
   });
   const fields = COMPANY_SETUP_FIELDS.map(numField);
@@ -150,8 +160,8 @@ export function companySetupCard({ app, settings, readOnly = false, onSaved = nu
       const patch = companySetupPatch(values);
       if (!patch) {
         error.textContent = values.vatCondition === 'registered'
-          ? 'Completá los cinco números, el IVA que facturás y los días hasta pagarlo (o tocá "Ahora no").'
-          : 'Completá los cinco números para guardar (o tocá "Ahora no").';
+          ? 'Completá los siete números, el IVA que facturás y los días hasta pagarlo (o tocá "Ahora no").'
+          : 'Completá los siete números para guardar (o tocá "Ahora no").';
         error.hidden = false;
         return;
       }
