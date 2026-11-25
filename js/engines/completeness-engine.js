@@ -1854,10 +1854,12 @@ export function monthHoursDriftNotice(quote = {}, model = null) {
   if (!(service > 0)) return null;
   const rows = [];
   const add = (list, index, name, line, fullAmount) => {
-    if (!isPlainObject(line) || line.fullMonth || line.assignment !== 'shared') return;
-    const assigned = Number(line.assignedHoursPerMonth);
+    if (!isPlainObject(line) || line.fullMonth) return;
     const base = monthBaseHoursOf(quote, line, list, activity);
-    if (!(assigned > 0) || !(base > 0) || !(assigned < base) || Math.abs(assigned - service) <= 0.01) return;
+    if (!(base > 0)) return;
+    if (line.assignment !== 'shared') return;
+    const assigned = Number(line.assignedHoursPerMonth);
+    if (!(assigned > 0) || !(assigned < base) || Math.abs(assigned - service) <= 0.01) return;
     const paidAmount = fullAmount * (assigned / base);
     const serviceAmount = fullAmount * Math.min(1, service / base);
     rows.push({ list, index, name, assigned, service, month: base, paidAmount, serviceAmount, gap: serviceAmount - paidAmount });

@@ -15,6 +15,8 @@
  */
 
 import { isPlainObject } from '../core/object.js';
+import { roundRate } from '../core/money.js';
+import { serviceMonthHours, monthBaseHoursOf } from './cost-basis.js';
 import { activationTerms } from './activation-terms.js';
 import { contractOf } from './contract.js';
 
@@ -76,6 +78,30 @@ export function applyUnitChange(q, fromInfo, toInfo) {
     });
   });
   if (clearedHours > 0) notices.push(`Cargá de nuevo las horas de cada recurso en "Los recursos": las que había estaban por ${fromInfo.singular || 'la unidad anterior'}.`);
+
+  // 1c. A "por mes" (0.25.1, auditoría de lanzamiento H-01): un recurso propio sin horas por mes cuenta
+  // su mes entero. Viniendo de otra unidad, sus horas arrancan en las del servicio (días × horas),
+  // igual que al agregarlo en una cotización por mes (W-07): un técnico de 16 h no pasa a cobrar 160.
+  if (toInfo.kind === 'month' && activity) {
+    const service = serviceMonthHours(activity);
+    let prefilled = 0;
+    const blank = (v) => v === null || v === undefined || v === '' || !(Number(v) > 0);
+    const prefill = (list, kind) => {
+      (Array.isArray(list) ? list : []).forEach((line) => {
+        if (!isPlainObject(line) || line.fullMonth || line.assignment === 'shared' || !blank(line.assignedHoursPerMonth)) return;
+        if (kind === 'equipment' && (line.acquisition === 'rented' || line.acquisition === 'outsourced')) return;
+        const base = monthBaseHoursOf(q, line, kind, activity);
+        if (!(service > 0) || !(base > service)) return;
+        line.assignedHoursPerMonth = roundRate(service);
+        line.assignment = 'shared';
+        line.fixedCostSharePct = roundRate((service / base) * 100);
+        prefilled += 1;
+      });
+    };
+    prefill(q.labor, 'labor');
+    prefill(q.equipment, 'equipment');
+    if (prefilled > 0) notices.push(`Cobrando por mes, cada recurso paga sus horas en este servicio: quedaron en ${fmt(service)} h por mes (días × horas del servicio). Si alguno trabaja sólo para este cliente, borrá sus horas en "Los recursos" y cuenta su mes entero.`);
+  }
 
   // 2. Mínimo por llamado: sólo se convierte entre día y hora, con las horas por día.
   if (rules && positive(rules.minimumCallUnits)) {
